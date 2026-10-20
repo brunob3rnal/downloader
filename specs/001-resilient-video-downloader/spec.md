@@ -12,6 +12,7 @@
 
 ### Session 2026-10-20
 
+- Q: ¿Cómo se activa el uso de cookies del navegador? → A: Con una opción explícita que nombra el navegador (por ejemplo `--cookies-de firefox`) en `agregar` o `ejecutar`; sin ella, nunca se leen cookies.
 - Q: ¿Cuál es la espera máxima entre reintentos de un error temporal? → A: 5 minutos.
 - Q: ¿Cómo comprobar que un video terminó completo antes de publicarlo? → A: El tamaño final coincide con el anunciado por el servidor (cuando lo informa) y el archivo es legible hasta el final tras unir audio y video. Si falla la comprobación, no se publica con su nombre final.
 - Q: ¿Qué hacer si en la carpeta de destino ya existe un archivo con el mismo nombre? → A: Conservar ambos; el archivo nuevo se publica con un sufijo numérico (`video (1).mp4`) y se avisa al usuario. Nunca se sobrescribe.
@@ -153,7 +154,7 @@ El usuario puede configurar la carpeta de destino. Opcionalmente, puede indicar 
 - **FR-014**: El sistema MUST NOT sobrescribir ni borrar progreso parcial sin una acción explícita del usuario.
 - **FR-022**: Al publicar un archivo terminado cuyo nombre ya existe en la carpeta de destino, el sistema MUST conservar el existente, publicar el nuevo con un sufijo numérico y avisar al usuario; MUST NOT sobrescribir archivos existentes.
 - **FR-015**: El sistema MUST rechazar con un mensaje claro el contenido con DRM y las transmisiones en vivo, sin intentar eludir ninguna protección técnica.
-- **FR-016**: El sistema MUST ofrecer, de forma opcional y solo por activación explícita, el uso de cookies del navegador del usuario para videos que requieren su propia sesión.
+- **FR-016**: El sistema MUST ofrecer, de forma opcional y solo mediante una opción explícita que nombre el navegador (por ejemplo `--cookies-de firefox`), el uso de cookies del navegador del usuario para videos que requieren su propia sesión.
 - **FR-017**: El sistema MUST NOT guardar credenciales ni cookies en el repositorio ni en los archivos de estado de la cola, y MUST NOT incluirlas en mensajes de error ni registros.
 - **FR-018**: El fallo de una descarga MUST NOT detener ni afectar a las demás descargas de la cola.
 - **FR-019**: El sistema MUST ofrecerse en su primera versión como herramienta de línea de comandos, sin servicio en segundo plano: un comando `agregar` guarda URLs en la cola y un comando `ejecutar` procesa la cola en primer plano.
