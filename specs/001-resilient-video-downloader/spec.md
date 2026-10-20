@@ -12,6 +12,7 @@
 
 ### Session 2026-10-20
 
+- Q: ¿Cuál es la espera máxima entre reintentos de un error temporal? → A: 5 minutos.
 - Q: ¿Cómo comprobar que un video terminó completo antes de publicarlo? → A: El tamaño final coincide con el anunciado por el servidor (cuando lo informa) y el archivo es legible hasta el final tras unir audio y video. Si falla la comprobación, no se publica con su nombre final.
 - Q: ¿Qué hacer si en la carpeta de destino ya existe un archivo con el mismo nombre? → A: Conservar ambos; el archivo nuevo se publica con un sufijo numérico (`video (1).mp4`) y se avisa al usuario. Nunca se sobrescribe.
 - Q: ¿Cómo se ejecuta el programa: primer plano que termina al vaciar la cola, o servicio en segundo plano? → A: Primer plano. `agregar` guarda URLs en la cola; `ejecutar` procesa la cola y solo termina cuando no queda ninguna descarga pendiente. Las descargas en "esperando red" cuentan como pendientes, por lo que el programa sigue corriendo y reintentando hasta que vuelva la conexión. Termina únicamente con la cola completada o con fallos permanentes. Tras un reinicio del equipo, el usuario relanza `ejecutar`.
@@ -49,7 +50,7 @@ Si se pierde la conexión durante una descarga, esta pasa a "esperando red" y se
 1. **Given** una descarga al 40 %, **When** se pierde la conexión, **Then** el estado pasa a "esperando red" y se conserva el 40 % descargado.
 2. **Given** una descarga en "esperando red", **When** la conexión vuelve, **Then** se reanuda automáticamente sin intervención del usuario y sin volver a descargar lo ya obtenido.
 3. **Given** cortes repetidos durante la misma descarga, **When** la conexión vuelve cada vez, **Then** la descarga termina con un archivo completo e íntegro.
-4. **Given** un error temporal (red, timeout), **When** ocurre, **Then** se reintenta indefinidamente con esperas cada vez mayores hasta un máximo razonable entre intentos.
+4. **Given** un error temporal (red, timeout), **When** ocurre, **Then** se reintenta indefinidamente con esperas cada vez mayores hasta un máximo de 5 minutos entre intentos.
 
 ---
 
@@ -144,7 +145,7 @@ El usuario puede configurar la carpeta de destino. Opcionalmente, puede indicar 
 - **FR-007**: El sistema MUST pasar una descarga al estado "esperando red" cuando se pierde la conexión, y reanudarla automáticamente al recuperarse.
 - **FR-008**: El sistema MUST reanudar desde el último punto válido y no desde cero siempre que el servidor lo permita.
 - **FR-009**: El sistema MUST persistir la cola y el progreso de forma que sobrevivan a cierres, fallos del programa y reinicios del equipo, y MUST continuar las descargas pendientes al abrirse de nuevo.
-- **FR-010**: El sistema MUST reintentar indefinidamente los errores temporales (red, timeouts) con una espera creciente entre intentos, con un máximo razonable de espera.
+- **FR-010**: El sistema MUST reintentar indefinidamente los errores temporales (red, timeouts) con una espera creciente entre intentos que MUST NOT superar los 5 minutos.
 - **FR-011**: El sistema MUST clasificar como permanentes los errores de video borrado, privado o sitio no soportado, MUST NOT reintentarlos y MUST mostrar un mensaje claro de la causa.
 - **FR-012**: El sistema MUST detectar la caducidad de la URL temporal del video, obtener una nueva y continuar desde el punto alcanzado.
 - **FR-013**: El sistema MUST NOT presentar un archivo incompleto como terminado; los parciales MUST estar claramente diferenciados hasta verificar su integridad.
