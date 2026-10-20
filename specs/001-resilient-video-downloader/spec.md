@@ -12,6 +12,7 @@
 
 ### Session 2026-10-20
 
+- Q: ¿Qué hacer si en la carpeta de destino ya existe un archivo con el mismo nombre? → A: Conservar ambos; el archivo nuevo se publica con un sufijo numérico (`video (1).mp4`) y se avisa al usuario. Nunca se sobrescribe.
 - Q: ¿Cómo se ejecuta el programa: primer plano que termina al vaciar la cola, o servicio en segundo plano? → A: Primer plano. `agregar` guarda URLs en la cola; `ejecutar` procesa la cola y solo termina cuando no queda ninguna descarga pendiente. Las descargas en "esperando red" cuentan como pendientes, por lo que el programa sigue corriendo y reintentando hasta que vuelva la conexión. Termina únicamente con la cola completada o con fallos permanentes. Tras un reinicio del equipo, el usuario relanza `ejecutar`.
 
 ## User Scenarios & Testing *(mandatory)*
@@ -121,7 +122,7 @@ El usuario puede configurar la carpeta de destino. Opcionalmente, puede indicar 
 - Disco lleno durante una descarga: se informa claramente, se conserva el parcial y la descarga queda pausada sin perder progreso.
 - Carpeta de destino inexistente o sin permisos: se informa antes de iniciar y no se pierde la cola.
 - La misma URL se agrega dos veces con la misma calidad: no se descarga dos veces en paralelo; se avisa al usuario.
-- Un archivo con el mismo nombre ya existe en la carpeta de destino: nunca se sobrescribe sin que el usuario lo decida.
+- Un archivo con el mismo nombre ya existe en la carpeta de destino: se conservan ambos, el nuevo se publica con un sufijo numérico y se avisa al usuario; nunca se sobrescribe.
 - El servidor no permite reanudar parcialmente: se informa y se reinicia solo esa descarga, sin afectar a las demás.
 - El archivo de estado de la cola está corrupto: se informa, se conserva una copia y no se descartan descargas parciales existentes.
 - Lista de reproducción con videos no disponibles: se descargan los disponibles y se reportan los que fallaron.
@@ -147,6 +148,7 @@ El usuario puede configurar la carpeta de destino. Opcionalmente, puede indicar 
 - **FR-012**: El sistema MUST detectar la caducidad de la URL temporal del video, obtener una nueva y continuar desde el punto alcanzado.
 - **FR-013**: El sistema MUST NOT presentar un archivo incompleto como terminado; los parciales MUST estar claramente diferenciados hasta verificar su integridad.
 - **FR-014**: El sistema MUST NOT sobrescribir ni borrar progreso parcial sin una acción explícita del usuario.
+- **FR-022**: Al publicar un archivo terminado cuyo nombre ya existe en la carpeta de destino, el sistema MUST conservar el existente, publicar el nuevo con un sufijo numérico y avisar al usuario; MUST NOT sobrescribir archivos existentes.
 - **FR-015**: El sistema MUST rechazar con un mensaje claro el contenido con DRM y las transmisiones en vivo, sin intentar eludir ninguna protección técnica.
 - **FR-016**: El sistema MUST ofrecer, de forma opcional y solo por activación explícita, el uso de cookies del navegador del usuario para videos que requieren su propia sesión.
 - **FR-017**: El sistema MUST NOT guardar credenciales ni cookies en el repositorio ni en los archivos de estado de la cola, y MUST NOT incluirlas en mensajes de error ni registros.
