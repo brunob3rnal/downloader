@@ -1,50 +1,75 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# Downloader Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Código simple y legible
+El código MUST priorizar la claridad sobre la ingeniosidad. Cada módulo MUST tener una
+responsabilidad única y nombres que expliquen su intención. No se MUST añadir abstracciones,
+dependencias ni configuración para necesidades hipotéticas (YAGNI); toda complejidad
+añadida MUST justificarse por escrito en el plan.
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+Justificación: un descargador que otros puedan leer y auditar es más fácil de mantener y de
+confiar.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### II. Tests para la lógica principal
+La lógica principal (planificación de descargas, reanudación, reintentos, escritura de
+progreso) MUST tener tests automatizados. Los tests MUST incluir simulación de cortes de red:
+conexión interrumpida a mitad de transferencia, timeouts, respuestas truncadas y errores del
+servidor. Los tests MUST ejecutarse sin acceso a internet real, usando servidores o
+transportes simulados. Un cambio en esa lógica sin tests no se MUST fusionar.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+Justificación: los fallos de red son el caso normal de un descargador, no la excepción.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### III. Manejo claro de errores
+Todo error MUST ser explícito: no se MUST silenciar excepciones ni devolver resultados
+parciales como si fueran completos. Los mensajes al usuario MUST indicar qué falló, en qué
+recurso y qué puede hacer (reintentar, comprobar la red, etc.). Los errores recuperables
+(red, timeouts) MUST distinguirse de los fatales (URL inválida, permisos, disco lleno) y
+tratarse de forma distinta. Los códigos de salida MUST reflejar el resultado.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+### IV. Nunca perder progreso parcial (NON-NEGOTIABLE)
+Los datos ya descargados MUST conservarse ante cualquier interrupción (corte de red, cierre
+del proceso, error). Las descargas MUST poder reanudarse desde el último byte válido cuando el
+servidor lo permita. Un archivo parcial MUST nunca borrarse ni sobrescribirse
+automáticamente, y MUST permanecer claramente distinguido del archivo completo (por ejemplo,
+con un sufijo temporal) hasta que su integridad se verifique. Solo el usuario puede descartar
+un progreso parcial de forma explícita.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### V. Sin elusión de DRM ni protecciones técnicas
+El proyecto MUST NOT eludir, descifrar ni saltarse DRM, cifrado de contenido, controles de
+acceso ni otras medidas técnicas de protección. Solo MUST descargar contenido al que el
+usuario tenga acceso legítimo por medios estándar. Las contribuciones que añadan
+funcionalidad de elusión MUST rechazarse.
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+### VI. Sin credenciales ni cookies en el repositorio
+Credenciales, tokens, cookies y cualquier secreto de sesión MUST NOT guardarse en el
+repositorio, ni en el código, ni en tests, fixtures, logs o historial de git. Los secretos
+MUST proporcionarse en tiempo de ejecución (variables de entorno, archivos locales ignorados
+por git o entrada del usuario). Los logs y mensajes de error MUST NOT incluirlos. Los datos de
+prueba MUST usar valores ficticios.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+## Restricciones Legales y de Seguridad
+
+- Los archivos locales con secretos MUST estar listados en `.gitignore`.
+- Los mensajes y logs MUST ocultar tokens y cookies presentes en URLs o cabeceras.
+- Las dependencias nuevas MUST justificarse conforme al Principio I y revisar su licencia.
+
+## Flujo de Desarrollo
+
+- Cada cambio MUST pasar por la especificación, el plan y las tareas de Spec Kit antes de
+  implementarse.
+- Los tests MUST pasar antes de fusionar cualquier cambio.
+- Toda revisión MUST verificar el cumplimiento de los seis principios; la sección
+  "Constitution Check" de cada plan MUST usarse como puerta de calidad.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+Esta constitución prevalece sobre cualquier otra práctica del proyecto. Las enmiendas MUST
+documentarse en un cambio propio que explique el motivo e incluya, si procede, un plan de
+migración del código afectado. El versionado sigue SemVer: MAJOR para eliminar o redefinir
+principios de forma incompatible, MINOR para añadir principios o ampliar guía de forma
+material, PATCH para aclaraciones y correcciones de redacción. Toda revisión de código MUST
+comprobar el cumplimiento; las desviaciones MUST justificarse en la sección de complejidad
+del plan.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2026-10-20 | **Last Amended**: 2026-10-20
