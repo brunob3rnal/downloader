@@ -8,6 +8,12 @@
 
 **Input**: User description: "Un gestor de descargas de video que recibe URLs y las descarga de forma confiable, aunque la conexión se corte. Cola persistente, calidades (mejor, 1080p, 720p, solo audio), listas de reproducción, progreso, carpeta configurable, reanudación automática, reintentos, renovación de URLs caducadas, nunca entregar archivos incompletos como terminados. Fuera de alcance: DRM y transmisiones en vivo. Primera versión: solo CLI."
 
+## Clarifications
+
+### Session 2026-10-20
+
+- Q: ¿Cómo se ejecuta el programa: primer plano que termina al vaciar la cola, o servicio en segundo plano? → A: Primer plano. `agregar` guarda URLs en la cola; `ejecutar` procesa la cola y solo termina cuando no queda ninguna descarga pendiente. Las descargas en "esperando red" cuentan como pendientes, por lo que el programa sigue corriendo y reintentando hasta que vuelva la conexión. Termina únicamente con la cola completada o con fallos permanentes. Tras un reinicio del equipo, el usuario relanza `ejecutar`.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Descargar videos desde una cola (Priority: P1)
@@ -145,7 +151,8 @@ El usuario puede configurar la carpeta de destino. Opcionalmente, puede indicar 
 - **FR-016**: El sistema MUST ofrecer, de forma opcional y solo por activación explícita, el uso de cookies del navegador del usuario para videos que requieren su propia sesión.
 - **FR-017**: El sistema MUST NOT guardar credenciales ni cookies en el repositorio ni en los archivos de estado de la cola, y MUST NOT incluirlas en mensajes de error ni registros.
 - **FR-018**: El fallo de una descarga MUST NOT detener ni afectar a las demás descargas de la cola.
-- **FR-019**: El sistema MUST ofrecerse en su primera versión como herramienta de línea de comandos.
+- **FR-019**: El sistema MUST ofrecerse en su primera versión como herramienta de línea de comandos, sin servicio en segundo plano: un comando `agregar` guarda URLs en la cola y un comando `ejecutar` procesa la cola en primer plano.
+- **FR-021**: El comando `ejecutar` MUST terminar solo cuando no queden descargas pendientes; las descargas en "esperando red" cuentan como pendientes. MUST terminar con la cola completada o con descargas fallidas de forma permanente, y su código de salida MUST distinguir ambos resultados.
 - **FR-020**: El sistema MUST guardar el progreso al recibir una señal de cierre ordenado.
 
 ### Key Entities
@@ -164,14 +171,14 @@ El usuario puede configurar la carpeta de destino. Opcionalmente, puede indicar 
 - **SC-003**: Tras un cierre abrupto o reinicio del equipo, el 100 % de las descargas pendientes reaparece en la cola y continúa desde su progreso guardado.
 - **SC-004**: En 0 casos un archivo incompleto aparece en la carpeta de destino con su nombre final.
 - **SC-005**: Los errores permanentes se notifican al usuario en menos de 30 segundos desde el primer intento, con la causa indicada, y no se reintentan.
-- **SC-006**: El usuario puede agregar una URL y empezar a descargar con un solo comando.
+- **SC-006**: El usuario puede agregar una URL y empezar a descargar con dos comandos (`agregar` y `ejecutar`).
 - **SC-007**: Cada descarga activa muestra progreso, velocidad y tiempo estimado, actualizados al menos una vez por segundo.
 - **SC-008**: Una descarga cuya URL caduca a mitad de transferencia termina con el archivo íntegro sin intervención del usuario.
 
 ## Assumptions
 
 - La compatibilidad de sitios se apoya en el conjunto de sitios que soporta yt-dlp, por lo que el producto depende de esa herramienta externa.
-- La primera versión es solo de línea de comandos; no hay interfaz gráfica ni web.
+- La primera versión es solo de línea de comandos; no hay interfaz gráfica ni web ni servicio en segundo plano. Tras un reinicio del equipo, el usuario relanza `ejecutar` para continuar.
 - Las descargas se procesan con una concurrencia limitada y configurable, por defecto una a la vez.
 - El servidor de origen debe permitir reanudar peticiones parciales para reanudar sin repetir datos; si no, solo esa descarga se reinicia.
 - El usuario tiene derecho legítimo a descargar el contenido que solicita.
