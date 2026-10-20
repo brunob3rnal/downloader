@@ -1,0 +1,194 @@
+# Research: Gestor de descargas de video resiliente
+
+Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
+
+## R1. yt-dlp como librería
+
+- **Decision**: usar `yt_dlp.YoutubeDL` en proceso, con un único adaptador (`ytdl.py`) que
+  construye las opciones y traduce progreso y errores. Opciones fijas:
+  `continuedl=True`, `nopart=False`, `skip_unavailable_fragments=False`,
+  `retries=3`, `fragment_retries=3`, `socket_timeout=20`, `noplaylist=True` al descargar,
+  `quiet=True` con un `logger` propio y `progress_hooks` para el progreso.
+- **Rationale**: es lo pedido y evita parsear la salida de un subproceso. Los reintentos
+  internos de yt-dlp se dejan bajos porque los reintentos indefinidos son nuestros (FR-010).
+  `skip_unavailable_fragments` vale `True` por defecto en
+  `yt_dlp/downloader/fragment.py`: con HLS/DASH se saltaría fragmentos y produciría un archivo
+  incompleto, lo que viola FR-013.
+- **Alternatives considered**: subproceso `yt-dlp` (rechazado por el usuario; además obliga a
+  parsear texto); descargador HTTP propio (duplica lo que yt-dlp ya resuelve para HLS/DASH).
+
+## R2. Reanudación y caducidad de URLs
+
+- **Decision**: cada intento vuelve a extraer la información del video
+  (`extract_info(url, download=True)`) y descarga en un directorio de trabajo estable por
+  descarga, con plantilla de nombre fija (`%(id)s.%(ext)s`). yt-dlp continúa los `.part`
+  existentes (`continuedl`) y los fragmentos HLS/DASH mediante su archivo `.ytdl`.
+- **Rationale**: re-extraer en cada intento resuelve la caducidad de URLs temporales (FR-012)
+  sin un caso especial: un 403 por URL caducada se clasifica como temporal y el siguiente
+  intento obtiene una URL nueva y continúa el mismo `.part`.
+- **Alternatives considered**: detectar la caducidad y re-extraer solo entonces (más código y
+  más casos que probar, sin beneficio).
+- **Riesgo**: si tras re-extraer cambia el formato elegido, se empieza un `.part` nuevo; el
+  anterior se conserva (no se pierde, pero se desperdicia).
+
+## R3. Servidor que no permite reanudar (conflicto con la constitución)
+
+- **Hallazgo**: `yt_dlp/downloader/http.py` borra el `.part` y descarga desde cero cuando el
+  servidor ignora la cabecera `Range` ("resume is not possible, so wiping the local file").
+  Esto choca con el Principio IV ("un archivo parcial MUST nunca borrarse ni sobrescribirse
+  automáticamente") y coincide con el caso límite de la spec ("se reinicia solo esa
+  descarga").
+- **Decision propuesta**: antes de cada reintento, si existe un `.part` y el servidor no
+  anuncia `Accept-Ranges: bytes`, se mueve el `.part` a `*.part.N.bak` en el mismo directorio
+  de trabajo, se avisa al usuario y se deja que yt-dlp reinicie. Nada se borra
+  automáticamente; el usuario decide si descarta los respaldos.
+- **Pendiente**: requiere confirmación del usuario (ver Complexity Tracking del plan).
+
+## R4. Clasificación de errores
+
+- **Decision**: `errors.py` clasifica cada excepción en `TEMPORAL`, `PERMANENTE` o `FATAL`:
+  - `TEMPORAL`: errores de transporte (`yt_dlp.networking.exceptions.TransportError`,
+    `TimeoutError`, `ConnectionError`), HTTP 5xx, 403/410 durante la descarga (URL caducada) y
+    cualquier error mientras el monitor de red indica "sin conexión". Se recorre la cadena
+    `exc_info` / `cause` de `DownloadError` y `ExtractorError`.
+  - `PERMANENTE`: `UnsupportedError`, `ExtractorError(expected=True)` (video borrado,
+    privado, restricción geográfica, DRM), contenido en directo, fallo de verificación.
+  - `FATAL` (detiene `ejecutar`): disco lleno (`ENOSPC`), carpeta sin permisos, ffmpeg ausente.
+- **Rationale**: la regla "si no hay red, es temporal" evita marcar como permanente un
+  `ExtractorError` provocado por el corte (yt-dlp envuelve el error de red al descargar la
+  página).
+- **Alternatives considered**: clasificar por el texto del mensaje (frágil entre versiones).
+
+## R5. DRM y directos
+
+- **Decision**: rechazar como `PERMANENTE` si `info['is_live']` es verdadero, o si yt-dlp
+  informa DRM (`_has_drm` o formatos con `has_drm`, que ya provoca
+  `ExtractorError(expected=True)` "This video is DRM protected").
+- **Rationale**: Principio V; no se intenta ningún formato con DRM.
+
+## R6. Selección de calidad
+
+- **Decision**:
+  - `mejor`: `bv*+ba/b`
+  - `1080p`: `bv*[height<=1080]+ba/b[height<=1080]/wv*+ba/w`
+  - `720p`: `bv*[height<=720]+ba/b[height<=720]/wv*+ba/w`
+  - `audio`: `ba/b` + postprocesador `FFmpegExtractAudio` (conserva el códec cuando es
+    posible).
+  Si la altura obtenida no coincide con la pedida, se avisa al usuario.
+- **Rationale**: los filtros `<=` eligen la más cercana inferior (caso límite de la spec); la
+  última alternativa evita fallar si solo existen calidades superiores.
+
+## R7. Directorio de trabajo y publicación sin sobrescribir
+
+- **Decision**: cada descarga trabaja en `<carpeta_destino>/.downloader-tmp/<id_descarga>/`
+  (mismo sistema de archivos que el destino). Tras verificar, se publica con
+  `os.link(origen, destino)` seguido de `os.unlink(origen)`: `link` falla con
+  `FileExistsError` si el destino existe, y entonces se prueba `nombre (1).ext`,
+  `nombre (2).ext`, etc. Si el sistema de archivos no admite enlaces duros, se usa
+  `os.open(destino, O_CREAT | O_EXCL)` + copia + `fsync` + borrado del origen.
+- **Rationale**: `os.rename`/`os.replace` sobrescriben en POSIX sin avisar (viola FR-022).
+  El nombre final nunca aparece en la carpeta de destino hasta pasar la verificación
+  (FR-013, SC-004). Al estar en el mismo sistema de archivos, la publicación es atómica.
+- **Alternatives considered**: `.part` directamente en la carpeta de destino (mezcla parciales
+  y finales; yt-dlp renombra al terminar, antes de que podamos verificar).
+
+## R8. Verificación antes de publicar
+
+- **Decision**:
+  1. Por cada archivo de formato terminado (hook `status == 'finished'`), si `total_bytes`
+     es exacto (no `total_bytes_estimate`), su tamaño en disco debe coincidir.
+  2. Sobre el archivo final (tras unir audio y video), `ffprobe -v error -count_packets
+     -show_entries format=duration:stream=nb_read_packets` debe terminar sin errores, leer
+     paquetes en todos los flujos y devolver una duración positiva. Para HLS/DASH sin tamaño
+     total es la única comprobación; en el resto, complementa la de tamaño.
+- **Rationale**: el tamaño del archivo unido no coincide con la suma de los formatos, por lo
+  que el tamaño se comprueba antes de unir. `-count_packets` lee todo el contenedor sin
+  decodificar: detecta truncamientos y es rápido.
+- **Alternatives considered**: `ffmpeg -f null -` (decodifica todo; demasiado lento en videos
+  largos).
+
+## R9. Monitor de conectividad
+
+- **Decision**: hilo daemon que cada 5 s intenta una conexión TCP (timeout 3 s) a una lista de
+  sondas (por defecto `1.1.1.1:443` y `8.8.8.8:443`, configurables) y expone un
+  `threading.Event` "en línea". Un fallo de todas las sondas marca "sin conexión"; un acierto,
+  "en línea". En los tests se inyecta un monitor falso.
+- **Rationale**: simple, sin dependencias; permite despertar un reintento en cuanto vuelve la
+  red en vez de esperar al final del backoff.
+
+## R10. Reintentos
+
+- **Decision**: espera `min(300, 2 * 2**n)` segundos con variación aleatoria de ±20 %, donde
+  `n` cuenta los intentos fallidos consecutivos sin avance de bytes. Cualquier avance reinicia
+  `n`. Si el monitor pasa a "en línea" durante la espera, se reintenta de inmediato.
+- **Rationale**: cumple FR-010 (indefinido, tope 5 minutos). Reiniciar `n` tras progreso
+  evita esperas largas en conexiones inestables pero útiles.
+
+## R11. Persistencia (SQLite)
+
+- **Decision**: base de datos en `typer.get_app_dir("downloader")/cola.db`, modo WAL,
+  `synchronous=FULL`, una conexión por proceso. Cada transición de estado es una transacción.
+  El progreso en bytes se escribe como mucho cada 2 s; la fuente de verdad de lo descargado
+  son los `.part` en disco. Al iniciar `ejecutar`, las filas en `downloading` o
+  `waiting_network` vuelven a `queued` (recuperación tras cierre abrupto).
+- **Rationale**: WAL permite `agregar` desde otra terminal mientras `ejecutar` corre;
+  `synchronous=FULL` hace que un commit sobreviva a un corte de luz.
+- **Concurrencia de procesos**: un único `ejecutar` a la vez, garantizado con `fcntl.flock`
+  sobre `ejecutar.lock` en el mismo directorio (el sistema operativo libera el bloqueo si el
+  proceso muere).
+
+## R12. Cookies del navegador
+
+- **Decision**: `--cookies-de <navegador>` se traduce a `cookiesfrombrowser=(navegador,)`;
+  nunca se pasa `cookiefile`, así yt-dlp lee las cookies en memoria y no escribe ninguna. En
+  la base de datos solo se guarda el nombre del navegador (si se indicó en `agregar`), nunca
+  cookies. El `logger` propio filtra cabeceras `Cookie`/`Authorization` y parámetros de URL
+  con aspecto de token antes de mostrar o registrar mensajes.
+- **Rationale**: Principio VI y FR-017.
+
+## R13. Listas de reproducción
+
+- **Decision**: `agregar` solo guarda la URL (funciona sin red). `ejecutar` extrae cada URL con
+  `extract_flat='in_playlist'`; si es una lista, inserta una descarga hija por entrada (misma
+  calidad, carpeta y navegador), marca la padre como `completed` con tipo `playlist` y sigue.
+- **Rationale**: un único punto de extracción; las listas se benefician de los mismos
+  reintentos.
+
+## R14. Comando `update`
+
+- **Decision (supuesto a confirmar)**: `update` actualiza yt-dlp a su última versión
+  ejecutando `uv lock --upgrade-package yt-dlp` y `uv sync` en el proyecto, y muestra la
+  versión anterior y la nueva. Si la herramienta no corre desde el proyecto (por ejemplo,
+  instalada con `uv tool install`), indica el comando equivalente (`uv tool upgrade
+  downloader`) en lugar de modificar el entorno por su cuenta.
+- **Rationale**: los extractores de yt-dlp se rompen con frecuencia; actualizarlo es la
+  operación de mantenimiento más habitual. Hacerlo por medio de uv mantiene `uv.lock` como
+  fuente de verdad.
+
+## R15. Tests
+
+- **Decision**:
+  - Servidor HTTP local en un hilo (`http.server`) con soporte de `Range`, y modos
+    configurables: cortar la conexión tras N bytes, rechazar `Range`, responder 403 a tokens
+    caducados, apagarse y volver a levantarse en el mismo puerto.
+  - Un extractor de prueba (`InfoExtractor` registrado con `ydl.add_info_extractor`) para URLs
+    `http://127.0.0.1:<puerto>/watch/<id>` que devuelve en cada extracción una URL de medios
+    con un token nuevo: prueba la caducidad por el camino real.
+  - Prueba de cierre abrupto: lanzar `ejecutar` en un subproceso, `SIGKILL` a mitad,
+    relanzar y comprobar que el total de bytes servidos no supera el tamaño del archivo
+    en más de un 1 % (SC-002).
+  - Marcador `ffmpeg`: `conftest.py` omite esos tests si `shutil.which("ffmpeg")` o
+    `shutil.which("ffprobe")` es `None`.
+  - Sin acceso a internet en ningún test.
+- **Rationale**: Principio II; los cortes de red se prueban contra yt-dlp real, no contra un
+  doble.
+- **Riesgo**: si el entorno de CI no tiene ffmpeg, las pruebas de unión y verificación se
+  omitirían en silencio. El CI MUST instalar ffmpeg.
+
+## R16. Entorno con uv
+
+- **Decision**: `uv init --package --name downloader --python 3.12` (estructura `src/` y
+  script de consola), `uv add yt-dlp typer`, `uv add --dev pytest`. Todo se ejecuta con
+  `uv run`.
+- **Rationale**: `uv init` sin `--package` crea un `main.py` suelto sin punto de entrada
+  instalable; `uv add pytest` sin `--dev` lo convertiría en dependencia de ejecución.
