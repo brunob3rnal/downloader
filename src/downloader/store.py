@@ -294,6 +294,14 @@ class Store:
             )
         return True
 
+    def guardar_aviso(self, id_: int, aviso: str) -> None:
+        """Guarda `ultimo_aviso` sin cambiar de estado (p. ej. un reinicio desde cero, FR-024)."""
+        with self._transaccion() as c:
+            c.execute(
+                "UPDATE descargas SET ultimo_aviso = ?, actualizada = ? WHERE id = ?",
+                (aviso, _ahora(), id_),
+            )
+
     def recuperar(self) -> int:
         """Devuelve a la cola las descargas que un cierre abrupto dejó a medias."""
         interrumpidos = (Estado.DOWNLOADING, Estado.WAITING_NETWORK)
