@@ -139,3 +139,82 @@ def test_dl_registra_fase_de_descarga_y_descargador_externo(info, externo, monke
     ydl.dl("destino.mp4", {**info, "to_stdout": False})
     assert ydl.registro.fase is Fase.DESCARGA
     assert ydl.registro.externo is externo
+
+
+# --- Lectura del cuerpo en trozos: no perder bytes en un corte (research R18) ---
+
+
+class RespuestaCortada:
+    """Cuerpo que se corta tras `n` de `total` bytes.
+
+    `descarta=False` imita a http.client: una lectura corta devuelve lo que hay y la siguiente
+    falla. `descarta=True` imita a urllib3: una lectura que no puede completarse falla y pierde
+    lo que ya había recibido de ella.
+    """
+
+    def __init__(self, n, total, descarta=False):
+        self.datos = bytes(i % 251 for i in range(n))
+        self.total = total
+        self.descarta = descarta
+        self.posicion = 0
+        self.headers = {"Content-Length": str(total)}
+
+    def read(self, amt=None):
+        from yt_dlp.networking.exceptions import IncompleteRead
+
+        quedan = len(self.datos) - self.posicion
+        if self.posicion == self.total:
+            return b""
+        if quedan == 0 or (self.descarta and quedan < amt):
+            self.posicion = len(self.datos)
+            raise IncompleteRead(partial=self.posicion, expected=self.total)
+        trozo = self.datos[self.posicion : self.posicion + amt]
+        self.posicion += len(trozo)
+        return trozo
+
+
+def vigilada(respuesta):
+    ydl = ytdl.YoutubeDLRegistrado({"quiet": True})
+    ydl._vigilar_cuerpo(respuesta)
+    return ydl
+
+
+def test_corte_tras_n_bytes_entrega_los_n_y_falla_en_la_lectura_siguiente():
+    from yt_dlp.networking.exceptions import IncompleteRead
+
+    respuesta = RespuestaCortada(n=10_000, total=100_000)
+    ydl = vigilada(respuesta)
+    assert respuesta.read(1 << 20) == respuesta.datos
+    with pytest.raises(IncompleteRead):
+        respuesta.read(1 << 20)
+    assert isinstance(ydl.registro.ultima.error, IncompleteRead)
+
+
+def test_corte_sin_bytes_falla_de_inmediato():
+    from yt_dlp.networking.exceptions import IncompleteRead
+
+    respuesta = RespuestaCortada(n=0, total=100_000)
+    ydl = vigilada(respuesta)
+    with pytest.raises(IncompleteRead):
+        respuesta.read(1 << 20)
+    assert isinstance(ydl.registro.ultima.error, IncompleteRead)
+
+
+def test_si_la_libreria_descarta_el_trozo_cortado_se_pierde_como_mucho_un_trozo():
+    from yt_dlp.networking.exceptions import IncompleteRead
+
+    respuesta = RespuestaCortada(n=10_000, total=100_000, descarta=True)
+    vigilada(respuesta)
+    entregado = respuesta.read(1 << 20)
+    assert respuesta.datos.startswith(entregado)
+    assert len(entregado) >= 10_000 - ytdl.TROZO_LECTURA
+    with pytest.raises(IncompleteRead):
+        respuesta.read(1 << 20)
+
+
+def test_sin_corte_entrega_lo_pedido_en_una_llamada():
+    respuesta = RespuestaCortada(n=100_000, total=100_000)
+    vigilada(respuesta)
+    assert respuesta.read(50_000) == respuesta.datos[:50_000]
+    assert respuesta.read(1 << 20) == respuesta.datos[50_000:]
+    assert respuesta.read(1 << 20) == b""

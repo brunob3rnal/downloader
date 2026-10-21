@@ -140,6 +140,11 @@ tests/
     reservado (R7).
 12. En Windows, `ejecutar` trata Ctrl+Break como Ctrl+C y la salida redirigida no se detiene
     por caracteres que no caben en la codificación de la consola (R17).
+13. El envoltorio de lectura de `YoutubeDLRegistrado` lee el cuerpo en trozos de 4 KiB y, si
+    la conexión se corta, entrega lo acumulado antes de relanzar el error en la lectura
+    siguiente: yt-dlp pide bloques de hasta 4 MiB y urllib3 descarta lo recibido de un bloque
+    incompleto, lo que incumplía SC-002. Cuesta CPU: la descarga local baja de ~700 a
+    ~275 MiB/s (R18).
 
 ## Complexity Tracking
 
