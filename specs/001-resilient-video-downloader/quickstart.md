@@ -2,9 +2,11 @@
 
 ## Requisitos
 
+- Windows 10/11 o Linux.
 - uv instalado.
-- ffmpeg y ffprobe en el `PATH` (sin ellos, los tests marcados `ffmpeg` se omiten y `ejecutar`
-  falla con código 3).
+- ffmpeg y ffprobe en el `PATH`; sin ellos, los tests marcados `ffmpeg` se omiten y `ejecutar`
+  falla con código 3. En Windows se instalan, por ejemplo, con `winget install Gyan.FFmpeg` o
+  `choco install ffmpeg`.
 
 ## Preparación
 
@@ -29,7 +31,7 @@ Ningún test usa internet: todos van contra el servidor local de `tests/`.
 | 2 | Corte a mitad | test de integración: el servidor corta tras el 40 % | pasa a "esperando red", reanuda; bytes servidos ≤ 101 % del tamaño | US2, SC-002 |
 | 2b | Timeout y 5xx | test: el servidor deja de enviar datos; luego responde 503 | ambos se tratan como temporales y la descarga termina íntegra | FR-010, Principio II |
 | 3 | Red caída y vuelta | test: servidor apagado y relevantado en el mismo puerto | sigue en `waiting_network` hasta que vuelve; termina íntegro | US2, FR-007 |
-| 4 | Cierre abrupto | test: `SIGKILL` a `ejecutar` y relanzar | la cola se restaura y la descarga continúa | US3, SC-003 |
+| 4 | Cierre abrupto | test: `Popen.kill()` a `ejecutar` (`SIGKILL` en Linux, `TerminateProcess` en Windows) y relanzar | la cola se restaura y la descarga continúa | US3, SC-003 |
 | 5 | URL caducada | test con el extractor de tokens | 403 → nueva extracción → continúa el mismo `.part` | US4, FR-012 |
 | 6 | Error permanente | test: extractor que lanza "video privado" | `failed` sin reintentos, mensaje claro, resto de la cola sigue; código 1 | US4, FR-011 |
 | 7 | Integridad | test: tamaño anunciado mayor que el servido; HLS truncado (marcado `ffmpeg`) | no aparece el nombre final en la carpeta; archivos en `invalidos/` | US5, SC-004 |

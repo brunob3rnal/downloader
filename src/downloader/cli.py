@@ -1,13 +1,15 @@
 """Línea de comandos: `agregar` y `ejecutar` (contracts/cli.md)."""
 
 import logging
-import os
+import signal
+import sys
+import threading
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
-from downloader import config, worker
+from downloader import config, publish, worker
 from downloader.errors import ErrorFatal, ocultar_secretos
 from downloader.models import Calidad
 from downloader.network import MonitorRed
@@ -29,6 +31,11 @@ app = typer.Typer(
 def principal() -> None:
     # Los mensajes de yt-dlp ya llegan resumidos en la salida de `ejecutar`.
     logging.getLogger("downloader").addHandler(logging.NullHandler())
+    # En Windows, con la salida redirigida a un archivo o una tubería, Python escribe en la
+    # codificación ANSI (cp1252): un título fuera de ella no debe detener el programa.
+    for flujo in (sys.stdout, sys.stderr):
+        if hasattr(flujo, "reconfigure"):
+            flujo.reconfigure(errors="backslashreplace")
 
 
 def _error(mensaje: str, codigo: int) -> typer.Exit:
@@ -64,7 +71,7 @@ def _carpeta(valor: Path | None, por_defecto: Path) -> Path:
     carpeta = (valor or por_defecto).expanduser().resolve()
     if not carpeta.is_dir():
         raise _error(f"la carpeta de destino {carpeta} no existe", USO_INVALIDO)
-    if not os.access(carpeta, os.W_OK | os.X_OK):
+    if not publish.escribible(carpeta):
         raise _error(f"sin permiso de escritura en la carpeta de destino {carpeta}", USO_INVALIDO)
     return carpeta
 
@@ -108,6 +115,11 @@ def agregar(
 @app.command()
 def ejecutar() -> None:
     """Procesa la cola en primer plano hasta que no queden descargas pendientes."""
+    if hasattr(signal, "SIGBREAK") and threading.current_thread() is threading.main_thread():
+        # Windows: Ctrl+Break, y `CTRL_BREAK_EVENT`, el único evento que se puede enviar a otro
+        # grupo de procesos, interrumpen igual que Ctrl+C (`KeyboardInterrupt`). `signal.signal`
+        # solo puede llamarse desde el hilo principal, y las señales solo llegan a él.
+        signal.signal(signal.SIGBREAK, signal.default_int_handler)
     ajustes = _configuracion()
     store = _abrir_cola()
     try:

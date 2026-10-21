@@ -83,7 +83,8 @@ def test_plantilla_de_salida_en_el_directorio_de_trabajo():
     trabajo = ytdl.directorio_trabajo(d)
     assert trabajo == Path("/tmp/destino/.downloader-tmp/42")
     o = ytdl.opciones(d, trabajo, None, hook=lambda _: None)
-    assert o["outtmpl"]["default"] == "/tmp/destino/.downloader-tmp/42/%(id)s.%(ext)s"
+    assert o["outtmpl"]["default"] == str(trabajo / "descarga.%(ext)s")
+    assert o["windowsfilenames"] is True
 
 
 def test_logger_oculta_secretos(caplog):

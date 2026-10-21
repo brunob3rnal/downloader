@@ -55,7 +55,7 @@ Al terminar, un resumen con el número de completadas y fallidas, y la causa de 
 | 1 | cola vacía; al menos una falló de forma permanente |
 | 2 | uso inválido u otro `ejecutar` ya en marcha |
 | 3 | error fatal (disco lleno, archivo de estado corrupto, ffmpeg o ffprobe ausentes); progreso conservado |
-| 130 | interrumpido con Ctrl+C; progreso conservado |
+| 130 | interrumpido con Ctrl+C (en Windows, también Ctrl+Break); progreso conservado |
 
 Los errores van a stderr y nunca incluyen cookies, cabeceras de autenticación ni tokens.
 

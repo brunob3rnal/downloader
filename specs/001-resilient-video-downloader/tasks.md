@@ -35,6 +35,11 @@ final.
   `DOWNLOADER_HOME`) y una carpeta de destino temporal; nunca el directorio real del usuario.
 - Los tiempos de backoff y del monitor de red se inyectan reducidos (base 0,05 s, tope 0,5 s)
   para que los tests duren segundos.
+- Los tests corren en Linux y en Windows (constitución v2.1.0): rutas con `pathlib`, nunca
+  comparando cadenas con `/`; los subprocesos se lanzan con `sys.executable -m downloader`; el
+  cierre abrupto es `Popen.kill()` y la interrupción, `SIGINT` en Linux y `CTRL_BREAK_EVENT`
+  en Windows. Un test se omite en una plataforma solo si es imposible allí, con
+  `pytest.mark.skipif` y el motivo.
 
 ---
 
@@ -73,7 +78,7 @@ configuración, cola, errores, reintentos, monitor de red, adaptador yt-dlp).
 - [X] T014 [P] Escribir `tests/unit/test_network.py`: el monitor marca "en línea" si alguna sonda TCP conecta y "sin conexión" si fallan todas, usando un socket local que se abre y se cierra; expone un `threading.Event`; se detiene limpiamente
 - [X] T015 [P] Escribir `tests/unit/test_ytdl.py`: las opciones de `YoutubeDL` incluyen `continuedl=True`, `nopart=False`, `skip_unavailable_fragments=False`, `retries=3`, `fragment_retries=3`, `socket_timeout=20` (por defecto; parametrizable para tests), `noplaylist=True`, `quiet=True` y un `logger` propio; `skip_unavailable_fragments` es exactamente `False` (no ausente: su valor por defecto en yt-dlp es `True`, research R1); nunca incluyen `cookiefile`; sin navegador no incluyen `cookiesfrombrowser`; los selectores de formato son exactamente los de research R6 (`mejor`: `bv*+ba/b`; `1080p`: `bv*[height<=1080]+ba/b[height<=1080]/wv*+ba/w`; `720p`: `bv*[height<=720]+ba/b[height<=720]/wv*+ba/w`; `audio`: `ba/b` con `FFmpegExtractAudio`); la plantilla de salida es `%(id)s.%(ext)s` dentro de `<carpeta_destino>/.downloader-tmp/<id_descarga>/`
 - [X] T016 [P] Escribir `tests/integration/test_network_cuts.py` (escenarios 2, 2b y 3 de quickstart; US2), marcando todo el módulo con `pytest.mark.xfail(strict=True, reason="pendiente de la Fase 4 (US2)")` e importando `downloader` dentro de cada test (no al nivel del módulo, para que la falta de implementación cuente como xfail y no como error de colección). Cada caso falla más veces seguidas que los 3 reintentos internos de yt-dlp y comprueba que la fila pasó por `waiting_network`: (a) el servidor corta al 40 % cuatro veces seguidas → la descarga pasa por `waiting_network`, se reanuda y termina con un archivo idéntico byte a byte al original y `bytes_servidos` ≤ 101 % del tamaño (SC-002); (b) el servidor se cuelga → timeout tratado como `TEMPORAL`, termina íntegra; (c) el servidor responde cinco errores 503/500 seguidos → `TEMPORAL`, termina íntegra; (d) el servidor se detiene con `monitor_falso` sin conexión → la fila permanece en `waiting_network` sin consumir intentos hasta `poner_en_linea()` + `reanudar()`, y entonces termina íntegra; (e) cortes repetidos en tres momentos distintos de la misma descarga → termina íntegra. Ejecuta el bucle de `downloader.worker` en proceso con `monitor_falso` y `tiempos_rapidos`
-- [X] T017 [P] Escribir `tests/integration/test_crash_recovery.py` (escenario 4 de quickstart; US3), marcado con `pytest.mark.xfail(strict=True, reason="pendiente de la Fase 5 (US3)")` e importando `downloader` dentro del test: escribe en `DOWNLOADER_HOME` un `config.toml` con `sondas_red = ["127.0.0.1:<puerto del servidor>"]` (sin internet), agrega la URL directa del MP4 del servidor (la resuelve el extractor genérico de yt-dlp, ya que el subproceso no registra `fake_extractor`), lanza `uv run downloader ejecutar` en un subproceso con el servidor sirviendo lentamente y espera cada `ejecutar` con `timeout=60` (un bucle sin recuperación no debe colgar la suite), envía `SIGKILL` a mitad, comprueba que la fila quedó en `downloading` y que el `.part` existe; relanza `ejecutar` y comprueba que termina con código 0, el archivo publicado es íntegro y `bytes_servidos` ≤ 101 % del tamaño (SC-003, SC-002); las descargas ya `completed` antes del cierre no se vuelven a pedir al servidor
+- [X] T017 [P] Escribir `tests/integration/test_crash_recovery.py` (escenario 4 de quickstart; US3), marcado con `pytest.mark.xfail(strict=True, reason="pendiente de la Fase 5 (US3)")` e importando `downloader` dentro del test: escribe en `DOWNLOADER_HOME` un `config.toml` con `sondas_red = ["127.0.0.1:<puerto del servidor>"]` (sin internet), agrega la URL directa del MP4 del servidor (la resuelve el extractor genérico de yt-dlp, ya que el subproceso no registra `fake_extractor`), lanza `uv run downloader ejecutar` en un subproceso con el servidor sirviendo lentamente y espera cada `ejecutar` con `timeout=60` (un bucle sin recuperación no debe colgar la suite), envía `SIGKILL` a mitad (desde T035a, `python -m downloader` y `Popen.kill()`, que funcionan también en Windows), comprueba que la fila quedó en `downloading` y que el `.part` existe; relanza `ejecutar` y comprueba que termina con código 0, el archivo publicado es íntegro y `bytes_servidos` ≤ 101 % del tamaño (SC-003, SC-002); las descargas ya `completed` antes del cierre no se vuelven a pedir al servidor
 - [X] T018 Ejecutar `uv run pytest tests/ --continue-on-collection-errors -rxX` y confirmar: T009 (`tests/unit/test_flaky_server.py`) pasa; T010–T015 (`tests/unit/test_models.py` … `tests/unit/test_ytdl.py`) fallan por importación o aserción; T016 y T017 (`tests/integration/test_network_cuts.py`, `tests/integration/test_crash_recovery.py`) se informan como `xfailed`, nunca como error de colección ni `xpassed`. Anotar el resultado en el commit
 
 ### 2c. Implementación del núcleo
@@ -119,6 +124,10 @@ porcentaje, velocidad y ETA, y el código de salida es 0.
 
 **Checkpoint**: US1 completa y demostrable con el escenario 1 de quickstart.
 
+### Compatibilidad con Windows 10/11 (añadida tras el MVP)
+
+- [X] T035a Windows 10/11 como plataforma objetivo junto a Linux (constitución v2.1.0; spec, Assumptions; plan, decisiones 9–12; research R7 y R17). Origen: en Windows, `uv run downloader` fallaba con `ModuleNotFoundError: No module named 'fcntl'`. Tests primero: `tests/unit/test_plataforma.py` importa todos los módulos de `downloader` y falla si en `src/` o `tests/` hay un `import fcntl` (u otro módulo o atributo de un solo sistema: `termios`, `msvcrt`, `signal.SIGKILL`, `os.fork`, `os.getuid`…) sin protección; en `tests/unit/test_store.py`, la rama de Windows del bloqueo con un `msvcrt` simulado; en `tests/unit/test_publish_nombres.py`, respaldo sin enlaces duros con `winerror` de Windows, otro `OSError` de `os.link` que no se oculta, publicación en volúmenes FAT32/exFAT reales (`DOWNLOADER_TEST_SIN_ENLACES`, los crea el CI), nombres sin `: ? | " < > *`, sin nombres reservados y dentro de 255 bytes y 259 caracteres de ruta, y `publish.escribible`; `tests/integration/test_ctrl_c.py`: interrumpir `ejecutar` a mitad (`SIGINT` o `CTRL_BREAK_EVENT`) lo termina sin traza, conserva el `.part`, no publica nada y libera el bloqueo; en `tests/integration/test_cli_agregar.py`, salida redirigida en cp1252 con caracteres que no caben; `tests/integration/test_crash_recovery.py` usa `python -m downloader` y `Popen.kill()` en lugar de `uv run`, `start_new_session` y `os.killpg(…, SIGKILL)`; `tests/unit/test_ytdl.py` compara rutas con `pathlib`. Implementación: `src/downloader/store.py` con `msvcrt.locking`/`fcntl.flock` por import condicional; `src/downloader/publish.py` con `_sin_enlaces` (errno y `winerror`), `nombre_publicado` con nombres reservados y límites de longitud, y `escribible` en lugar de `os.access` (usado por `cli.py` y `worker.py`); `src/downloader/ytdl.py` con `windowsfilenames=True` y plantilla `descarga.%(ext)s`; `src/downloader/progress.py` sin `/` a mano; `src/downloader/cli.py` con Ctrl+Break como Ctrl+C y `stdout`/`stderr` con `errors="backslashreplace"`; `src/downloader/__main__.py`; `.github/workflows/tests.yml` con matriz `ubuntu-latest` y `windows-latest`, ffmpeg en ambos (`apt-get`, `choco`) y volúmenes FAT32/exFAT
+
 ---
 
 ## Phase 4: User Story 2 - Sobrevivir a cortes de red (Priority: P1)
@@ -158,7 +167,7 @@ y `tests/integration/test_interrupcion.py` en verde.
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T042 [P] [US3] Escribir `tests/integration/test_interrupcion.py` (FR-020, FR-021, edge case Ctrl+C): enviar `SIGINT` a `ejecutar` a mitad de descarga → sale con 130, la fila vuelve a `queued`, `bytes_descargados` refleja el progreso, el `.part` se conserva; relanzar termina la descarga íntegra
+- [ ] T042 [P] [US3] Escribir `tests/integration/test_interrupcion.py` (FR-020, FR-021, edge case Ctrl+C), partiendo de `tests/integration/test_ctrl_c.py` (T035a): enviar `SIGINT` (en Windows, `CTRL_BREAK_EVENT` a un grupo de procesos propio) a `ejecutar` a mitad de descarga → sale con 130, la fila vuelve a `queued`, `bytes_descargados` refleja el progreso, el `.part` se conserva; relanzar termina la descarga íntegra
 
 ### Implementation for User Story 3
 
@@ -242,8 +251,8 @@ perder progreso; directos y DRM rechazados.
 - [ ] T062 [P] Escribir `tests/integration/test_disco_lleno.py` (edge case "Disco lleno"): simular `OSError(ENOSPC)` en la escritura → `ejecutar` sale con 3, mensaje claro, la fila vuelve a `queued` con el `.part` intacto; relanzar sin el fallo completa la descarga
 - [ ] T063 Hacer pasar T062 en `src/downloader/worker.py` tratando `FATAL` como parada ordenada (fila a `queued`, salida 3)
 - [ ] T064 [P] Revisar con `grep` que ningún archivo `src/downloader/*.py` ni `tests/**/*.py` contiene cookies, tokens ni credenciales reales, y que los datos de prueba son ficticios (Principio VI)
-- [ ] T065 Ejecutar `uv run pytest` completo con ffmpeg disponible y confirmar 0 tests omitidos y todos en verde; ejecutar los 12 escenarios de `specs/001-resilient-video-downloader/quickstart.md` y marcar cada uno
-- [ ] T066 [P] Escribir `README.md` con instalación (`uv sync`), requisito de ffmpeg, uso de `agregar`, `ejecutar` y `actualizar`, códigos de salida y ubicación de `config.toml`, enlazando a `specs/001-resilient-video-downloader/contracts/cli.md`
+- [ ] T065 Ejecutar `uv run pytest` completo con ffmpeg disponible, en Linux y en Windows (jobs del CI), y confirmar 0 tests omitidos y todos en verde; ejecutar los 12 escenarios de `specs/001-resilient-video-downloader/quickstart.md` y marcar cada uno
+- [ ] T066 [P] Escribir `README.md` con instalación en Windows 10/11 y Linux (`uv sync`), requisito de ffmpeg (y cómo instalarlo en cada sistema), uso de `agregar`, `ejecutar` y `actualizar`, códigos de salida y ubicación de `config.toml`, enlazando a `specs/001-resilient-video-downloader/contracts/cli.md`
 
 ---
 
@@ -279,6 +288,7 @@ perder progreso; directos y DRM rechazados.
 | FR-024 (reinicio con aviso) | T036, T039 |
 | FR-025 (`actualizar`) | T060, T061 |
 | FR-026 (tope de errores ambiguos) | T037b, T038, T052, T054 |
+| Plataformas: Windows 10/11 y Linux (constitución v2.1.0) | T035a, T065 |
 | Escenario 1 | T028, T034, T035 |
 | Escenario 2 y 2b | T016, T037a, T037b, T038 |
 | Escenario 3 | T016, T038, T041 |

@@ -6,11 +6,63 @@ on:
 
 jobs:
   pytest:
-    runs-on: ubuntu-latest
+    # Plataformas objetivo: Linux y Windows 10/11 (constitución, sección Plataformas).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Instalar ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Instalar ffmpeg (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg dosfstools
+
+      - name: Instalar ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg --no-progress -y
+
+      # Sin ffmpeg los tests marcados `ffmpeg` se omitirían en silencio (research R15).
+      - name: Comprobar ffmpeg
+        run: |
+          ffmpeg -version
+          ffprobe -version
+
+      # Volúmenes sin enlaces duros para probar el respaldo de `publish.publicar` (research R7).
+      - name: Volumen FAT32 (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          truncate -s 128M "$RUNNER_TEMP/fat32.img"
+          mkfs.vfat -F 32 "$RUNNER_TEMP/fat32.img"
+          sudo mkdir -p /mnt/fat32
+          sudo mount -o loop,uid=$(id -u),gid=$(id -g),utf8 "$RUNNER_TEMP/fat32.img" /mnt/fat32
+          echo "DOWNLOADER_TEST_SIN_ENLACES=/mnt/fat32" >> "$GITHUB_ENV"
+
+      - name: Volúmenes FAT32 y exFAT (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $volumenes = @()
+          foreach ($fs in @(@{fs = 'fat32'; letra = 'F'}, @{fs = 'exfat'; letra = 'X'})) {
+            $vhd = Join-Path $env:RUNNER_TEMP "$($fs.fs).vhdx"
+            $guion = Join-Path $env:RUNNER_TEMP "diskpart-$($fs.fs).txt"
+            @(
+              "create vdisk file=`"$vhd`" maximum=128 type=expandable"
+              "select vdisk file=`"$vhd`""
+              "attach vdisk"
+              "create partition primary"
+              "format fs=$($fs.fs) quick label=$($fs.fs)"
+              "assign letter=$($fs.letra)"
+            ) | Set-Content -Encoding ascii $guion
+            diskpart /s $guion
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            $volumenes += "$($fs.letra):\"
+          }
+          "DOWNLOADER_TEST_SIN_ENLACES=$($volumenes -join ';')" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - uses: astral-sh/setup-uv@v6
+
       - name: Tests
-        run: uv run pytest
+        run: uv run pytest -rs

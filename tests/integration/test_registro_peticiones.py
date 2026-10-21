@@ -148,7 +148,7 @@ def test_token_hls_caducado_se_recupera_al_volver_a_extraer(una_vez, servidor, m
     for i in range(3):
         assert servidor.peticiones[f"hls/fragmento{i}.ts"] == 1
     assert servidor.peticiones["hls/index.m3u8"] == 2
-    assert (ytdl.directorio_trabajo(descarga) / "v.mp4").exists()
+    assert (ytdl.directorio_trabajo(descarga) / "descarga.mp4").exists()
 
 
 def test_403_constante_falla_tras_3_intentos_sin_avance(una_vez, servidor, medios):
@@ -177,4 +177,4 @@ def test_403_con_avance_no_agota_el_tope(una_vez, servidor, medios, descarga):
 
     assert decision is None
     assert any(c.ambiguo for c in clasificaciones)
-    assert (ytdl.directorio_trabajo(descarga) / "v.mp4").read_bytes() == datos
+    assert (ytdl.directorio_trabajo(descarga) / "descarga.mp4").read_bytes() == datos

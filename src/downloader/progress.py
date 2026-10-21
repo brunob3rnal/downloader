@@ -34,7 +34,7 @@ def _tiempo(segundos) -> str:
 def _ruta_visible(ruta) -> str:
     ruta = Path(ruta)
     try:
-        return f"~/{ruta.relative_to(Path.home())}"
+        return str(Path("~") / ruta.relative_to(Path.home()))  # `~\Downloads\…` en Windows
     except ValueError:
         return str(ruta)
 

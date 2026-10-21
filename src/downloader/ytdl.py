@@ -16,7 +16,10 @@ from downloader.errors import Fase, RegistroRed, UltimaPeticion, ocultar_secreto
 from downloader.models import Calidad, Descarga
 
 DIRECTORIO_TEMPORAL = ".downloader-tmp"
-PLANTILLA = "%(id)s.%(ext)s"
+# Nombre fijo y corto en el directorio de trabajo (que ya es uno por descarga): el id del video
+# podría ser largo o un nombre reservado de Windows (`CON`, `NUL`…), que `windowsfilenames` no
+# sanea. Cada intento usa el mismo nombre, así que yt-dlp continúa el mismo `.part` (R2, R7).
+PLANTILLA = "descarga.%(ext)s"
 
 FORMATOS = {
     Calidad.MEJOR: "bv*+ba/b",
@@ -161,6 +164,8 @@ def opciones(
     opciones = _comunes(navegador, socket_timeout) | {
         "format": FORMATOS[descarga.calidad],
         "outtmpl": {"default": str(Path(directorio_trabajo) / PLANTILLA)},
+        # Nombres válidos en Windows también desde Linux (p. ej. en una unidad exFAT o NTFS).
+        "windowsfilenames": True,
         "continuedl": True,
         "nopart": False,
         # yt-dlp lo activa por defecto y produciría archivos HLS/DASH incompletos (R1).
