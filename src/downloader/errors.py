@@ -2,6 +2,7 @@
 
 import errno
 import re
+from dataclasses import dataclass
 from enum import Enum
 
 from yt_dlp.networking.exceptions import HTTPError, TransportError
@@ -20,6 +21,18 @@ class ErrorPermanente(Exception):
 
 class ErrorFatal(Exception):
     """Error propio que impide seguir con cualquier descarga (base corrupta, ffmpeg ausente…)."""
+
+
+@dataclass
+class UltimaPeticion:
+    """Resultado de la última petición de red de un intento (lo registra `ytdl`).
+
+    `estado` es el código HTTP recibido; `error`, la excepción si no hubo respuesta o si falló
+    la lectura del cuerpo.
+    """
+
+    estado: int | None = None
+    error: BaseException | None = None
 
 
 # Durante la descarga, 403 y 410 suelen ser una URL temporal caducada: la siguiente
@@ -63,18 +76,37 @@ def _tipo_de(exc):
     return None
 
 
+def _por_registro(ultima: UltimaPeticion | None) -> Tipo:
+    """Tipo de un `DownloadError` sin causa según la última petición del intento."""
+    if ultima is None:
+        return Tipo.PERMANENTE
+    if ultima.error is not None:
+        if isinstance(ultima.error, (TransportError, TimeoutError, ConnectionError)):
+            return Tipo.TEMPORAL
+        return Tipo.PERMANENTE
+    if ultima.estado is not None and (ultima.estado >= 500 or ultima.estado == 429):
+        return Tipo.TEMPORAL
+    # 403, 404, 410 o una petición correcta: reintentar no lo arreglaría.
+    return Tipo.PERMANENTE
+
+
 def clasificar(exc: BaseException, en_linea: bool) -> Tipo:
     """Clasifica un error según research R4.
 
     Lo FATAL prevalece siempre. Sin conexión, cualquier otro error es TEMPORAL: yt-dlp envuelve
-    los cortes en errores de extracción que, si no, parecerían permanentes. Con conexión, es
-    TEMPORAL si alguna causa de la cadena lo es; en otro caso, PERMANENTE.
+    los cortes en errores de extracción que, si no, parecerían permanentes. Un `DownloadError`
+    sin causa (yt-dlp agotó sus reintentos y descartó la excepción) se clasifica por el registro
+    de la última petición (`exc.ultima_peticion`). En el resto, es TEMPORAL si alguna causa de
+    la cadena lo es; si no, PERMANENTE.
     """
-    tipos = [_tipo_de(e) for e in _cadena(exc)]
+    cadena = _cadena(exc)
+    tipos = [_tipo_de(e) for e in cadena]
     if Tipo.FATAL in tipos:
         return Tipo.FATAL
     if not en_linea:
         return Tipo.TEMPORAL
+    if isinstance(exc, DownloadError) and len(cadena) == 1:
+        return _por_registro(getattr(exc, "ultima_peticion", None))
     if Tipo.TEMPORAL in tipos:
         return Tipo.TEMPORAL
     return Tipo.PERMANENTE

@@ -137,12 +137,13 @@ y `tests/integration/test_sin_reanudacion.py`) en verde.
 
 ### Implementation for User Story 2
 
+- [X] T037a [US2] Registro de la última petición para los `DownloadError` sin causa (research R4, decisión 6 del plan). Tests primero: en `tests/unit/test_errors.py`, un caso de `clasificar` por cada fila de la tabla de R4 (sin conexión; transporte, timeout y cuerpo incompleto; 5xx y 429; 404, 410 y 403; petición correcta, ninguna o sin registro), que la causa encadenada prevalece sobre el registro y que `FATAL` prevalece; en `tests/integration/test_registro_peticiones.py`, contra `flaky_server` y con más fallos que los reintentos de yt-dlp: corte repetido → `TEMPORAL`, 503 repetido → `TEMPORAL`, fragmento HLS 404 → `PERMANENTE`, y el registro empieza vacío en cada `YoutubeDL`. Implementación: en `src/downloader/ytdl.py`, `YoutubeDLRegistrado` sobrescribe `urlopen`, registra código HTTP o excepción y vigila la lectura del cuerpo, relanza el error, y `crear_ydl` la usa; `descargar` y `extraer_plano` adjuntan el registro al `DownloadError` como `ultima_peticion`; `tests/support/fake_extractor.crear_ydl` usa la misma subclase; en `src/downloader/errors.py`, `UltimaPeticion` y la rama de `clasificar` para `DownloadError` sin causa
 - [ ] T038 [US2] Ampliar `src/downloader/worker.py`: ante un error `TEMPORAL` (`errors.clasificar` con `monitor.en_linea`) pasar a `waiting_network`, calcular `proximo_intento` con `retry.espera(intentos_sin_avance)`, esperar sobre el `Event` del monitor con timeout hasta `proximo_intento`, volver a `downloading` y re-extraer (research R2); reiniciar `intentos_sin_avance` al detectar avance de bytes. Quitar el `xfail` de `tests/integration/test_network_cuts.py`. Hace pasar T016 y T037
 - [ ] T039 [US2] Implementar en `src/downloader/worker.py` la detección de reinicio (FR-024, research R3): por cada archivo, llevar el máximo de bytes conocido (inicializado con el tamaño del `.part` al empezar el intento y actualizado en cada evento del hook); si un evento trae `downloaded_bytes` menor que ese máximo, guardar `ultimo_aviso` y mostrarlo con `progress` (una sola vez por reinicio). Hace pasar los dos casos de T036
 - [ ] T040 [US2] Ampliar `src/downloader/progress.py` con la línea `#13 esperando red  reintento en 40 s  (<causa>)` (contracts/cli.md) y cuenta atrás actualizada cada segundo
 - [ ] T041 [US2] Integrar `network.MonitorRed` en `src/downloader/cli.py` (`ejecutar` lo inicia con `config.sondas_red` y lo detiene al salir)
 
-**Checkpoint**: T016 y T036–T037 en verde; US1 sigue en verde.
+**Checkpoint**: T016, T036–T037 y T037a en verde; US1 sigue en verde.
 
 ---
 
@@ -277,7 +278,7 @@ perder progreso; directos y DRM rechazados.
 | FR-024 (reinicio con aviso) | T036, T039 |
 | FR-025 (`actualizar`) | T060, T061 |
 | Escenario 1 | T028, T034, T035 |
-| Escenario 2 y 2b | T016, T038 |
+| Escenario 2 y 2b | T016, T037a, T038 |
 | Escenario 3 | T016, T038, T041 |
 | Escenario 4 | T017, T043 |
 | Escenario 5 | T051, T054 |

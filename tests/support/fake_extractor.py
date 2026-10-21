@@ -13,7 +13,6 @@ Escenarios por `<id>`:
   un manifiesto `.m3u8`, el formato es HLS.
 """
 
-from yt_dlp import YoutubeDL
 from yt_dlp.extractor.common import InfoExtractor
 from yt_dlp.utils import ExtractorError
 
@@ -74,14 +73,19 @@ def registrar(ydl):
 
     yt-dlp prueba los extractores en el orden en que se añadieron y el genérico acepta
     cualquier URL, así que hay que llamarlo antes de cargar los extractores por defecto
-    (`YoutubeDL(..., auto_init=False)`); `crear_ydl` lo hace así.
+    (`auto_init=False`); `crear_ydl` lo hace así.
     """
     ydl.add_info_extractor(FalsoIE())
 
 
 def crear_ydl(opciones):
-    """Sustituto de `downloader.ytdl.crear_ydl` que reconoce las URLs de prueba."""
-    ydl = YoutubeDL(opciones, auto_init=False)
+    """Sustituto de `downloader.ytdl.crear_ydl` que reconoce las URLs de prueba.
+
+    Usa la misma subclase que la aplicación, para conservar el registro de la última petición.
+    """
+    from downloader.ytdl import YoutubeDLRegistrado
+
+    ydl = YoutubeDLRegistrado(opciones, auto_init=False)
     registrar(ydl)
     ydl.add_default_info_extractors()
     return ydl

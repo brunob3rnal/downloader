@@ -1,13 +1,16 @@
 """Adaptador de yt-dlp: opciones, formatos, extracción y progreso (research R1, R2, R6, R12, R13)."""
 
 import logging
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import NamedTuple
 
 from yt_dlp import YoutubeDL
+from yt_dlp.networking.exceptions import HTTPError, IncompleteRead
+from yt_dlp.utils import DownloadError
 
-from downloader.errors import ocultar_secretos
+from downloader.errors import UltimaPeticion, ocultar_secretos
 from downloader.models import Calidad, Descarga
 
 DIRECTORIO_TEMPORAL = ".downloader-tmp"
@@ -49,9 +52,73 @@ class Logger:
         self._logger.error(ocultar_secretos(mensaje))
 
 
-def crear_ydl(opciones: dict) -> YoutubeDL:
+class YoutubeDLRegistrado(YoutubeDL):
+    """`YoutubeDL` que recuerda el resultado de la última petición de red (research R4).
+
+    Cuando yt-dlp agota sus reintentos internos lanza un `DownloadError` sin la excepción
+    original; `errors.clasificar` usa este registro para saber qué falló. Se registra el
+    resultado de `urlopen` (código HTTP o excepción) y también el de la lectura del cuerpo: en un
+    corte, `urlopen` responde bien y el error llega al leer. Cada intento crea su propia
+    instancia, así que el registro empieza vacío en cada intento.
+    """
+
+    def __init__(self, *args, **kwargs):
+        self.ultima_peticion: UltimaPeticion | None = None
+        self._cerrojo_registro = threading.Lock()
+        super().__init__(*args, **kwargs)
+
+    def _registrar(self, resultado: UltimaPeticion) -> None:
+        with self._cerrojo_registro:
+            self.ultima_peticion = resultado
+
+    def urlopen(self, req):
+        try:
+            respuesta = super().urlopen(req)
+        except HTTPError as error:
+            self._registrar(UltimaPeticion(estado=error.status))
+            raise
+        except Exception as error:
+            self._registrar(UltimaPeticion(error=error))
+            raise
+        self._registrar(UltimaPeticion(estado=respuesta.status))
+        self._vigilar_cuerpo(respuesta)
+        return respuesta
+
+    def _vigilar_cuerpo(self, respuesta) -> None:
+        leer = respuesta.read
+        esperado = respuesta.headers.get("Content-Length")
+        esperado = int(esperado) if esperado and esperado.isdigit() else None
+        recibidos = 0
+
+        def read(amt=None):
+            nonlocal recibidos
+            try:
+                datos = leer(amt)
+            except Exception as error:
+                self._registrar(UltimaPeticion(error=error))
+                raise
+            recibidos += len(datos)
+            if not datos and amt != 0 and esperado is not None and recibidos < esperado:
+                # El servidor cerró antes de enviar todo el cuerpo: respuesta truncada.
+                self._registrar(UltimaPeticion(error=IncompleteRead(recibidos, esperado)))
+            return datos
+
+        respuesta.read = read
+
+
+def crear_ydl(opciones: dict) -> YoutubeDLRegistrado:
     """Único punto donde se instancia `YoutubeDL` (los tests lo sustituyen)."""
-    return YoutubeDL(opciones)
+    return YoutubeDLRegistrado(opciones)
+
+
+def _ejecutar(opciones: dict, url: str, download: bool) -> dict:
+    """`extract_info` que, si falla, adjunta al error el registro de la última petición."""
+    with crear_ydl(opciones) as ydl:
+        try:
+            return ydl.sanitize_info(ydl.extract_info(url, download=download))
+        except DownloadError as error:
+            error.ultima_peticion = ydl.ultima_peticion
+            raise
 
 
 def directorio_trabajo(descarga: Descarga) -> Path:
@@ -98,8 +165,7 @@ def opciones(
 def extraer_plano(url: str, navegador: str | None = None, socket_timeout: float = 20) -> dict:
     """Información de la URL sin descargar; las listas traen sus entradas sin resolver (R13)."""
     opciones = _comunes(navegador, socket_timeout) | {"extract_flat": "in_playlist"}
-    with crear_ydl(opciones) as ydl:
-        return ydl.sanitize_info(ydl.extract_info(url, download=False))
+    return _ejecutar(opciones, url, download=False)
 
 
 def descargar(
@@ -123,5 +189,8 @@ def descargar(
             )
         )
 
-    with crear_ydl(opciones(descarga, directorio_trabajo, navegador, hook, socket_timeout)) as ydl:
-        return ydl.sanitize_info(ydl.extract_info(descarga.url, download=True))
+    return _ejecutar(
+        opciones(descarga, directorio_trabajo, navegador, hook, socket_timeout),
+        descarga.url,
+        download=True,
+    )

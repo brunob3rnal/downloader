@@ -83,7 +83,7 @@ src/downloader/
 ├── errors.py            # clasificación TEMPORAL / PERMANENTE / FATAL, filtro de secretos
 ├── retry.py             # cálculo del backoff
 ├── network.py           # hilo monitor de conectividad
-├── ytdl.py              # adaptador yt-dlp: opciones, formatos, progreso, listas
+├── ytdl.py              # adaptador yt-dlp: opciones, formatos, progreso, listas, registro de la última petición
 ├── publish.py           # verificación (tamaño, ffprobe) y publicación sin sobrescribir
 ├── worker.py            # bucle de ejecutar: tomar, descargar, clasificar, esperar
 └── progress.py          # presentación del progreso en terminal
@@ -110,6 +110,10 @@ tests/
 4. Una sola descarga simultánea en v1; la concurrencia configurable queda para una feature
    futura (spec, Assumptions).
 5. El comando de mantenimiento se llama `actualizar` y actualiza yt-dlp (FR-025, R14).
+6. `ytdl.crear_ydl` usa una subclase de `YoutubeDL` que registra el resultado de la última
+   petición (incluida la lectura del cuerpo), porque yt-dlp descarta la excepción original al
+   agotar sus reintentos; `errors.clasificar` lo usa para los `DownloadError` sin causa (R4).
+   Es la única subclase de yt-dlp del proyecto y sobrescribe un solo método (`urlopen`).
 
 ## Complexity Tracking
 

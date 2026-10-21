@@ -10,6 +10,7 @@ from downloader.errors import (
     ErrorFatal,
     ErrorPermanente,
     Tipo,
+    UltimaPeticion,
     clasificar,
     ocultar_secretos,
 )
@@ -159,3 +160,63 @@ def test_ocultar_secretos_conserva_el_resto():
     assert "itag=22" in resultado
     assert "mime=video" in resultado
     assert "monkey=1" in ocultar_secretos("https://x/?monkey=1")
+
+
+# --- DownloadError sin causa: se clasifica por el registro de la última petición (R4) ---
+
+
+def sin_causa(ultima="sin atributo"):
+    """`DownloadError` como el que lanza yt-dlp al agotar sus reintentos: sin `exc_info`."""
+    error = DownloadError("ERROR: [download] Got error: ... Giving up after 3 retries")
+    if ultima != "sin atributo":
+        error.ultima_peticion = ultima
+    return error
+
+
+@pytest.mark.parametrize(
+    "ultima, esperado",
+    [
+        # transporte y timeout
+        (UltimaPeticion(error=TransportError("Connection reset by peer")), Tipo.TEMPORAL),
+        (UltimaPeticion(error=TransportError("timed out")), Tipo.TEMPORAL),
+        (UltimaPeticion(error=TimeoutError("timed out")), Tipo.TEMPORAL),
+        (UltimaPeticion(error=ConnectionError("refused")), Tipo.TEMPORAL),
+        (UltimaPeticion(error=IncompleteRead(partial=400, expected=1000)), Tipo.TEMPORAL),
+        # 5xx y 429
+        (UltimaPeticion(estado=500), Tipo.TEMPORAL),
+        (UltimaPeticion(estado=503), Tipo.TEMPORAL),
+        (UltimaPeticion(estado=429), Tipo.TEMPORAL),
+        # 404, 410, 403
+        (UltimaPeticion(estado=404), Tipo.PERMANENTE),
+        (UltimaPeticion(estado=410), Tipo.PERMANENTE),
+        (UltimaPeticion(estado=403), Tipo.PERMANENTE),
+        # última petición correcta o ninguna
+        (UltimaPeticion(estado=200), Tipo.PERMANENTE),
+        (UltimaPeticion(estado=206), Tipo.PERMANENTE),
+        (None, Tipo.PERMANENTE),
+        ("sin atributo", Tipo.PERMANENTE),
+        # una excepción que no es de red
+        (UltimaPeticion(error=ValueError("petición mal formada")), Tipo.PERMANENTE),
+    ],
+    ids=lambda v: repr(v)[:50],
+)
+def test_download_error_sin_causa_usa_el_registro(ultima, esperado):
+    assert clasificar(sin_causa(ultima), en_linea=True) is esperado
+
+
+@pytest.mark.parametrize("estado", [404, 403, 410, 200])
+def test_registro_sin_conexion_es_temporal(estado):
+    assert clasificar(sin_causa(UltimaPeticion(estado=estado)), en_linea=False) is Tipo.TEMPORAL
+
+
+def test_registro_no_sustituye_a_una_causa_encadenada():
+    # Con causa en exc_info manda la cadena (un 403 de descarga HTTP es una URL caducada).
+    error = download_error(error_http(403))
+    error.ultima_peticion = UltimaPeticion(estado=403)
+    assert clasificar(error, en_linea=True) is Tipo.TEMPORAL
+
+
+def test_fatal_prevalece_sobre_el_registro():
+    error = download_error(OSError(errno.ENOSPC, "lleno"))
+    error.ultima_peticion = UltimaPeticion(estado=503)
+    assert clasificar(error, en_linea=True) is Tipo.FATAL
