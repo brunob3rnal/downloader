@@ -4,13 +4,19 @@ import os
 import shutil
 import time
 from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
-from downloader import errors, publish, ytdl
-from downloader.errors import ErrorFatal, ErrorPermanente, Tipo
+from downloader import errors, publish, retry, ytdl
+from downloader.errors import Clasificacion, ErrorFatal, ErrorPermanente, Tipo
 from downloader.models import Descarga, Estado, TipoDescarga
 from downloader.network import Monitor
 from downloader.progress import Presentador
 from downloader.store import Store
+from downloader.ytdl import Progreso
+
+PASO_ESPERA = 0.25  # s entre comprobaciones del monitor durante la espera de un reintento
+AVISO_REINICIO = "reiniciada desde cero: el servidor no permite reanudar"
 
 
 @dataclass
@@ -25,6 +31,46 @@ class Tiempos:
 class Resultado:
     completadas: list[int] = field(default_factory=list)
     fallidas: list[int] = field(default_factory=list)
+
+
+class _Seguimiento:
+    """Lo que el trabajador sabe de una descarga entre sus intentos (research R3, R4, R10).
+
+    `sin_avance` cuenta los intentos fallidos seguidos sin bytes nuevos (vuelve a 0 con
+    cualquier avance y no crece sin conexión). Por cada archivo se lleva el máximo de bytes
+    conocido en el intento, que parte del tamaño de su `.part`: un evento por debajo de ese
+    máximo indica que yt-dlp volvió a empezar desde cero.
+    """
+
+    def __init__(self, descarga: Descarga):
+        self.descarga = descarga
+        self.tope = retry.TopeSinAvance()
+        self.sin_avance = descarga.intentos_sin_avance
+        self.avisos: list[str] = []
+        self._maximos: dict[str | None, int] = {}
+        self._avance = False
+
+    def empezar_intento(self, trabajo: Path) -> None:
+        self._maximos = {
+            p.name.removesuffix(".part"): p.stat().st_size for p in trabajo.glob("*.part")
+        }
+
+    def observar(self, progreso: Progreso) -> bool:
+        """Anota el progreso; devuelve `True` si el archivo volvió a empezar desde cero."""
+        if progreso.bytes is None:
+            return False
+        self.tope.observar(progreso.archivo, progreso.bytes)
+        nombre = Path(progreso.archivo).name if progreso.archivo else None
+        anterior = self._maximos.get(nombre, 0)
+        self._maximos[nombre] = progreso.bytes
+        self._avance |= progreso.bytes > anterior
+        return progreso.bytes < anterior
+
+    def cerrar_intento(self, clasificacion: Clasificacion, en_linea: bool) -> retry.Decision:
+        avance, self._avance = self._avance, False
+        if avance or en_linea:  # sin conexión, el intento no cuenta (FR-007)
+            self.sin_avance = retry.siguiente_intento(self.sin_avance, avance)
+        return self.tope.cerrar_intento(clasificacion)
 
 
 def ejecutar(
@@ -59,19 +105,30 @@ def _procesar(store, monitor, presentador, tiempos, navegador, descarga, resulta
     descarga = store.transicion(descarga.id, Estado.DOWNLOADING)
     presentador.inicio(descarga)
     navegador = navegador or descarga.navegador_cookies
-    try:
-        info = ytdl.extraer_plano(descarga.url, navegador, tiempos.socket_timeout)
-        descarga = replace(descarga, titulo=info.get("title") or descarga.titulo)
-        presentador.titulo(descarga)
-        if info.get("_type") == "playlist":
-            _expandir_lista(store, presentador, descarga, info)
+    seguimiento = _Seguimiento(descarga)
+    while True:
+        try:
+            ruta = _intentar(store, presentador, tiempos, navegador, seguimiento)
+        except Exception as error:
+            if _fallo(store, monitor, presentador, tiempos, seguimiento, error, resultado):
+                continue
             return
-        ruta = _descargar(store, presentador, tiempos, navegador, descarga)
-    except Exception as error:
-        _fallo(store, monitor, presentador, descarga, error, resultado)
+        if ruta is not None:
+            resultado.completadas.append(descarga.id)
+            presentador.completada(seguimiento.descarga, ruta)
         return
-    resultado.completadas.append(descarga.id)
-    presentador.completada(descarga, ruta)
+
+
+def _intentar(store, presentador, tiempos, navegador, seguimiento):
+    """Un intento: volver a extraer (R2) y descargar; `None` si la URL era una lista."""
+    descarga = seguimiento.descarga
+    info = ytdl.extraer_plano(descarga.url, navegador, tiempos.socket_timeout)
+    descarga = seguimiento.descarga = replace(descarga, titulo=info.get("title") or descarga.titulo)
+    presentador.titulo(descarga)
+    if info.get("_type") == "playlist":
+        _expandir_lista(store, presentador, descarga, info)
+        return None
+    return _descargar(store, presentador, tiempos, navegador, seguimiento)
 
 
 def _expandir_lista(store, presentador, descarga, info):
@@ -96,12 +153,20 @@ def _comprobar_carpeta(carpeta: str) -> None:
         raise ErrorPermanente(f"Sin permiso de escritura en la carpeta de destino {carpeta}")
 
 
-def _descargar(store, presentador, tiempos, navegador, descarga):
+def _descargar(store, presentador, tiempos, navegador, seguimiento):
+    descarga = seguimiento.descarga
     _comprobar_carpeta(descarga.carpeta_destino)
     trabajo = ytdl.directorio_trabajo(descarga)
     trabajo.mkdir(parents=True, exist_ok=True)
+    seguimiento.empezar_intento(trabajo)
 
     def al_progresar(progreso):
+        if seguimiento.observar(progreso):
+            # El servidor ignoró `Range` y yt-dlp borró el `.part` (FR-024, R3).
+            if AVISO_REINICIO not in seguimiento.avisos:
+                seguimiento.avisos.append(AVISO_REINICIO)
+                store.guardar_aviso(descarga.id, "; ".join(seguimiento.avisos))
+            presentador.aviso(descarga, AVISO_REINICIO)
         presentador.progreso(descarga, progreso)
         if progreso.bytes is not None:
             store.guardar_progreso(descarga.id, progreso.bytes, progreso.total)
@@ -119,7 +184,8 @@ def _descargar(store, presentador, tiempos, navegador, descarga):
         presentador.aviso(descarga, aviso)
     store.transicion(
         descarga.id, Estado.COMPLETED, archivo_final=str(publicacion.ruta),
-        titulo=info.get("title"), ultimo_aviso="; ".join(avisos) or None,
+        titulo=info.get("title"), ultimo_aviso="; ".join(seguimiento.avisos + avisos) or None,
+        intentos_sin_avance=0,
     )
     # Solo tras publicar se borra el directorio de trabajo (data-model.md).
     shutil.rmtree(trabajo, ignore_errors=True)
@@ -134,14 +200,57 @@ def _mensaje(error: BaseException) -> str:
     return errors.ocultar_secretos(str(error).removeprefix("ERROR: ").strip())
 
 
-def _fallo(store, monitor, presentador, descarga: Descarga, error, resultado):
-    tipo = errors.clasificar(error, monitor.en_linea.is_set())
+def _fallo(store, monitor, presentador, tiempos, seguimiento, error, resultado) -> bool:
+    """Decide qué hacer tras un intento fallido; `True` si hay que volver a intentarlo.
+
+    PERMANENTE (o el tope de errores ambiguos) deja la descarga fallida. TEMPORAL la pasa a
+    `waiting_network` hasta el próximo intento (R10) y la devuelve a `downloading`.
+    """
+    descarga = seguimiento.descarga
+    en_linea = monitor.en_linea.is_set()
+    clasificacion = errors.clasificar_detalle(error, en_linea)
     mensaje = _mensaje(error)
-    if tipo is Tipo.FATAL:
+    if clasificacion.tipo is Tipo.FATAL:
         store.transicion(descarga.id, Estado.QUEUED, ultimo_error=mensaje)
         raise ErrorFatal(mensaje) from error
-    # Hasta que existan los reintentos (US2), un error temporal también deja la descarga
-    # fallida; el usuario puede volver a agregarla.
-    store.transicion(descarga.id, Estado.FAILED, ultimo_error=mensaje, titulo=descarga.titulo)
-    resultado.fallidas.append(descarga.id)
-    presentador.fallida(descarga, mensaje)
+    decision = seguimiento.cerrar_intento(clasificacion, en_linea)
+    if decision.tipo is Tipo.PERMANENTE:
+        mensaje = decision.mensaje or mensaje
+        store.transicion(descarga.id, Estado.FAILED, ultimo_error=mensaje, titulo=descarga.titulo)
+        resultado.fallidas.append(descarga.id)
+        presentador.fallida(descarga, mensaje)
+        return False
+
+    segundos = retry.espera(seguimiento.sin_avance, tiempos.backoff_base, tiempos.backoff_tope)
+    proximo = datetime.now(UTC) + timedelta(seconds=segundos)
+    store.transicion(
+        descarga.id, Estado.WAITING_NETWORK, ultimo_error=mensaje, titulo=descarga.titulo,
+        intentos_sin_avance=seguimiento.sin_avance,
+        proximo_intento=proximo.isoformat(timespec="milliseconds"),
+    )
+    _esperar(monitor, presentador, descarga, time.monotonic() + segundos, mensaje)
+    seguimiento.descarga = store.transicion(descarga.id, Estado.DOWNLOADING)
+    presentador.inicio(seguimiento.descarga)
+    return True
+
+
+def _esperar(monitor, presentador, descarga, hasta: float, causa: str) -> None:
+    """Espera hasta `hasta` (reloj monotónico) para reintentar.
+
+    Sin conexión no se reintenta: se espera a que vuelva la red y entonces se reintenta de
+    inmediato, aunque no haya llegado `hasta` (R10). Se comprueba el monitor cada
+    `PASO_ESPERA` s, así Ctrl+C también interrumpe la espera en Windows.
+    """
+    presentador.esperando(descarga, hasta, causa)
+    sin_red = False
+    while True:
+        if not monitor.en_linea.is_set():
+            if not sin_red:
+                sin_red = True
+                presentador.esperando(descarga, None, causa)
+            monitor.en_linea.wait(PASO_ESPERA)
+            continue
+        resto = hasta - time.monotonic()
+        if sin_red or resto <= 0:
+            return
+        time.sleep(min(resto, PASO_ESPERA))

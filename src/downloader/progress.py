@@ -1,5 +1,6 @@
 """Presentación del progreso de `ejecutar` (contracts/cli.md, FR-005, SC-007)."""
 
+import math
 import threading
 import time
 from dataclasses import dataclass
@@ -22,6 +23,10 @@ class _Activa:
     descarga: Descarga
     progreso: Progreso | None = None
     ultima_linea: float | None = None
+    # En `waiting_network`: la causa y el instante del reintento (reloj monotónico), o `None`
+    # en `reintento` si se espera a que vuelva la conexión.
+    causa_espera: str | None = None
+    reintento: float | None = None
 
 
 def _tiempo(segundos) -> str:
@@ -44,8 +49,18 @@ def _nombre(descarga: Descarga) -> str:
 
 
 def linea_activa(activa: _Activa) -> str:
-    """`#12 descargando  43.1%  3.2 MiB/s  ETA 00:01:52  Título`."""
+    """`#12 descargando  43.1%  3.2 MiB/s  ETA 00:01:52  Título`.
+
+    En espera: `#13 esperando red  reintento en 40 s  (causa)`, con la cuenta atrás calculada
+    al dibujar la línea.
+    """
     descarga, progreso = activa.descarga, activa.progreso
+    if activa.causa_espera is not None:
+        if activa.reintento is None:
+            cuando = "sin conexión, reintento al volver la red"
+        else:
+            cuando = f"reintento en {max(0, math.ceil(activa.reintento - time.monotonic()))} s"
+        return f"#{descarga.id} {ETIQUETAS[Estado.WAITING_NETWORK]}  {cuando}  ({activa.causa_espera})"
     prefijo = f"#{descarga.id} {ETIQUETAS[Estado.DOWNLOADING]}"
     if progreso is None or progreso.bytes is None:
         return f"{prefijo}  {_nombre(descarga)}"
@@ -113,6 +128,14 @@ class Presentador:
         with self._cerrojo:
             activa = self._activas.setdefault(descarga.id, _Activa(descarga))
             activa.progreso = progreso
+
+    def esperando(self, descarga: Descarga, reintento: float | None, causa: str) -> None:
+        """La descarga espera para reintentar hasta `reintento` (`time.monotonic()`), o hasta
+        que vuelva la conexión si es `None`."""
+        with self._cerrojo:
+            activa = self._activas.setdefault(descarga.id, _Activa(descarga))
+            activa.causa_espera = ocultar_secretos(causa)
+            activa.reintento = reintento
 
     def completada(self, descarga: Descarga, ruta) -> None:
         with self._cerrojo:

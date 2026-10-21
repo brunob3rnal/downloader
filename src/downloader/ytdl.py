@@ -9,13 +9,15 @@ from typing import NamedTuple
 from yt_dlp import YoutubeDL
 from yt_dlp.downloader import get_suitable_downloader
 from yt_dlp.downloader.external import ExternalFD
-from yt_dlp.networking.exceptions import HTTPError, IncompleteRead
+from yt_dlp.networking.exceptions import HTTPError, IncompleteRead, TransportError
 from yt_dlp.utils import DownloadError
 
 from downloader.errors import Fase, RegistroRed, UltimaPeticion, ocultar_secretos
 from downloader.models import Calidad, Descarga
 
 DIRECTORIO_TEMPORAL = ".downloader-tmp"
+# Tamaño de cada lectura del cuerpo de una respuesta: lo máximo que se pierde en un corte (R18).
+TROZO_LECTURA = 4096
 # Nombre fijo y corto en el directorio de trabajo (que ya es uno por descarga): el id del video
 # podría ser largo o un nombre reservado de Windows (`CON`, `NUL`…), que `windowsfilenames` no
 # sanea. Cada intento usa el mismo nombre, así que yt-dlp continúa el mismo `.part` (R2, R7).
@@ -101,12 +103,20 @@ class YoutubeDLRegistrado(YoutubeDL):
         return respuesta
 
     def _vigilar_cuerpo(self, respuesta) -> None:
+        """Envuelve `respuesta.read` para registrar sus errores y no perder bytes en un corte.
+
+        yt-dlp pide bloques de hasta 4 MiB, y urllib3 descarta lo ya recibido de un bloque si
+        la conexión se corta antes de completarlo (research R18). Por eso se lee en trozos de
+        `TROZO_LECTURA` bytes: si un trozo falla con un error de transporte tras haber
+        acumulado bytes, se entregan esos bytes y el error se relanza en la lectura siguiente.
+        """
         leer = respuesta.read
         esperado = respuesta.headers.get("Content-Length")
         esperado = int(esperado) if esperado and esperado.isdigit() else None
         recibidos = 0
+        aplazado: TransportError | None = None
 
-        def read(amt=None):
+        def leer_registrando(amt):
             nonlocal recibidos
             try:
                 datos = leer(amt)
@@ -118,6 +128,27 @@ class YoutubeDLRegistrado(YoutubeDL):
                 # El servidor cerró antes de enviar todo el cuerpo: respuesta truncada.
                 self._registrar(UltimaPeticion(error=IncompleteRead(recibidos, esperado)))
             return datos
+
+        def read(amt=None):
+            nonlocal aplazado
+            if aplazado is not None:
+                error, aplazado = aplazado, None
+                raise error
+            if amt is None or amt < 0:
+                return leer_registrando(amt)
+            acumulado = bytearray()
+            while len(acumulado) < amt:
+                try:
+                    trozo = leer_registrando(min(TROZO_LECTURA, amt - len(acumulado)))
+                except TransportError as error:
+                    if not acumulado:
+                        raise
+                    aplazado = error
+                    break
+                if not trozo:
+                    break
+                acumulado += trozo
+            return bytes(acumulado)
 
         respuesta.read = read
 

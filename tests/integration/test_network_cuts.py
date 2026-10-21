@@ -13,8 +13,6 @@ import pytest
 
 from tests.support import fake_extractor
 
-pytestmark = pytest.mark.xfail(strict=True, reason="pendiente de la Fase 4 (US2)")
-
 LIMITE = 60  # s; un bucle que no se recupera no debe colgar la suite
 
 

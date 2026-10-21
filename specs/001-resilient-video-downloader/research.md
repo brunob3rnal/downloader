@@ -370,3 +370,29 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   `msvcrt`…) o un `signal.SIGKILL`, `os.fork`, `os.getuid`… que no estén bajo
   `if os.name …`/`sys.platform …`, `hasattr(…)` o `try … except ImportError`. La verificación
   real del comportamiento en Windows es el job `windows-latest` del CI.
+
+## R18. Bytes perdidos en un corte a mitad de bloque
+
+- **Hallazgo** (yt-dlp 2026.08.19, urllib3 2.8.0, verificado): el descargador HTTP de yt-dlp
+  lee con `read(bloque)` y agranda el bloque según la velocidad, hasta 4 MiB
+  (`best_block_size`). Con el manejador `requests` (el preferido con `yt-dlp[default]`),
+  `urllib3.HTTPResponse.read(amt, decode_content=True)` sigue leyendo hasta completar `amt`;
+  si la conexión se corta antes, lanza `IncompleteRead` y lo ya recibido de ese bloque se queda
+  en su búfer interno sin entregarse. yt-dlp no lo escribe en el `.part` y el siguiente
+  `Range` lo vuelve a pedir. En los tests de T016 eso suponía un 115–122 % de bytes servidos
+  (SC-002 exige ≤ 101 %).
+- **Decision**: el envoltorio de `read` de `YoutubeDLRegistrado` (R4) lee de la respuesta en
+  trozos de `TROZO_LECTURA` = 4 KiB hasta completar lo pedido. Si un trozo falla con un
+  `TransportError` tras haber acumulado bytes, devuelve lo acumulado y guarda la excepción
+  para relanzarla en la siguiente llamada a `read`; si no había bytes, la relanza al momento.
+  El error se registra en el momento en que ocurre, así que la clasificación (R4) no cambia.
+  Como mucho se pierden 4 KiB por corte (el trozo en curso, si la librería lo descarta).
+- **Coste medido** (`ytdl.descargar` de un archivo de 200 MiB contra `flaky_server` en otro
+  proceso, sin límite de velocidad, mediana de 10 descargas, dos series): antes 693–721 MiB/s,
+  después 273–277 MiB/s (−60 %). Con trozos de 16 KiB serían 466 MiB/s, pero se perderían
+  hasta 16 KiB por corte. Aun así, 275 MiB/s (≈ 2,3 Gbit/s) está muy por encima de una conexión
+  a internet doméstica: el coste es CPU, no velocidad efectiva.
+- **Alternatives considered**: (A) `buffersize=4096` y `noresizebuffer=True` en las opciones de
+  yt-dlp: el mismo límite de pérdida, pero yt-dlp llamaría al hook de progreso y escribiría
+  en disco cada 4 KiB; (C) recuperar el búfer interno de urllib3 tras el error: depende de
+  atributos privados (`_decoded_buffer`).
