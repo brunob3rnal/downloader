@@ -92,7 +92,7 @@ tests/
 ├── conftest.py          # marcador ffmpeg, fixtures de servidor y base de datos temporal
 ├── support/
 │   ├── flaky_server.py  # HTTP con Range, cortes, 403 por token, apagado/rearranque
-│   └── test_extractor.py
+│   └── fake_extractor.py   # InfoExtractor de prueba (no empieza por test_)
 ├── unit/                # models, store, errors, retry, publish, ytdl (formatos)
 └── integration/         # cortes, caída de red, SIGKILL, URL caducada, permanentes, listas, CLI
 ```
