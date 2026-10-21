@@ -8,7 +8,14 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   construye las opciones y traduce progreso y errores. Opciones fijas:
   `continuedl=True`, `nopart=False`, `skip_unavailable_fragments=False`,
   `retries=3`, `fragment_retries=3`, `socket_timeout=20`, `noplaylist=True` al descargar,
-  `quiet=True` con un `logger` propio y `progress_hooks` para el progreso.
+  `quiet=True` con un `logger` propio y `progress_hooks` para el progreso. `crear_ydl` fija
+  además `hls_prefer_native=True` (HLS con el descargador nativo, que pasa por `urlopen` y
+  deja registro de cada petición, R4, en lugar de ffmpeg). La dependencia es
+  `yt-dlp[default]`: añade `pycryptodomex` (sin ella, HLS con AES-128 se delegaría en ffmpeg),
+  `requests`/`urllib3` (manejador HTTP preferido por yt-dlp), `brotli`, `certifi`,
+  `websockets`, `mutagen` y `yt-dlp-ejs`. Licencias revisadas: BSD, Apache-2.0, MIT, MPL-2.0,
+  Unlicense/ISC y `mutagen` GPL-2.0-or-later (a tener en cuenta si el proyecto se distribuye
+  con una licencia incompatible con la GPL).
 - **Rationale**: es lo pedido y evita parsear la salida de un subproceso. Los reintentos
   internos de yt-dlp se dejan bajos porque los reintentos indefinidos son nuestros (FR-010).
   `skip_unavailable_fragments` vale `True` por defecto en
@@ -49,26 +56,77 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
 
 ## R4. Clasificación de errores
 
-- **Decision**: `errors.py` clasifica cada excepción en `TEMPORAL`, `PERMANENTE` o `FATAL`:
-  - `TEMPORAL`: errores de transporte (`yt_dlp.networking.exceptions.TransportError`,
-    `TimeoutError`, `ConnectionError`), HTTP 5xx, 403/410 durante la descarga (URL caducada) y
-    cualquier error mientras el monitor de red indica "sin conexión". Se recorre la cadena
-    `exc_info` / `cause` de `DownloadError` y `ExtractorError`.
-  - `PERMANENTE`: `UnsupportedError`, `ExtractorError(expected=True)` (video borrado,
-    privado, restricción geográfica, DRM), contenido en directo, fallo de verificación.
-  - `PERMANENTE` también: carpeta de destino inexistente o sin permisos al procesar (afecta
-    solo a esa descarga, FR-018).
-  - `FATAL` (detiene `ejecutar`, FR-021): disco lleno (`ENOSPC`), archivo de estado corrupto,
-    ffmpeg o ffprobe ausentes. Afectan a todo el entorno: seguir con otras descargas
-    fallaría igual.
-  - Cualquier otro error no listado → `PERMANENTE`, con el mensaje original filtrado. Así un
-    fragmento HLS/DASH que falta de forma persistente (que yt-dlp no se salta, R1) hace fallar
-    la descarga con causa clara en lugar de reintentarse para siempre; si el monitor indica
-    "sin conexión", la regla anterior lo hace `TEMPORAL`.
-- **Rationale**: la regla "si no hay red, es temporal" evita marcar como permanente un
-  `ExtractorError` provocado por el corte (yt-dlp envuelve el error de red al descargar la
-  página).
-- **Alternatives considered**: clasificar por el texto del mensaje (frágil entre versiones).
+- **Decision**: `errors.py` clasifica cada excepción en `TEMPORAL`, `PERMANENTE` o `FATAL`, y
+  marca algunos `TEMPORAL` como *ambiguos* (sujetos a un tope, FR-026). Orden de prioridad:
+  1. `FATAL` (detiene `ejecutar`, FR-021): disco lleno (`ENOSPC`), archivo de estado corrupto,
+     ffmpeg o ffprobe ausentes. Afectan a todo el entorno: seguir con otras descargas
+     fallaría igual.
+  2. Monitor de red "sin conexión" → `TEMPORAL`, sea cual sea el error.
+  3. Señal de red: el código HTTP o el error de transporte se toman de la cadena de causas
+     (`exc_info` / `cause` de `DownloadError` y `ExtractorError`, `__cause__`, `__context__`)
+     y, si no hay, del registro de la última petición (ver abajo). Se aplica una sola tabla,
+     según la fase en que ocurrió:
+
+     | Señal | Extracción | Descarga |
+     |-------|------------|----------|
+     | transporte, timeout, conexión rechazada, cuerpo incompleto | `TEMPORAL` | `TEMPORAL` |
+     | HTTP 429 o 5xx | `TEMPORAL` | `TEMPORAL` |
+     | HTTP 404 | `PERMANENTE` | `PERMANENTE` |
+     | HTTP 403 o 410 | `PERMANENTE` | `TEMPORAL` ambiguo (URL caducada: se vuelve a extraer, FR-012) |
+     | otro 4xx | `PERMANENTE` | `PERMANENTE` |
+
+     La fase es extracción si la cadena contiene un `ExtractorError` (yt-dlp envuelve en él
+     todo fallo al obtener la información); si no, la que anota el registro.
+  4. Sin señal de red: `UnsupportedError`, `ExtractorError(expected=True)` (video borrado,
+     privado, restricción geográfica, DRM), contenido en directo y los errores propios
+     (`ErrorPermanente`: carpeta de destino inexistente o sin permisos, FR-018; fallo de
+     verificación) → `PERMANENTE`.
+  5. Sin señal de red y registro correcto o vacío: si la descarga la hacía un programa
+     externo (ffmpeg), cuyas peticiones no ve el registro → `TEMPORAL` ambiguo; en otro caso
+     → `PERMANENTE`, con el mensaje original filtrado.
+- **Tope de los ambiguos** (FR-026): `retry.TopeSinAvance`, una instancia por descarga.
+  Si 3 intentos consecutivos terminan en un error ambiguo sin ningún byte nuevo sobre el
+  máximo ya visto de cada archivo (según el hook de progreso), la descarga falla como
+  `PERMANENTE`. Para 403/410 el mensaje explica que el video puede exigir una sesión y sugiere
+  `--cookies-de NAVEGADOR`. Un intento que termina en un error no ambiguo (corte, timeout,
+  429, 5xx) rompe la racha y no cuenta. Al reanudar HLS, yt-dlp informa `downloaded_bytes`
+  acumulados desde el total anterior (verificado), así que el máximo sirve también para
+  fragmentos.
+- **Registro de la última petición**: cuando yt-dlp agota sus reintentos internos (cortes,
+  timeouts y 5xx en descargas HTTP; cualquier error HTTP o lectura incompleta en fragmentos
+  HLS/DASH) lanza un `DownloadError` con `exc_info` vacío (verificado en yt-dlp 2026.08.19:
+  `RetryManager` llama a `report_error` fuera del bloque `except`). Por eso `ytdl.crear_ydl`
+  usa `YoutubeDLRegistrado`, subclase de `YoutubeDL` que lleva un `RegistroRed` por intento:
+  - `urlopen` sobrescrito registra el código HTTP o la excepción, y envuelve la lectura del
+    cuerpo: en un corte `urlopen` responde 206 y el error llega al leer, así que una excepción
+    de lectura o un cuerpo más corto que `Content-Length` se registran como error de
+    transporte. El error se relanza intacto.
+  - `dl` sobrescrito anota la fase de descarga y si el descargador que elige
+    `get_suitable_downloader` es externo (`ExternalFD`, p. ej. `FFmpegFD`).
+  - Cada intento crea su propio `YoutubeDL`, así que el registro empieza vacío. `descargar` y
+    `extraer_plano` lo adjuntan al `DownloadError` como `registro`.
+- **Caminos que no pasan por `ydl.urlopen`** (verificado en `yt_dlp/downloader/`): la descarga
+  HTTP (`http.py`), los fragmentos HLS/DASH/ISM/F4M (`fragment.py` → `HttpQuietDownloader`),
+  los manifiestos (`hls.py`, `f4m.py`), las claves AES y la extracción
+  (`InfoExtractor._request_webpage`) sí pasan. Lo esquivan:
+  - `FFmpegFD`: con `hls_prefer_native=True` y `pycryptodomex` instalado solo se usa para HLS
+    o DASH en directo (rechazados antes, R5), HLS con cifrado distinto de AES-128 o con DRM
+    (que `HlsFD` delega en ffmpeg en tiempo de ejecución, sin que `dl` lo vea), `rtmp_ffmpeg`
+    y descargas por secciones (no se usan). Su fallo sin señal → `TEMPORAL` ambiguo.
+  - `RtmpFD` (rtmpdump) y `websocket_frag` (librería `websockets`): RTMP y WebSocket están
+    fuera de alcance (spec, Assumptions).
+  - `external_downloader`: no se configura.
+- **Rationale**: "sin red, es temporal" evita marcar como permanente un `ExtractorError`
+  provocado por un corte. El registro recupera el tipo de error que yt-dlp descarta sin
+  depender del texto de sus mensajes. Un 403/410 al descargar suele ser una URL caducada que
+  la siguiente extracción resuelve, pero también puede ser un acceso que nunca se concederá;
+  el tope sin avance distingue ambos casos sin reintentar para siempre.
+- **Alternatives considered**: clasificar por el texto del mensaje (frágil entre versiones);
+  tratar como temporal todo fallo sin causa durante la descarga (reintentaría para siempre un
+  fragmento ausente); registrar solo el resultado de `urlopen` (un corte a mitad del cuerpo
+  quedaría como petición correcta → `PERMANENTE`); 403 siempre permanente (rompería FR-012
+  en HLS, donde caduca el token de los fragmentos); 403 siempre temporal sin tope
+  (reintentaría para siempre un video que exige sesión).
 
 ## R5. DRM y directos
 
