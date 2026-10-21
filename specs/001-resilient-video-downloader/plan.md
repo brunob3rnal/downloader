@@ -18,8 +18,9 @@ publicarlos sin sobrescribir.
 
 **Language/Version**: Python 3.12, gestionado con uv
 
-**Primary Dependencies**: yt-dlp (librería), Typer (CLI; aporta rich para el progreso);
-ffmpeg/ffprobe como binarios del sistema
+**Primary Dependencies**: `yt-dlp[default]` (librería, con sus extras: AES nativo para HLS,
+manejador HTTP `requests`; R1), Typer (CLI; aporta rich para el progreso); ffmpeg/ffprobe como
+binarios del sistema
 
 **Storage**: SQLite (WAL, `synchronous=FULL`) en el directorio de la app; `config.toml` para la
 configuración; archivos de trabajo en `<carpeta_destino>/.downloader-tmp/`
@@ -45,9 +46,9 @@ simultánea; ningún secreto en disco ni en logs
 
 | Principio | Cumplimiento en el diseño | Estado |
 |-----------|---------------------------|--------|
-| I. Código simple | un paquete, ~10 módulos, 2 dependencias Python, sin daemon ni concurrencia de descargas | Pasa |
+| I. Código simple | un paquete, ~10 módulos, 2 dependencias Python directas (yt-dlp con sus extras por defecto y Typer), sin daemon ni concurrencia de descargas | Pasa |
 | II. Tests con cortes de red | servidor local con respuestas truncadas, timeouts, 5xx, apagado/rearranque, tokens caducados y `SIGKILL`; sin internet (R15) | Pasa; CI MUST instalar ffmpeg para no omitir en silencio |
-| III. Errores claros | clasificación TEMPORAL/PERMANENTE/FATAL (R4); códigos de salida en [contracts/cli.md](contracts/cli.md) | Pasa |
+| III. Errores claros | clasificación TEMPORAL/PERMANENTE/FATAL con una tabla única por fase y tope de 3 intentos sin avance para 403/410 y ffmpeg (R4, FR-026); códigos de salida en [contracts/cli.md](contracts/cli.md) | Pasa |
 | IV. No perder progreso reanudable (v2.0.0) | `.part` en directorio de trabajo, `skip_unavailable_fragments=False`, recuperación al arrancar, Ctrl+C conserva todo; si el servidor no permite reanudar, reinicio con aviso detectado por retroceso de bytes (R3, FR-024) | Pasa |
 | V. Sin DRM | rechazo de `has_drm` e `is_live` antes de descargar (R5) | Pasa |
 | VI. Sin credenciales | `cookiesfrombrowser` en memoria, sin `cookiefile`; la base de datos solo guarda el nombre del navegador; logger que filtra secretos (R12) | Pasa |
@@ -111,9 +112,16 @@ tests/
    futura (spec, Assumptions).
 5. El comando de mantenimiento se llama `actualizar` y actualiza yt-dlp (FR-025, R14).
 6. `ytdl.crear_ydl` usa una subclase de `YoutubeDL` que registra el resultado de la última
-   petición (incluida la lectura del cuerpo), porque yt-dlp descarta la excepción original al
-   agotar sus reintentos; `errors.clasificar` lo usa para los `DownloadError` sin causa (R4).
-   Es la única subclase de yt-dlp del proyecto y sobrescribe un solo método (`urlopen`).
+   petición (incluida la lectura del cuerpo), la fase y si descarga un programa externo,
+   porque yt-dlp descarta la excepción original al agotar sus reintentos; `errors.clasificar`
+   lo usa cuando la cadena de causas no trae código HTTP (R4). Es la única subclase de yt-dlp
+   del proyecto y sobrescribe dos métodos (`urlopen` y `dl`).
+7. Los 403/410 durante la descarga se reintentan como URL caducada, con un tope de 3 intentos
+   seguidos sin bytes nuevos (`retry.TopeSinAvance`, FR-026); es una excepción acotada a
+   "reintentar indefinidamente" (FR-010).
+8. Dependencia `yt-dlp[default]` en lugar de `yt-dlp`, y `hls_prefer_native=True`, para que
+   HLS no se delegue en ffmpeg y sus peticiones queden registradas (R1, R4). Incluye `mutagen`
+   (GPL-2.0-or-later).
 
 ## Complexity Tracking
 

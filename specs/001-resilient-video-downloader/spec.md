@@ -18,6 +18,11 @@
 - Q: ¿Cuál es la espera máxima entre reintentos de un error temporal? → A: 5 minutos.
 - Q: ¿Cómo se activa el uso de cookies del navegador? → A: Con una opción explícita que nombra el navegador (por ejemplo `--cookies-de firefox`) en `agregar` o `ejecutar`; sin ella, nunca se leen cookies.
 
+### Session 2026-10-21
+
+- Q: ¿Un acceso denegado (HTTP 403 o 410) es temporal o permanente? → A: Depende de la fase. Al obtener la información del video, es permanente. Durante la transferencia, se trata como URL caducada y se reintenta obteniendo una URL nueva (FR-012), pero con un tope: tras 3 intentos seguidos que terminan así sin descargar ningún byte nuevo, la descarga falla con un mensaje que sugiere `--cookies-de` (FR-026).
+- Q: ¿Qué protocolos de transmisión cubre la primera versión? → A: HTTP(S) directo y HLS/DASH por HTTP. RTMP y WebSocket quedan fuera de alcance.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Descargar videos desde una cola (Priority: P1)
@@ -132,6 +137,8 @@ El usuario puede configurar la carpeta de destino. Opcionalmente, puede indicar 
 - La calidad pedida no existe para un video: se elige la más cercana inferior y se avisa al usuario.
 - El usuario intenta descargar contenido con DRM o una transmisión en vivo: se rechaza con un mensaje claro.
 - Cierre ordenado del programa (Ctrl+C) durante una descarga: el progreso se guarda antes de salir.
+- El servidor deniega el acceso (403 o 410) durante la transferencia de forma persistente, por ejemplo porque el video exige una sesión iniciada: se reintenta obteniendo una URL nueva; tras 3 intentos seguidos sin ningún byte nuevo, la descarga falla con un mensaje que lo explica y sugiere `--cookies-de NAVEGADOR`. Los cortes de red, los timeouts y los errores 429 y 5xx no cuentan para ese tope.
+- Una descarga que hace un programa externo (ffmpeg) falla sin causa conocida: se reintenta como temporal con el mismo tope de 3 intentos seguidos sin avanzar.
 
 ## Requirements *(mandatory)*
 
@@ -146,7 +153,7 @@ El usuario puede configurar la carpeta de destino. Opcionalmente, puede indicar 
 - **FR-007**: El sistema MUST pasar una descarga al estado "esperando red" cuando se pierde la conexión, y reanudarla automáticamente al recuperarse.
 - **FR-008**: El sistema MUST reanudar desde el último punto válido y no desde cero siempre que el servidor lo permita.
 - **FR-009**: El sistema MUST persistir la cola y el progreso de forma que sobrevivan a cierres, fallos del programa y reinicios del equipo, y MUST continuar las descargas pendientes al abrirse de nuevo.
-- **FR-010**: El sistema MUST reintentar indefinidamente los errores temporales (red, timeouts) con una espera creciente entre intentos que MUST NOT superar los 5 minutos.
+- **FR-010**: El sistema MUST reintentar indefinidamente los errores temporales (red, timeouts) con una espera creciente entre intentos que MUST NOT superar los 5 minutos, salvo el tope de FR-026 para los errores ambiguos.
 - **FR-011**: El sistema MUST clasificar como permanentes los errores de video borrado, privado o sitio no soportado, MUST NOT reintentarlos y MUST mostrar un mensaje claro de la causa.
 - **FR-012**: Si la URL temporal del video caduca, el sistema MUST obtener una nueva y continuar desde el punto alcanzado.
 - **FR-013**: El sistema MUST NOT presentar un archivo incompleto como terminado; los parciales MUST estar claramente diferenciados hasta verificar su integridad.
@@ -162,6 +169,7 @@ El usuario puede configurar la carpeta de destino. Opcionalmente, puede indicar 
 - **FR-023**: Antes de publicar un archivo con su nombre final, el sistema MUST verificar que su tamaño coincide con el anunciado por el servidor (cuando este lo informa) y que el archivo es legible hasta el final tras unir audio y video; si la verificación falla, MUST NOT publicarlo como completo e informar del problema.
 - **FR-024**: Si el servidor no permite reanudar una descarga, el sistema MUST reiniciarla desde cero y MUST avisar claramente al usuario de que se reinició y por qué.
 - **FR-025**: El comando `actualizar` MUST actualizar yt-dlp a su última versión dentro del proyecto, mostrar la versión anterior y la nueva, e informar con claridad si la actualización falla.
+- **FR-026**: Un acceso denegado (HTTP 403 o 410) durante la transferencia y un fallo sin causa conocida de una descarga hecha por un programa externo (ffmpeg) MUST reintentarse como temporales, obteniendo una URL nueva en cada intento (FR-012). Si 3 intentos seguidos terminan en uno de esos errores sin ningún byte nuevo sobre el máximo ya descargado, el sistema MUST marcar la descarga como fallida con un mensaje claro de la causa que, para 403 y 410, sugiera usar `--cookies-de NAVEGADOR`. Los cortes de red, timeouts y errores 429 y 5xx MUST NOT contar para este tope.
 
 ### Key Entities
 
@@ -193,4 +201,4 @@ El usuario puede configurar la carpeta de destino. Opcionalmente, puede indicar 
 - El usuario tiene derecho legítimo a descargar el contenido que solicita.
 - El almacenamiento local es suficiente y escribible en la carpeta de destino.
 - Las cookies del navegador solo se leen en el momento de la descarga y no se persisten en la cola ni en el repositorio.
-- Fuera de alcance: contenido con DRM, transmisiones en vivo, interfaces gráficas, programación horaria de descargas y descargas simultáneas (feature futura).
+- Fuera de alcance: contenido con DRM, transmisiones en vivo, protocolos RTMP y WebSocket, interfaces gráficas, programación horaria de descargas y descargas simultáneas (feature futura).

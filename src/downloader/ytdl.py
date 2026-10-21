@@ -7,10 +7,12 @@ from pathlib import Path
 from typing import NamedTuple
 
 from yt_dlp import YoutubeDL
+from yt_dlp.downloader import get_suitable_downloader
+from yt_dlp.downloader.external import ExternalFD
 from yt_dlp.networking.exceptions import HTTPError, IncompleteRead
 from yt_dlp.utils import DownloadError
 
-from downloader.errors import UltimaPeticion, ocultar_secretos
+from downloader.errors import Fase, RegistroRed, UltimaPeticion, ocultar_secretos
 from downloader.models import Calidad, Descarga
 
 DIRECTORIO_TEMPORAL = ".downloader-tmp"
@@ -53,23 +55,34 @@ class Logger:
 
 
 class YoutubeDLRegistrado(YoutubeDL):
-    """`YoutubeDL` que recuerda el resultado de la última petición de red (research R4).
+    """`YoutubeDL` que lleva un `RegistroRed` del intento (research R4).
 
     Cuando yt-dlp agota sus reintentos internos lanza un `DownloadError` sin la excepción
     original; `errors.clasificar` usa este registro para saber qué falló. Se registra el
     resultado de `urlopen` (código HTTP o excepción) y también el de la lectura del cuerpo: en un
-    corte, `urlopen` responde bien y el error llega al leer. Cada intento crea su propia
-    instancia, así que el registro empieza vacío en cada intento.
+    corte, `urlopen` responde bien y el error llega al leer. También la fase (extracción o
+    descarga) y si la descarga la hace un programa externo (ffmpeg), cuyas peticiones no pasan
+    por `urlopen`. Cada intento crea su propia instancia, así que el registro empieza vacío.
+
+    Fija `hls_prefer_native=True` para que HLS use el descargador nativo de yt-dlp, que sí pasa
+    por `urlopen`, en lugar de ffmpeg.
     """
 
-    def __init__(self, *args, **kwargs):
-        self.ultima_peticion: UltimaPeticion | None = None
+    def __init__(self, params=None, *args, **kwargs):
+        self.registro = RegistroRed()
         self._cerrojo_registro = threading.Lock()
-        super().__init__(*args, **kwargs)
+        super().__init__({"hls_prefer_native": True, **(params or {})}, *args, **kwargs)
 
     def _registrar(self, resultado: UltimaPeticion) -> None:
         with self._cerrojo_registro:
-            self.ultima_peticion = resultado
+            self.registro.ultima = resultado
+
+    def dl(self, name, info, subtitle=False, test=False):
+        if not test:
+            descargador = get_suitable_downloader(info, self.params, to_stdout=(name == "-"))
+            self.registro.fase = Fase.DESCARGA
+            self.registro.externo = issubclass(descargador, ExternalFD)
+        return super().dl(name, info, subtitle, test)
 
     def urlopen(self, req):
         try:
@@ -112,12 +125,12 @@ def crear_ydl(opciones: dict) -> YoutubeDLRegistrado:
 
 
 def _ejecutar(opciones: dict, url: str, download: bool) -> dict:
-    """`extract_info` que, si falla, adjunta al error el registro de la última petición."""
+    """`extract_info` que, si falla, adjunta al error el registro del intento."""
     with crear_ydl(opciones) as ydl:
         try:
             return ydl.sanitize_info(ydl.extract_info(url, download=download))
         except DownloadError as error:
-            error.ultima_peticion = ydl.ultima_peticion
+            error.registro = ydl.registro
             raise
 
 

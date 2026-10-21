@@ -7,11 +7,15 @@ from yt_dlp.networking.common import Response
 from yt_dlp.utils import DownloadError, ExtractorError, UnsupportedError
 
 from downloader.errors import (
+    Clasificacion,
     ErrorFatal,
     ErrorPermanente,
+    Fase,
+    RegistroRed,
     Tipo,
     UltimaPeticion,
     clasificar,
+    clasificar_detalle,
     ocultar_secretos,
 )
 
@@ -162,61 +166,130 @@ def test_ocultar_secretos_conserva_el_resto():
     assert "monkey=1" in ocultar_secretos("https://x/?monkey=1")
 
 
-# --- DownloadError sin causa: se clasifica por el registro de la última petición (R4) ---
+# --- Tabla única de R4: código HTTP de la cadena o, si no hay, del registro ---
+
+EXTRACCION, DESCARGA = Fase.EXTRACCION, Fase.DESCARGA
+TEMPORAL, PERMANENTE = Tipo.TEMPORAL, Tipo.PERMANENTE
+
+# (señal, fase, tipo esperado, ambiguo)
+TABLA = [
+    *[(senal, fase, TEMPORAL, False)
+      for fase in (EXTRACCION, DESCARGA)
+      for senal in ("transporte", "timeout", "conexion", "incompleto", 429, 500, 503)],
+    (404, EXTRACCION, PERMANENTE, False),
+    (404, DESCARGA, PERMANENTE, False),
+    (403, EXTRACCION, PERMANENTE, False),
+    (410, EXTRACCION, PERMANENTE, False),
+    (403, DESCARGA, TEMPORAL, True),
+    (410, DESCARGA, TEMPORAL, True),
+]
 
 
-def sin_causa(ultima="sin atributo"):
+def excepcion(senal):
+    return {
+        "transporte": lambda: TransportError("Connection reset by peer"),
+        "timeout": lambda: TimeoutError("timed out"),
+        "conexion": lambda: ConnectionError("refused"),
+        "incompleto": lambda: IncompleteRead(partial=400, expected=1000),
+    }.get(senal, lambda: error_http(senal))()
+
+
+def desde_la_cadena(senal, fase):
+    """Como llega cuando yt-dlp conserva la causa: al extraer, envuelta en `ExtractorError`."""
+    causa = excepcion(senal)
+    if fase is EXTRACCION:
+        causa = ExtractorError("Unable to download webpage", cause=causa)
+    return download_error(causa)
+
+
+def sin_causa(ultima=None, fase=DESCARGA, externo=False, registro=True):
     """`DownloadError` como el que lanza yt-dlp al agotar sus reintentos: sin `exc_info`."""
     error = DownloadError("ERROR: [download] Got error: ... Giving up after 3 retries")
-    if ultima != "sin atributo":
-        error.ultima_peticion = ultima
+    if registro:
+        error.registro = RegistroRed(ultima=ultima, fase=fase, externo=externo)
     return error
 
 
+def desde_el_registro(senal, fase):
+    if isinstance(senal, int):
+        return sin_causa(UltimaPeticion(estado=senal), fase)
+    return sin_causa(UltimaPeticion(error=excepcion(senal)), fase)
+
+
+ids_tabla = [f"{senal}-{fase}" for senal, fase, *_ in TABLA]
+
+
+@pytest.mark.parametrize("senal, fase, tipo, ambiguo", TABLA, ids=ids_tabla)
+@pytest.mark.parametrize("origen", [desde_la_cadena, desde_el_registro], ids=["cadena", "registro"])
+def test_tabla_de_r4(origen, senal, fase, tipo, ambiguo):
+    resultado = clasificar_detalle(origen(senal, fase), en_linea=True)
+    assert resultado.tipo is tipo
+    assert resultado.ambiguo is ambiguo
+    if ambiguo:
+        assert resultado.motivo == f"HTTP {senal}"
+
+
+@pytest.mark.parametrize("senal", [403, 404, 410, 429, 503, "transporte"])
+@pytest.mark.parametrize("fase", [EXTRACCION, DESCARGA])
+def test_sin_conexion_siempre_temporal(senal, fase):
+    for error in (desde_la_cadena(senal, fase), desde_el_registro(senal, fase)):
+        resultado = clasificar_detalle(error, en_linea=False)
+        assert resultado.tipo is TEMPORAL
+        assert not resultado.ambiguo
+
+
 @pytest.mark.parametrize(
-    "ultima, esperado",
+    "error",
     [
-        # transporte y timeout
-        (UltimaPeticion(error=TransportError("Connection reset by peer")), Tipo.TEMPORAL),
-        (UltimaPeticion(error=TransportError("timed out")), Tipo.TEMPORAL),
-        (UltimaPeticion(error=TimeoutError("timed out")), Tipo.TEMPORAL),
-        (UltimaPeticion(error=ConnectionError("refused")), Tipo.TEMPORAL),
-        (UltimaPeticion(error=IncompleteRead(partial=400, expected=1000)), Tipo.TEMPORAL),
-        # 5xx y 429
-        (UltimaPeticion(estado=500), Tipo.TEMPORAL),
-        (UltimaPeticion(estado=503), Tipo.TEMPORAL),
-        (UltimaPeticion(estado=429), Tipo.TEMPORAL),
-        # 404, 410, 403
-        (UltimaPeticion(estado=404), Tipo.PERMANENTE),
-        (UltimaPeticion(estado=410), Tipo.PERMANENTE),
-        (UltimaPeticion(estado=403), Tipo.PERMANENTE),
-        # última petición correcta o ninguna
-        (UltimaPeticion(estado=200), Tipo.PERMANENTE),
-        (UltimaPeticion(estado=206), Tipo.PERMANENTE),
-        (None, Tipo.PERMANENTE),
-        ("sin atributo", Tipo.PERMANENTE),
-        # una excepción que no es de red
-        (UltimaPeticion(error=ValueError("petición mal formada")), Tipo.PERMANENTE),
+        sin_causa(UltimaPeticion(estado=200), EXTRACCION),
+        sin_causa(UltimaPeticion(estado=206), DESCARGA),
+        sin_causa(None, DESCARGA),
+        sin_causa(registro=False),
+        sin_causa(UltimaPeticion(error=ValueError("petición mal formada")), DESCARGA),
     ],
-    ids=lambda v: repr(v)[:50],
+    ids=["200-extraccion", "206-descarga", "vacio", "sin-registro", "error-no-de-red"],
 )
-def test_download_error_sin_causa_usa_el_registro(ultima, esperado):
-    assert clasificar(sin_causa(ultima), en_linea=True) is esperado
+def test_registro_correcto_o_vacio_es_permanente(error):
+    assert clasificar_detalle(error, en_linea=True) == Clasificacion(PERMANENTE)
 
 
-@pytest.mark.parametrize("estado", [404, 403, 410, 200])
-def test_registro_sin_conexion_es_temporal(estado):
-    assert clasificar(sin_causa(UltimaPeticion(estado=estado)), en_linea=False) is Tipo.TEMPORAL
+@pytest.mark.parametrize("ultima", [UltimaPeticion(estado=200), None], ids=["correcto", "vacio"])
+def test_descargador_externo_con_registro_correcto_o_vacio_es_temporal_ambiguo(ultima):
+    resultado = clasificar_detalle(sin_causa(ultima, DESCARGA, externo=True), en_linea=True)
+    assert resultado.tipo is TEMPORAL
+    assert resultado.ambiguo
+    assert "ffmpeg" in resultado.motivo
 
 
-def test_registro_no_sustituye_a_una_causa_encadenada():
-    # Con causa en exc_info manda la cadena (un 403 de descarga HTTP es una URL caducada).
-    error = download_error(error_http(403))
-    error.ultima_peticion = UltimaPeticion(estado=403)
-    assert clasificar(error, en_linea=True) is Tipo.TEMPORAL
+def test_descargador_externo_no_oculta_una_senal_de_red():
+    resultado = clasificar_detalle(
+        sin_causa(UltimaPeticion(estado=404), DESCARGA, externo=True), en_linea=True
+    )
+    assert resultado.tipo is PERMANENTE
+
+
+def test_la_cadena_prevalece_sobre_el_registro():
+    error = download_error(error_http(503))
+    error.registro = RegistroRed(UltimaPeticion(estado=404), DESCARGA)
+    assert clasificar(error, en_linea=True) is TEMPORAL
+    error = download_error(error_http(404))
+    error.registro = RegistroRed(UltimaPeticion(estado=503), DESCARGA)
+    assert clasificar(error, en_linea=True) is PERMANENTE
+
+
+def test_un_permanente_reconocido_prevalece_sobre_el_registro():
+    error = download_error(ExtractorError("Video privado", expected=True))
+    error.registro = RegistroRed(UltimaPeticion(estado=503), EXTRACCION)
+    assert clasificar(error, en_linea=True) is PERMANENTE
+
+
+def test_la_fase_de_la_cadena_prevalece_sobre_la_del_registro():
+    error = desde_la_cadena(403, EXTRACCION)
+    error.registro = RegistroRed(UltimaPeticion(estado=403), DESCARGA)
+    assert clasificar(error, en_linea=True) is PERMANENTE
 
 
 def test_fatal_prevalece_sobre_el_registro():
     error = download_error(OSError(errno.ENOSPC, "lleno"))
-    error.ultima_peticion = UltimaPeticion(estado=503)
+    error.registro = RegistroRed(UltimaPeticion(estado=503), DESCARGA)
     assert clasificar(error, en_linea=True) is Tipo.FATAL

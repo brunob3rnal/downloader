@@ -97,3 +97,44 @@ def test_logger_oculta_secretos(caplog):
     assert texto
     for secreto in ("secreto1", "secreto2", "secreto3", "secreto4"):
         assert secreto not in texto
+
+
+def test_crear_ydl_prefiere_hls_nativo():
+    from yt_dlp.downloader import get_suitable_downloader
+    from yt_dlp.downloader.hls import HlsFD
+
+    ydl = ytdl.crear_ydl({"quiet": True})
+    assert ydl.params["hls_prefer_native"] is True
+    for protocolo in ("m3u8", "m3u8_native"):
+        info = {"url": "http://127.0.0.1/index.m3u8", "protocol": protocolo, "to_stdout": False}
+        assert get_suitable_downloader(info, ydl.params) is HlsFD
+
+
+def test_el_registro_empieza_vacio():
+    from downloader.errors import Fase, RegistroRed
+
+    ydl = ytdl.crear_ydl({"quiet": True})
+    assert ydl.registro == RegistroRed()
+    assert ydl.registro.fase is Fase.EXTRACCION
+
+
+@pytest.mark.parametrize(
+    "info, externo",
+    [
+        ({"url": "http://127.0.0.1/v.mp4", "protocol": "https"}, False),
+        ({"url": "http://127.0.0.1/i.m3u8", "protocol": "m3u8_native"}, False),
+        ({"url": "http://127.0.0.1/i.m3u8", "protocol": "m3u8", "is_live": True}, True),
+        ({"url": "rtmp://127.0.0.1/v", "protocol": "rtmp_ffmpeg"}, True),
+    ],
+    ids=["http", "hls-nativo", "hls-en-directo", "rtmp-ffmpeg"],
+)
+def test_dl_registra_fase_de_descarga_y_descargador_externo(info, externo, monkeypatch):
+    from yt_dlp import YoutubeDL
+
+    from downloader.errors import Fase
+
+    monkeypatch.setattr(YoutubeDL, "dl", lambda self, *a, **k: (True, True))
+    ydl = ytdl.crear_ydl({"quiet": True})
+    ydl.dl("destino.mp4", {**info, "to_stdout": False})
+    assert ydl.registro.fase is Fase.DESCARGA
+    assert ydl.registro.externo is externo

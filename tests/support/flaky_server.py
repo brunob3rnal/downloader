@@ -40,7 +40,9 @@ class _Archivo:
     anunciar_tamano: int | None = None
     ausente: bool = False
     velocidad: int | None = None  # bytes por segundo (sirve lentamente); None = sin límite
-    fallos: deque = field(default_factory=deque)  # ("cortar", n) | ("colgar", None) | ("error", código)
+    manifiesto_hls: bool = False  # con tokens, añade el token de la petición a cada fragmento
+    # ("cortar", n) | ("colgar", None) | ("error", código) | ("caducar", None) | ("cortar_caducar", n)
+    fallos: deque = field(default_factory=deque)
 
 
 @dataclass
@@ -157,17 +159,26 @@ class FlakyServer:
                     raise TypeError(f"propiedad desconocida: {clave}")
                 setattr(archivo, clave, valor)
 
-    def programar(self, nombre, *, cortar_tras_bytes=None, colgarse=False, errores=None, veces=1):
+    def programar(
+        self, nombre, *, cortar_tras_bytes=None, colgarse=False, errores=None,
+        caducar_tokens=False, veces=1,
+    ):
         """Añade fallos que se consumen en las siguientes peticiones al archivo, en orden.
 
         - `cortar_tras_bytes=N`: envía N bytes del cuerpo y cierra la conexión (`veces` peticiones).
         - `colgarse=True`: no envía nada hasta que el cliente cierre (`veces` peticiones).
         - `errores=[503, 500, ...]`: una petición por código.
+        - `caducar_tokens=True`: sirve la petición y después invalida todos los tokens emitidos
+          (una URL temporal que caduca a mitad de la descarga). Junto con `cortar_tras_bytes`,
+          corta y caduca en la misma petición (`veces` peticiones).
         """
         with self._cerrojo:
             fallos = self._archivos[nombre].fallos
             if cortar_tras_bytes is not None:
-                fallos.extend([("cortar", cortar_tras_bytes)] * veces)
+                tipo = "cortar_caducar" if caducar_tokens else "cortar"
+                fallos.extend([(tipo, cortar_tras_bytes)] * veces)
+            elif caducar_tokens:
+                fallos.append(("caducar", None))
             if colgarse:
                 fallos.extend([("colgar", None)] * veces)
             for codigo in errores or ():
@@ -178,7 +189,9 @@ class FlakyServer:
 
         El manifiesto queda en `/<prefijo>/<nombre>.m3u8` y cada fragmento en
         `/<prefijo>/<fragmento>`. `fragmento_ausente=i` hace que el fragmento i-ésimo (desde 0,
-        en el orden del manifiesto) responda siempre 404. Devuelve el nombre del manifiesto.
+        en el orden del manifiesto) responda siempre 404. Con `tokens=True`, el manifiesto y los
+        fragmentos exigen token, y el manifiesto devuelve cada fragmento con el token con el que
+        se pidió. Devuelve el nombre del manifiesto.
         """
         directorio = Path(directorio)
         (manifiesto,) = directorio.glob("*.m3u8")
@@ -189,6 +202,7 @@ class FlakyServer:
             tipo_contenido="application/vnd.apple.mpegurl",
             tokens=tokens,
         )
+        self._archivos[nombre_manifiesto].manifiesto_hls = True
         fragmentos = [
             linea.strip()
             for linea in manifiesto.read_text().splitlines()
@@ -196,7 +210,10 @@ class FlakyServer:
         ]
         for indice, fragmento in enumerate(fragmentos):
             nombre = f"{prefijo}/{fragmento}"
-            self.registrar(nombre, (directorio / fragmento).read_bytes(), tipo_contenido="video/mp2t")
+            self.registrar(
+                nombre, (directorio / fragmento).read_bytes(), tipo_contenido="video/mp2t",
+                tokens=tokens,
+            )
             self._archivos[nombre].ausente = indice == fragmento_ausente
         return nombre_manifiesto
 
@@ -230,6 +247,14 @@ class FlakyServer:
     def _token_valido(self, token):
         with self._cerrojo:
             return token in self._tokens_validos
+
+
+def _con_token(manifiesto, token):
+    lineas = [
+        linea if not linea.strip() or linea.startswith(b"#") else linea + f"?token={token}".encode()
+        for linea in manifiesto.splitlines()
+    ]
+    return b"\n".join(lineas) + b"\n"
 
 
 class _Servidor(ThreadingHTTPServer):
@@ -270,10 +295,9 @@ class _Manejador(BaseHTTPRequestHandler):
             return self._responder_vacio(404)
         self.flaky.peticiones[ruta] += 1
 
-        if archivo.tokens:
-            token = consulta.get("token", [None])[0]
-            if not self.flaky._token_valido(token):
-                return self._responder_vacio(403)
+        token = consulta.get("token", [None])[0]
+        if archivo.tokens and not self.flaky._token_valido(token):
+            return self._responder_vacio(403)
 
         fallo = self.flaky._siguiente_fallo(archivo)
         if fallo and fallo[0] == "error":
@@ -281,10 +305,15 @@ class _Manejador(BaseHTTPRequestHandler):
         if fallo and fallo[0] == "colgar":
             return self._colgarse()
 
-        self._servir(ruta, archivo, fallo[1] if fallo else None)
-
-    def _servir(self, ruta, archivo, cortar_tras):
         datos = archivo.datos
+        if archivo.manifiesto_hls and token:
+            datos = _con_token(datos, token)
+        tipo = fallo[0] if fallo else None
+        self._servir(ruta, archivo, datos, fallo[1] if tipo in ("cortar", "cortar_caducar") else None)
+        if tipo in ("caducar", "cortar_caducar"):
+            self.flaky.caducar_tokens()
+
+    def _servir(self, ruta, archivo, datos, cortar_tras):
         total = archivo.anunciar_tamano if archivo.anunciar_tamano is not None else len(datos)
         inicio, fin = 0, total - 1
         rango = _RANGE.match(self.headers.get("Range", ""))

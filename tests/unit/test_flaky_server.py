@@ -162,3 +162,39 @@ def test_velocidad_limitada(servidor):
     with pedir(servidor.url("a.bin")) as respuesta:
         assert respuesta.read() == DATOS
     assert time.monotonic() - inicio >= 0.2  # 102 400 bytes a 400 kB/s ≈ 0,25 s
+
+
+def test_caducar_tokens_tras_servir(servidor):
+    servidor.registrar("a.bin", DATOS, tokens=True)
+    servidor.programar("a.bin", caducar_tokens=True)
+    token = servidor.emitir_token()
+    with pedir(servidor.url("a.bin", token)) as respuesta:
+        assert respuesta.read() == DATOS
+    with pytest.raises(urllib.error.HTTPError) as error:
+        pedir(servidor.url("a.bin", token))
+    assert error.value.code == 403
+
+
+def test_cortar_y_caducar_en_la_misma_peticion(servidor):
+    servidor.registrar("a.bin", DATOS, tokens=True)
+    servidor.programar("a.bin", cortar_tras_bytes=1000, caducar_tokens=True)
+    token = servidor.emitir_token()
+    with pedir(servidor.url("a.bin", token)) as respuesta:
+        with pytest.raises(http.client.IncompleteRead):
+            respuesta.read()
+    with pytest.raises(urllib.error.HTTPError) as error:
+        pedir(servidor.url("a.bin", token), "bytes=1000-")
+    assert error.value.code == 403
+
+
+def test_manifiesto_hls_con_token(servidor, tmp_path):
+    (tmp_path / "index.m3u8").write_text("#EXTM3U\n#EXTINF:2,\nf0.ts\n#EXT-X-ENDLIST\n")
+    (tmp_path / "f0.ts").write_bytes(b"cero")
+    servidor.registrar_hls("hls", tmp_path, tokens=True)
+    token = servidor.emitir_token()
+    with pedir(servidor.url("hls/index.m3u8", token)) as respuesta:
+        assert f"f0.ts?token={token}" in respuesta.read().decode()
+    with pedir(servidor.url("hls/f0.ts", token)) as respuesta:
+        assert respuesta.read() == b"cero"
+    with pytest.raises(urllib.error.HTTPError):
+        pedir(servidor.url("hls/f0.ts"))
