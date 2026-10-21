@@ -1,5 +1,6 @@
 """Condición de salida de `ejecutar` (FR-021)."""
 
+import signal
 import threading
 import time
 
@@ -61,3 +62,26 @@ def test_segundo_ejecutar_simultaneo_sale_con_2(cli, app_home):
         otro.cerrar()
     assert resultado.exit_code == 2
     assert "otro" in resultado.output and "ejecutar" in resultado.output
+
+
+# `signal.SIGBREAK` solo existe en Windows; en Linux se simula con `SIGTERM`, que existe en ambos.
+
+
+def test_ejecutar_en_un_hilo_secundario_con_sigbreak(cli, monkeypatch):
+    """`signal.signal` solo puede llamarse desde el hilo principal (los tests usan hilos)."""
+    monkeypatch.setattr(signal, "SIGBREAK", signal.SIGTERM, raising=False)
+    resultado = {}
+    hilo = threading.Thread(target=lambda: resultado.update(r=cli("ejecutar")))
+    hilo.start()
+    hilo.join(timeout=30)
+    assert resultado["r"].exit_code == 0, repr(resultado["r"].exception)
+
+
+def test_ctrl_break_interrumpe_como_ctrl_c(cli, monkeypatch):
+    monkeypatch.setattr(signal, "SIGBREAK", signal.SIGTERM, raising=False)
+    anterior = signal.getsignal(signal.SIGTERM)
+    try:
+        assert cli("ejecutar").exit_code == 0
+        assert signal.getsignal(signal.SIGTERM) is signal.default_int_handler
+    finally:
+        signal.signal(signal.SIGTERM, anterior)

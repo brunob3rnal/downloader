@@ -3,6 +3,7 @@
 import logging
 import signal
 import sys
+import threading
 from pathlib import Path
 from typing import Annotated
 
@@ -114,9 +115,10 @@ def agregar(
 @app.command()
 def ejecutar() -> None:
     """Procesa la cola en primer plano hasta que no queden descargas pendientes."""
-    if hasattr(signal, "SIGBREAK"):
+    if hasattr(signal, "SIGBREAK") and threading.current_thread() is threading.main_thread():
         # Windows: Ctrl+Break, y `CTRL_BREAK_EVENT`, el único evento que se puede enviar a otro
-        # grupo de procesos, interrumpen igual que Ctrl+C (`KeyboardInterrupt`).
+        # grupo de procesos, interrumpen igual que Ctrl+C (`KeyboardInterrupt`). `signal.signal`
+        # solo puede llamarse desde el hilo principal, y las señales solo llegan a él.
         signal.signal(signal.SIGBREAK, signal.default_int_handler)
     ajustes = _configuracion()
     store = _abrir_cola()

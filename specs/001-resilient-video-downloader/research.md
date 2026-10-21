@@ -357,7 +357,9 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   hilo principal y los hilos del monitor de red y del progreso son `daemon`. Diferencias:
   - Ctrl+Break (`SIGBREAK`) terminaría el proceso sin limpiar; `cli.ejecutar` lo asocia a
     `signal.default_int_handler`, así que interrumpe igual que Ctrl+C. Además es el único
-    evento que se puede enviar a un proceso concreto, y lo usa el test.
+    evento que se puede enviar a un proceso concreto, y lo usa el test. Solo se instala desde
+    el hilo principal: `signal.signal` lanza `ValueError` en otro hilo (los tests llaman a
+    `ejecutar` desde hilos), y las señales solo llegan al principal.
   - Una llamada bloqueante (`recv` sobre un socket) no se interrumpe: la señal se atiende
     cuando vuelve, como mucho tras `socket_timeout` (20 s). En Linux, `EINTR` la corta al
     instante.
