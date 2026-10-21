@@ -37,9 +37,11 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   servidor ignora la cabecera `Range` ("resume is not possible, so wiping the local file").
 - **Decision**: se acepta ese reinicio, conforme al Principio IV enmendado (v2.0.0) y a
   FR-024. No se guardan respaldos del `.part`. El reinicio se detecta sin depender del texto
-  de yt-dlp: al empezar cada intento se anota el tamaño de cada `.part` existente; si el
-  primer evento del hook de progreso para ese archivo informa `downloaded_bytes` menor que ese
-  tamaño, la descarga se reinició. Entonces se muestra el aviso
+  de yt-dlp: por cada archivo se lleva el máximo de bytes conocido, inicializado con el tamaño
+  del `.part` al empezar el intento y actualizado con cada evento del hook de progreso; si un
+  evento informa `downloaded_bytes` menor que ese máximo, la descarga se reinició. yt-dlp
+  puede reiniciar dentro de una misma llamada (sus reintentos internos tras un corte), así que
+  comparar solo al inicio del intento no basta. Entonces se muestra el aviso
   "#N reiniciada desde cero: el servidor no permite reanudar" y se guarda en `ultimo_aviso`.
 - **Alternatives considered**: respaldar el `.part` antes de reintentar (rechazado por el
   usuario: el progreso de un servidor que no permite reanudar no es aprovechable);
@@ -59,6 +61,10 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   - `FATAL` (detiene `ejecutar`, FR-021): disco lleno (`ENOSPC`), archivo de estado corrupto,
     ffmpeg o ffprobe ausentes. Afectan a todo el entorno: seguir con otras descargas
     fallaría igual.
+  - Cualquier otro error no listado → `PERMANENTE`, con el mensaje original filtrado. Así un
+    fragmento HLS/DASH que falta de forma persistente (que yt-dlp no se salta, R1) hace fallar
+    la descarga con causa clara en lugar de reintentarse para siempre; si el monitor indica
+    "sin conexión", la regla anterior lo hace `TEMPORAL`.
 - **Rationale**: la regla "si no hay red, es temporal" evita marcar como permanente un
   `ExtractorError` provocado por el corte (yt-dlp envuelve el error de red al descargar la
   página).
@@ -196,6 +202,12 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   - Marcador `ffmpeg`: `conftest.py` omite esos tests si `shutil.which("ffmpeg")` o
     `shutil.which("ffprobe")` es `None`.
   - Sin acceso a internet en ningún test.
+  - yt-dlp reintenta por su cuenta cortes y errores 5xx hasta `retries` (3). Para que un test
+    pruebe nuestros reintentos, el servidor debe fallar más veces seguidas que `retries` y el
+    test debe comprobar que la fila pasó por `waiting_network`.
+  - Los archivos que sirve el servidor en tests de descarga son medios válidos (MP4 y HLS
+    generados con ffmpeg al inicio de la sesión), porque la verificación con ffprobe (R8)
+    rechazaría bytes aleatorios. Por eso los tests que descargan llevan el marcador `ffmpeg`.
 - **Rationale**: Principio II; los cortes de red se prueban contra yt-dlp real, no contra un
   doble.
 - **Riesgo**: si el entorno de CI no tiene ffmpeg, las pruebas de unión y verificación se
