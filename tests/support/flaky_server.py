@@ -12,6 +12,7 @@ la lista. Así, con el servidor detenido, la extracción también falla por la r
 """
 
 import json
+import sys
 import re
 import secrets
 import select
@@ -270,6 +271,12 @@ class _Servidor(ThreadingHTTPServer):
         with self.flaky._cerrojo:
             self.flaky._conexiones.discard(request)
         super().shutdown_request(request)
+
+    def handle_error(self, request, client_address):
+        # Que el cliente cierre la conexión es lo normal en estas pruebas (cortes, timeouts, el
+        # extractor genérico que solo lee el principio); no es un error del servidor.
+        if not isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
+            super().handle_error(request, client_address)
 
 
 class _Manejador(BaseHTTPRequestHandler):

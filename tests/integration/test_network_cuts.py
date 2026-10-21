@@ -112,6 +112,7 @@ def test_servidor_caido_espera_sin_consumir_intentos(entorno, destino, servidor,
 
     fin = time.monotonic() + LIMITE
     while entorno.cola.obtener(entorno.id).estado is not Estado.WAITING_NETWORK:
+        assert entorno.hilo.is_alive(), "ejecutar terminó sin pasar a waiting_network"
         assert time.monotonic() < fin, "no pasó a waiting_network"
         time.sleep(0.02)
     intentos = entorno.cola.obtener(entorno.id).intentos_sin_avance

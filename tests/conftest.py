@@ -64,7 +64,9 @@ def monitor_falso():
 
 @pytest.fixture
 def tiempos_rapidos():
-    return SimpleNamespace(backoff_base=0.05, backoff_tope=0.5, socket_timeout=1)
+    from downloader.worker import Tiempos
+
+    return Tiempos(backoff_base=0.05, backoff_tope=0.5, socket_timeout=1, espera_cola=0.05)
 
 
 @pytest.fixture(scope="session")
@@ -76,9 +78,11 @@ def medios(tmp_path_factory):
     mp4 = directorio / "video.mp4"
     subprocess.run(
         ["ffmpeg", "-v", "error", "-y",
-         "-f", "lavfi", "-i", "testsrc=size=640x360:rate=25",
+         "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=25",
          "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
-         "-t", "10", "-c:v", "libx264", "-b:v", "1500k", "-g", "50",
+         # Bitrate constante: con uno variable, x264 comprime el patrón a ~0,7 MB.
+         "-t", "10", "-c:v", "libx264", "-b:v", "1500k", "-minrate", "1500k",
+         "-maxrate", "1500k", "-bufsize", "1500k", "-x264-params", "nal-hrd=cbr", "-g", "50",
          "-c:a", "aac", "-b:a", "128k", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
          str(mp4)],
         check=True,
@@ -95,14 +99,18 @@ def medios(tmp_path_factory):
 
 
 @pytest.fixture
-def cli(app_home, monkeypatch):
-    """Ejecuta la app Typer en proceso con el extractor de prueba registrado."""
+def cli(app_home, servidor, monkeypatch):
+    """Ejecuta la app Typer en proceso con el extractor de prueba registrado.
+
+    El monitor de red sondea el servidor local, no internet.
+    """
     from typer.testing import CliRunner
 
     from downloader.cli import app
     from tests.support import fake_extractor
 
     fake_extractor.instalar(monkeypatch)
+    (app_home / "config.toml").write_text(f'sondas_red = ["127.0.0.1:{servidor.puerto}"]\n')
     runner = CliRunner()
 
     def invocar(*argumentos):

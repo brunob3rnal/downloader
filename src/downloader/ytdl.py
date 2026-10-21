@@ -207,3 +207,20 @@ def descargar(
         descarga.url,
         download=True,
     )
+
+
+_ALTURAS = {Calidad.P1080: 1080, Calidad.P720: 720}
+
+
+def aviso_calidad(calidad: Calidad, info: dict) -> str | None:
+    """Aviso si la altura descargada no es la pedida (research R6)."""
+    pedida, obtenida = _ALTURAS.get(calidad), info.get("height")
+    if pedida is None or obtenida is None or obtenida == pedida:
+        return None
+    return f"calidad {calidad.value} no disponible; se descargó {obtenida}p"
+
+
+def archivo_descargado(info: dict) -> Path:
+    """Ruta del archivo final (tras unir formatos y postprocesar) dentro del directorio de trabajo."""
+    descargas = info.get("requested_downloads") or [info]
+    return Path(descargas[-1]["filepath"])
