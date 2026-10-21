@@ -8,6 +8,16 @@
 
 **Input**: User description: "Un gestor de descargas de video que recibe URLs y las descarga de forma confiable, aunque la conexión se corte. Cola persistente, calidades (mejor, 1080p, 720p, solo audio), listas de reproducción, progreso, carpeta configurable, reanudación automática, reintentos, renovación de URLs caducadas, nunca entregar archivos incompletos como terminados. Fuera de alcance: DRM y transmisiones en vivo. Primera versión: solo CLI."
 
+## Clarifications
+
+### Session 2026-10-20
+
+- Q: ¿Cómo se ejecuta el programa: primer plano que termina al vaciar la cola, o servicio en segundo plano? → A: Primer plano. `agregar` guarda URLs en la cola; `ejecutar` procesa la cola y solo termina cuando no queda ninguna descarga pendiente. Las descargas en "esperando red" cuentan como pendientes, por lo que el programa sigue corriendo y reintentando hasta que vuelva la conexión. Termina únicamente con la cola completada o con fallos permanentes. Tras un reinicio del equipo, el usuario relanza `ejecutar`.
+- Q: ¿Qué hacer si en la carpeta de destino ya existe un archivo con el mismo nombre? → A: Conservar ambos; el archivo nuevo se publica con un sufijo numérico (`video (1).mp4`) y se avisa al usuario. Nunca se sobrescribe.
+- Q: ¿Cómo comprobar que un video terminó completo antes de publicarlo? → A: El tamaño final coincide con el anunciado por el servidor (cuando lo informa) y el archivo es legible hasta el final tras unir audio y video. Si falla la comprobación, no se publica con su nombre final.
+- Q: ¿Cuál es la espera máxima entre reintentos de un error temporal? → A: 5 minutos.
+- Q: ¿Cómo se activa el uso de cookies del navegador? → A: Con una opción explícita que nombra el navegador (por ejemplo `--cookies-de firefox`) en `agregar` o `ejecutar`; sin ella, nunca se leen cookies.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Descargar videos desde una cola (Priority: P1)
@@ -21,10 +31,10 @@ El usuario agrega una o varias URLs a la cola, elige la calidad (mejor, 1080p, 7
 **Acceptance Scenarios**:
 
 1. **Given** una cola vacía, **When** el usuario agrega una URL válida con calidad "mejor", **Then** el video se descarga completo en la carpeta configurada.
-2. **Given** varias URLs en la cola, **When** el programa las procesa, **Then** cada una se descarga y se informa su estado individual (pendiente, descargando, completada, fallida).
+2. **Given** varias URLs en la cola, **When** el programa las procesa, **Then** cada una se descarga y se informa su estado individual (en cola, descargando, esperando red, completada, fallida).
 3. **Given** una descarga en curso, **When** el usuario consulta el estado, **Then** ve el porcentaje, la velocidad y el tiempo estimado restante de esa descarga.
 4. **Given** el usuario elige "solo audio", **When** termina la descarga, **Then** el archivo resultante contiene únicamente audio.
-5. **Given** la URL de una lista de reproducción, **When** el usuario la agrega, **Then** todos sus videos se incorporan a la cola como descargas individuales.
+5. **Given** la URL de una lista de reproducción en la cola, **When** se procesa, **Then** todos sus videos se incorporan a la cola como descargas individuales.
 
 ---
 
@@ -41,7 +51,7 @@ Si se pierde la conexión durante una descarga, esta pasa a "esperando red" y se
 1. **Given** una descarga al 40 %, **When** se pierde la conexión, **Then** el estado pasa a "esperando red" y se conserva el 40 % descargado.
 2. **Given** una descarga en "esperando red", **When** la conexión vuelve, **Then** se reanuda automáticamente sin intervención del usuario y sin volver a descargar lo ya obtenido.
 3. **Given** cortes repetidos durante la misma descarga, **When** la conexión vuelve cada vez, **Then** la descarga termina con un archivo completo e íntegro.
-4. **Given** un error temporal (red, timeout), **When** ocurre, **Then** se reintenta indefinidamente con esperas cada vez mayores hasta un máximo razonable entre intentos.
+4. **Given** un error temporal (red, timeout), **When** ocurre, **Then** se reintenta indefinidamente con esperas cada vez mayores hasta un máximo de 5 minutos entre intentos.
 
 ---
 
@@ -72,7 +82,7 @@ Los errores permanentes (video borrado, privado, sitio no soportado) hacen falla
 **Acceptance Scenarios**:
 
 1. **Given** una URL de un video borrado o privado, **When** se intenta descargar, **Then** la descarga se marca como fallida con un mensaje que indica la causa y no se reintenta.
-2. **Given** una URL de un sitio no soportado, **When** se agrega, **Then** el usuario recibe un mensaje claro indicando que el sitio no es compatible.
+2. **Given** una URL de un sitio no soportado, **When** se procesa, **Then** el usuario recibe un mensaje claro indicando que el sitio no es compatible.
 3. **Given** una descarga en curso cuya URL temporal caduca, **When** el servidor rechaza la petición por esa causa, **Then** se obtiene una URL nueva y la descarga continúa desde el punto alcanzado.
 4. **Given** una descarga fallida de forma permanente, **When** el usuario revisa la cola, **Then** el resto de descargas no se ven afectadas.
 
@@ -112,12 +122,12 @@ El usuario puede configurar la carpeta de destino. Opcionalmente, puede indicar 
 
 ### Edge Cases
 
-- Disco lleno durante una descarga: se informa claramente, se conserva el parcial y la descarga queda pausada sin perder progreso.
-- Carpeta de destino inexistente o sin permisos: se informa antes de iniciar y no se pierde la cola.
-- La misma URL se agrega dos veces con la misma calidad: no se descarga dos veces en paralelo; se avisa al usuario.
-- Un archivo con el mismo nombre ya existe en la carpeta de destino: nunca se sobrescribe sin que el usuario lo decida.
-- El servidor no permite reanudar parcialmente: se informa y se reinicia solo esa descarga, sin afectar a las demás.
-- El archivo de estado de la cola está corrupto: se informa, se conserva una copia y no se descartan descargas parciales existentes.
+- Disco lleno durante una descarga: `ejecutar` se detiene con un mensaje claro, la descarga vuelve a la cola con su parcial intacto y continúa al relanzar `ejecutar` con espacio libre.
+- Carpeta de destino inexistente o sin permisos: `agregar` la rechaza con un mensaje claro; si deja de estar disponible después, solo esa descarga falla con un mensaje claro y el resto de la cola sigue.
+- La misma URL se agrega dos veces con la misma calidad: si ya está pendiente o completada, no se crea otra descarga y se avisa; si falló, vuelve a la cola.
+- Un archivo con el mismo nombre ya existe en la carpeta de destino: se conservan ambos, el nuevo se publica con un sufijo numérico y se avisa al usuario; nunca se sobrescribe.
+- El servidor no permite reanudar: esa descarga se reinicia desde cero, se avisa claramente al usuario de que se reinició y por qué, y las demás no se ven afectadas.
+- El archivo de estado de la cola está corrupto: `ejecutar` y `agregar` se detienen con un mensaje claro, se conserva una copia del archivo y no se tocan las descargas parciales existentes.
 - Lista de reproducción con videos no disponibles: se descargan los disponibles y se reportan los que fallaron.
 - La calidad pedida no existe para un video: se elige la más cercana inferior y se avisa al usuario.
 - El usuario intenta descargar contenido con DRM o una transmisión en vivo: se rechaza con un mensaje claro.
@@ -136,24 +146,29 @@ El usuario puede configurar la carpeta de destino. Opcionalmente, puede indicar 
 - **FR-007**: El sistema MUST pasar una descarga al estado "esperando red" cuando se pierde la conexión, y reanudarla automáticamente al recuperarse.
 - **FR-008**: El sistema MUST reanudar desde el último punto válido y no desde cero siempre que el servidor lo permita.
 - **FR-009**: El sistema MUST persistir la cola y el progreso de forma que sobrevivan a cierres, fallos del programa y reinicios del equipo, y MUST continuar las descargas pendientes al abrirse de nuevo.
-- **FR-010**: El sistema MUST reintentar indefinidamente los errores temporales (red, timeouts) con una espera creciente entre intentos, con un máximo razonable de espera.
+- **FR-010**: El sistema MUST reintentar indefinidamente los errores temporales (red, timeouts) con una espera creciente entre intentos que MUST NOT superar los 5 minutos.
 - **FR-011**: El sistema MUST clasificar como permanentes los errores de video borrado, privado o sitio no soportado, MUST NOT reintentarlos y MUST mostrar un mensaje claro de la causa.
-- **FR-012**: El sistema MUST detectar la caducidad de la URL temporal del video, obtener una nueva y continuar desde el punto alcanzado.
+- **FR-012**: Si la URL temporal del video caduca, el sistema MUST obtener una nueva y continuar desde el punto alcanzado.
 - **FR-013**: El sistema MUST NOT presentar un archivo incompleto como terminado; los parciales MUST estar claramente diferenciados hasta verificar su integridad.
-- **FR-014**: El sistema MUST NOT sobrescribir ni borrar progreso parcial sin una acción explícita del usuario.
+- **FR-014**: El sistema MUST NOT sobrescribir ni borrar progreso parcial sin una acción explícita del usuario, salvo el reinicio descrito en FR-024.
 - **FR-015**: El sistema MUST rechazar con un mensaje claro el contenido con DRM y las transmisiones en vivo, sin intentar eludir ninguna protección técnica.
-- **FR-016**: El sistema MUST ofrecer, de forma opcional y solo por activación explícita, el uso de cookies del navegador del usuario para videos que requieren su propia sesión.
+- **FR-016**: El sistema MUST ofrecer, de forma opcional y solo mediante una opción explícita que nombre el navegador (por ejemplo `--cookies-de firefox`), el uso de cookies del navegador del usuario para videos que requieren su propia sesión.
 - **FR-017**: El sistema MUST NOT guardar credenciales ni cookies en el repositorio ni en los archivos de estado de la cola, y MUST NOT incluirlas en mensajes de error ni registros.
 - **FR-018**: El fallo de una descarga MUST NOT detener ni afectar a las demás descargas de la cola.
-- **FR-019**: El sistema MUST ofrecerse en su primera versión como herramienta de línea de comandos.
+- **FR-019**: El sistema MUST ofrecerse en su primera versión como herramienta de línea de comandos, sin servicio en segundo plano: un comando `agregar` guarda URLs en la cola, un comando `ejecutar` procesa la cola en primer plano y un comando `actualizar` actualiza yt-dlp (FR-025).
 - **FR-020**: El sistema MUST guardar el progreso al recibir una señal de cierre ordenado.
+- **FR-021**: El comando `ejecutar` MUST terminar solo cuando no queden descargas pendientes; las descargas en "esperando red" cuentan como pendientes. Al vaciarse la cola, su código de salida MUST distinguir si todas se completaron o si alguna falló de forma permanente. Las únicas excepciones son la interrupción por el usuario y un error fatal del entorno (disco lleno, archivo de estado corrupto, ffmpeg ausente), que detienen `ejecutar` con un código de salida propio y el progreso conservado.
+- **FR-022**: Al publicar un archivo terminado cuyo nombre ya existe en la carpeta de destino, el sistema MUST conservar el existente, publicar el nuevo con un sufijo numérico y avisar al usuario; MUST NOT sobrescribir archivos existentes.
+- **FR-023**: Antes de publicar un archivo con su nombre final, el sistema MUST verificar que su tamaño coincide con el anunciado por el servidor (cuando este lo informa) y que el archivo es legible hasta el final tras unir audio y video; si la verificación falla, MUST NOT publicarlo como completo e informar del problema.
+- **FR-024**: Si el servidor no permite reanudar una descarga, el sistema MUST reiniciarla desde cero y MUST avisar claramente al usuario de que se reinició y por qué.
+- **FR-025**: El comando `actualizar` MUST actualizar yt-dlp a su última versión dentro del proyecto, mostrar la versión anterior y la nueva, e informar con claridad si la actualización falla.
 
 ### Key Entities
 
-- **Descarga**: un video concreto a obtener. Atributos: URL de origen, calidad elegida, estado (pendiente, descargando, esperando red, completada, fallida), progreso, causa de fallo, archivo parcial y archivo final.
+- **Descarga**: un video concreto a obtener. Atributos: URL de origen, calidad elegida, estado (en cola, descargando, esperando red, completada, fallida; las tres primeras cuentan como pendientes), progreso, causa de fallo, archivo parcial y archivo final.
 - **Cola**: conjunto ordenado de descargas con su estado persistente; sobrevive a cierres y reinicios.
 - **Lista de reproducción**: URL que se expande en varias descargas individuales.
-- **Configuración**: carpeta de destino, calidad por defecto y activación opcional de cookies del navegador.
+- **Configuración**: carpeta de destino y calidad por defecto. El uso de cookies del navegador no se configura aquí: solo se activa con la opción explícita de FR-016.
 
 ## Success Criteria *(mandatory)*
 
@@ -164,17 +179,18 @@ El usuario puede configurar la carpeta de destino. Opcionalmente, puede indicar 
 - **SC-003**: Tras un cierre abrupto o reinicio del equipo, el 100 % de las descargas pendientes reaparece en la cola y continúa desde su progreso guardado.
 - **SC-004**: En 0 casos un archivo incompleto aparece en la carpeta de destino con su nombre final.
 - **SC-005**: Los errores permanentes se notifican al usuario en menos de 30 segundos desde el primer intento, con la causa indicada, y no se reintentan.
-- **SC-006**: El usuario puede agregar una URL y empezar a descargar con un solo comando.
+- **SC-006**: El usuario puede agregar una URL y empezar a descargar con dos comandos (`agregar` y `ejecutar`).
 - **SC-007**: Cada descarga activa muestra progreso, velocidad y tiempo estimado, actualizados al menos una vez por segundo.
 - **SC-008**: Una descarga cuya URL caduca a mitad de transferencia termina con el archivo íntegro sin intervención del usuario.
 
 ## Assumptions
 
 - La compatibilidad de sitios se apoya en el conjunto de sitios que soporta yt-dlp, por lo que el producto depende de esa herramienta externa.
-- La primera versión es solo de línea de comandos; no hay interfaz gráfica ni web.
-- Las descargas se procesan con una concurrencia limitada y configurable, por defecto una a la vez.
-- El servidor de origen debe permitir reanudar peticiones parciales para reanudar sin repetir datos; si no, solo esa descarga se reinicia.
+- La primera versión es solo de línea de comandos; no hay interfaz gráfica ni web ni servicio en segundo plano. Tras un reinicio del equipo, el usuario relanza `ejecutar` para continuar.
+- La primera versión procesa una sola descarga a la vez. La concurrencia configurable queda para una feature futura.
+- El servidor de origen debe permitir reanudar peticiones parciales para reanudar sin repetir datos; si no, solo esa descarga se reinicia con aviso (FR-024).
+- La primera versión se ejecuta en Linux y macOS; Windows queda fuera de alcance.
 - El usuario tiene derecho legítimo a descargar el contenido que solicita.
 - El almacenamiento local es suficiente y escribible en la carpeta de destino.
 - Las cookies del navegador solo se leen en el momento de la descarga y no se persisten en la cola ni en el repositorio.
-- Fuera de alcance: contenido con DRM, transmisiones en vivo, interfaces gráficas y programación horaria de descargas.
+- Fuera de alcance: contenido con DRM, transmisiones en vivo, interfaces gráficas, programación horaria de descargas y descargas simultáneas (feature futura).

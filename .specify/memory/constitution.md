@@ -4,8 +4,8 @@
 
 ### I. Código simple y legible
 El código MUST priorizar la claridad sobre la ingeniosidad. Cada módulo MUST tener una
-responsabilidad única y nombres que expliquen su intención. No se MUST añadir abstracciones,
-dependencias ni configuración para necesidades hipotéticas (YAGNI); toda complejidad
+responsabilidad única y nombres que expliquen su intención. Las abstracciones,
+dependencias y configuración MUST NOT añadirse para necesidades hipotéticas (YAGNI); toda complejidad
 añadida MUST justificarse por escrito en el plan.
 
 Justificación: un descargador que otros puedan leer y auditar es más fácil de mantener y de
@@ -16,28 +16,29 @@ La lógica principal (planificación de descargas, reanudación, reintentos, esc
 progreso) MUST tener tests automatizados. Los tests MUST incluir simulación de cortes de red:
 conexión interrumpida a mitad de transferencia, timeouts, respuestas truncadas y errores del
 servidor. Los tests MUST ejecutarse sin acceso a internet real, usando servidores o
-transportes simulados. Un cambio en esa lógica sin tests no se MUST fusionar.
+transportes simulados. Un cambio en esa lógica sin tests MUST NOT fusionarse.
 
 Justificación: los fallos de red son el caso normal de un descargador, no la excepción.
 
 ### III. Manejo claro de errores
-Todo error MUST ser explícito: no se MUST silenciar excepciones ni devolver resultados
-parciales como si fueran completos. Los mensajes al usuario MUST indicar qué falló, en qué
+Todo error MUST ser explícito: las excepciones MUST NOT silenciarse ni los resultados
+parciales devolverse como si fueran completos. Los mensajes al usuario MUST indicar qué falló, en qué
 recurso y qué puede hacer (reintentar, comprobar la red, etc.). Los errores recuperables
 (red, timeouts) MUST distinguirse de los fatales (URL inválida, permisos, disco lleno) y
 tratarse de forma distinta. Los códigos de salida MUST reflejar el resultado.
 
-### IV. Nunca perder progreso parcial (NON-NEGOTIABLE)
-Los datos ya descargados MUST conservarse ante cualquier interrupción (corte de red, cierre
-del proceso, error). Las descargas MUST poder reanudarse desde el último byte válido cuando el
-servidor lo permita. Un archivo parcial MUST nunca borrarse ni sobrescribirse
-automáticamente, y MUST permanecer claramente distinguido del archivo completo (por ejemplo,
-con un sufijo temporal) hasta que su integridad se verifique. Solo el usuario puede descartar
-un progreso parcial de forma explícita.
+### IV. Nunca perder progreso reanudable (NON-NEGOTIABLE)
+Nunca se pierde progreso reanudable. Los datos ya descargados MUST conservarse ante cualquier
+interrupción (corte de red, cierre del proceso, error) y las descargas MUST reanudarse desde
+el último byte válido cuando el servidor lo permita. Si el servidor no permite reanudar, la
+descarga MUST reiniciarse desde cero y el usuario MUST recibir un aviso claro de que se
+reinició y por qué. Fuera de ese caso, un archivo parcial MUST NOT borrarse ni sobrescribirse
+automáticamente. Un archivo parcial MUST permanecer claramente distinguido del archivo
+completo (por ejemplo, con un sufijo temporal) hasta que su integridad se verifique.
 
 ### V. Sin elusión de DRM ni protecciones técnicas
 El proyecto MUST NOT eludir, descifrar ni saltarse DRM, cifrado de contenido, controles de
-acceso ni otras medidas técnicas de protección. Solo MUST descargar contenido al que el
+acceso ni otras medidas técnicas de protección. MUST descargar solo contenido al que el
 usuario tenga acceso legítimo por medios estándar. Las contribuciones que añadan
 funcionalidad de elusión MUST rechazarse.
 
@@ -72,4 +73,4 @@ material, PATCH para aclaraciones y correcciones de redacción. Toda revisión d
 comprobar el cumplimiento; las desviaciones MUST justificarse en la sección de complejidad
 del plan.
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-20 | **Last Amended**: 2026-10-20
+**Version**: 2.0.0 | **Ratified**: 2026-10-20 | **Last Amended**: 2026-10-21
