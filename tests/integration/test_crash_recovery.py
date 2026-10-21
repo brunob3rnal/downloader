@@ -1,39 +1,39 @@
 """Cierre abrupto de `ejecutar` y recuperación (escenario 4 de quickstart; US3).
 
 `ejecutar` corre en un subproceso real, que no registra `fake_extractor`: las URLs son
-directas al MP4 y las resuelve el extractor genérico de yt-dlp.
+directas al MP4 y las resuelve el extractor genérico de yt-dlp. El cierre abrupto es
+`Popen.kill()`: `SIGKILL` en POSIX y `TerminateProcess` en Windows. Se lanza el intérprete
+directamente (`python -m downloader`) y no `uv run`, para matar el proceso que descarga y no
+un intermediario.
 """
 
 import os
-import shutil
-import signal
 import sqlite3
 import subprocess
+import sys
 import time
-from pathlib import Path
 
 import pytest
 
 pytestmark = pytest.mark.xfail(strict=True, reason="pendiente de la Fase 5 (US3)")
 
-RAIZ = Path(__file__).resolve().parents[2]
 LIMITE = 60
 
 
 def downloader(*argumentos, env, **kwargs):
-    comando = [shutil.which("uv"), "run", "--quiet", "downloader", *map(str, argumentos)]
-    return subprocess.Popen(comando, cwd=RAIZ, env=env, start_new_session=True, **kwargs)
+    comando = [sys.executable, "-m", "downloader", *map(str, argumentos)]
+    return subprocess.Popen(comando, env=env, **kwargs)
 
 
 def esperar(proceso):
     try:
         return proceso.wait(timeout=LIMITE)
     except subprocess.TimeoutExpired:
-        os.killpg(proceso.pid, signal.SIGKILL)
+        proceso.kill()
         raise
 
 
-def test_sigkill_a_mitad_y_relanzar(app_home, destino, servidor, medios):
+def test_cierre_abrupto_a_mitad_y_relanzar(app_home, destino, servidor, medios):
     from downloader import store  # noqa: F401  (falla hasta que exista la implementación)
 
     datos = medios.datos_mp4
@@ -52,16 +52,16 @@ def test_sigkill_a_mitad_y_relanzar(app_home, destino, servidor, medios):
     trabajo = destino / ".downloader-tmp"
     fin = time.monotonic() + LIMITE
     while True:
-        parciales = list(trabajo.glob("*/lento*.part")) if trabajo.exists() else []
+        parciales = list(trabajo.glob("*/*.part")) if trabajo.exists() else []
         if parciales and parciales[0].stat().st_size > 0.3 * len(datos):
             break
         assert ejecutar.poll() is None, "ejecutar terminó antes de poder interrumpirlo"
         assert time.monotonic() < fin, "la descarga lenta no avanzó"
         time.sleep(0.05)
-    os.killpg(ejecutar.pid, signal.SIGKILL)
+    ejecutar.kill()
     esperar(ejecutar)
 
-    conexion = sqlite3.connect(f"file:{app_home / 'cola.db'}?mode=ro", uri=True)
+    conexion = sqlite3.connect(f"{(app_home / 'cola.db').as_uri()}?mode=ro", uri=True)
     filas = dict(conexion.execute("SELECT url, estado FROM descargas"))
     conexion.close()
     assert filas[servidor.url("lento.mp4")] == "downloading"

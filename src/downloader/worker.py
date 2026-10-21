@@ -92,7 +92,7 @@ def _comprobar_carpeta(carpeta: str) -> None:
     """La carpeta pudo desaparecer o perder permisos desde `agregar` (FR-018)."""
     if not os.path.isdir(carpeta):
         raise ErrorPermanente(f"La carpeta de destino {carpeta} ya no existe")
-    if not os.access(carpeta, os.W_OK | os.X_OK):
+    if not publish.escribible(carpeta):
         raise ErrorPermanente(f"Sin permiso de escritura en la carpeta de destino {carpeta}")
 
 
@@ -109,7 +109,8 @@ def _descargar(store, presentador, tiempos, navegador, descarga):
     info = ytdl.descargar(descarga, trabajo, navegador, al_progresar, tiempos.socket_timeout)
     archivo = ytdl.archivo_descargado(info)
     nombre = publish.nombre_publicado(
-        info.get("title") or info["id"], info["id"], archivo.suffix.lstrip(".")
+        info.get("title") or info["id"], info["id"], archivo.suffix.lstrip("."),
+        descarga.carpeta_destino,
     )
     publicacion = publish.publicar(archivo, descarga.carpeta_destino, nombre)
 

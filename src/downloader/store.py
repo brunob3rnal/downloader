@@ -1,6 +1,6 @@
 """Cola persistente en SQLite: esquema, altas, transiciones, recuperación y bloqueo (R11)."""
 
-import fcntl
+import errno
 import os
 import shutil
 import sqlite3
@@ -20,6 +20,38 @@ from downloader.models import (
     TipoDescarga,
     validar_transicion,
 )
+
+# Bloqueo de `ejecutar.lock` (research R11): `msvcrt.locking` en Windows y `fcntl.flock` en
+# el resto. En ambos casos el sistema libera el bloqueo si el proceso muere.
+if os.name == "nt":
+    import msvcrt
+
+    def _bloquear(descriptor: int) -> bool:
+        os.lseek(descriptor, 0, os.SEEK_SET)  # se bloquea el primer byte (aunque no exista)
+        try:
+            msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+        except OSError as error:
+            if error.errno in (errno.EACCES, errno.EDEADLK):
+                return False
+            raise
+        return True
+
+    def _desbloquear(descriptor: int) -> None:
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+
+else:
+    import fcntl
+
+    def _bloquear(descriptor: int) -> bool:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return False
+        return True
+
+    def _desbloquear(descriptor: int) -> None:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
 
 ARCHIVO = "cola.db"
 BLOQUEO = "ejecutar.lock"
@@ -78,8 +110,12 @@ class Bloqueo:
 
     def liberar(self) -> None:
         if self._descriptor is not None:
-            os.close(self._descriptor)  # cerrar el descriptor libera el flock
-            self._descriptor = None
+            # Windows libera al cerrar, pero puede tardar: se desbloquea antes explícitamente.
+            try:
+                _desbloquear(self._descriptor)
+            finally:
+                os.close(self._descriptor)
+                self._descriptor = None
 
 
 def _ahora() -> str:
@@ -277,13 +313,16 @@ class Store:
         ruta = self.directorio / BLOQUEO
         descriptor = os.open(ruta, os.O_RDWR | os.O_CREAT, 0o600)
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+            bloqueado = _bloquear(descriptor)
+        except BaseException:
+            os.close(descriptor)
+            raise
+        if not bloqueado:
             os.close(descriptor)
             raise EjecucionEnCurso(
                 "Ya hay otro `downloader ejecutar` en marcha; espere a que termine. "
                 "Puede seguir agregando URLs con `downloader agregar` y las recogerá."
-            ) from None
+            )
         bloqueo = Bloqueo(descriptor)
         self._bloqueos.append(bloqueo)
         return bloqueo

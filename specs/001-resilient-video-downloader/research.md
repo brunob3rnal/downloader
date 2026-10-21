@@ -28,7 +28,8 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
 
 - **Decision**: cada intento vuelve a extraer la información del video
   (`extract_info(url, download=True)`) y descarga en un directorio de trabajo estable por
-  descarga, con plantilla de nombre fija (`%(id)s.%(ext)s`). yt-dlp continúa los `.part`
+  descarga, con plantilla de nombre fija (`descarga.%(ext)s`; antes `%(id)s.%(ext)s`, ver R7).
+  yt-dlp continúa los `.part`
   existentes (`continuedl`) y los fragmentos HLS/DASH mediante su archivo `.ytdl`.
 - **Rationale**: re-extraer en cada intento resuelve la caducidad de URLs temporales (FR-012)
   sin un caso especial: un 403 por URL caducada se clasifica como temporal y el siguiente
@@ -155,9 +156,40 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   `FileExistsError` si el destino existe, y entonces se prueba `nombre (1).ext`,
   `nombre (2).ext`, etc. Si el sistema de archivos no admite enlaces duros, se usa
   `os.open(destino, O_CREAT | O_EXCL)` + copia + `fsync` + borrado del origen.
-- **Rationale**: `os.rename`/`os.replace` sobrescriben en POSIX sin avisar (viola FR-022).
-  El nombre final nunca aparece en la carpeta de destino hasta pasar la verificación
-  (FR-013, SC-004). Al estar en el mismo sistema de archivos, la publicación es atómica.
+- **Rationale**: `os.rename`/`os.replace` sobrescriben en POSIX sin avisar (viola FR-022);
+  `os.replace` también en Windows. El nombre final nunca aparece en la carpeta de destino hasta
+  pasar la verificación (FR-013, SC-004). Al estar en el mismo sistema de archivos, la
+  publicación es atómica.
+- **Windows (constitución v2.1.0)**:
+  - NTFS admite enlaces duros: `os.link` llama a `CreateHardLinkW`, que falla con
+    `ERROR_ALREADY_EXISTS` (Python: `FileExistsError`) si el destino existe, igual que en
+    Linux; `os.unlink` del origen funciona porque yt-dlp ya cerró el archivo. Lo prueban en
+    `windows-latest` los tests de `tests/unit/test_publish_nombres.py` que usan `os.link`
+    real.
+  - FAT32 y exFAT no admiten enlaces duros. En Linux, `vfat` responde `EPERM`; en Windows el
+    motivo llega en `winerror` (`ERROR_INVALID_FUNCTION`, `ERROR_NOT_SUPPORTED`,
+    `ERROR_NOT_SAME_DEVICE`, `ERROR_TOO_MANY_LINKS`, `ERROR_ACCESS_DENIED`) y `errno` es un
+    `EINVAL` genérico, así que `publish._sin_enlaces` mira los dos. El respaldo
+    `O_CREAT | O_EXCL` + copia no depende del sistema. El CI crea un volumen FAT32 en Linux y
+    uno FAT32 y otro exFAT en Windows (`DOWNLOADER_TEST_SIN_ENLACES`) y publica en ellos.
+  - Nombres: `windowsfilenames=True` en las opciones de descarga, y `sanitize_filename` (que
+    `nombre_publicado` ya usaba) sustituye `: ? | " < > * / \` por equivalentes de ancho
+    completo en cualquier sistema. Ninguno de los dos evita los nombres reservados (`CON`,
+    `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, con cualquier extensión):
+    `nombre_publicado` antepone `_` si lo que queda antes del primer punto es uno de ellos.
+  - Longitud: sin `LongPathsEnabled` en el registro, Windows limita la ruta a 260 caracteres
+    (259 más el NUL); Linux limita cada nombre a 255 bytes. `nombre_publicado` acorta el título
+    hasta que el nombre, con hueco para el sufijo más largo de `publicar` (` (9999)`), cabe en
+    255 bytes UTF-8 y, en Windows, la ruta completa en 259 unidades UTF-16. El id y la
+    extensión no se recortan.
+  - Directorio de trabajo: los archivos se llaman `descarga.<ext>` (y yt-dlp añade
+    `.f<formato>`, `.part`, `.part-Frag<N>`, `.ytdl`, `.temp`) en lugar de `<id_video>.<ext>`:
+    el id podría ser largo, o un nombre reservado si lo deduce el extractor genérico de la URL
+    (`…/aux.mp4`). Así la ruta de trabajo es la carpeta más unos 60 caracteres
+    (`\.downloader-tmp\<id>\descarga.f137.mp4.part-Frag1234`).
+  - Límite conocido: si la propia carpeta de destino supera unos 195 caracteres, los archivos de
+    trabajo pueden pasar de 260 en Windows sin `LongPathsEnabled`; yt-dlp no podría crearlos y
+    la descarga fallaría con el mensaje del sistema. No se valida de antemano.
 - **Alternatives considered**: `.part` directamente en la carpeta de destino (mezcla parciales
   y finales; yt-dlp renombra al terminar, antes de que podamos verificar).
 
@@ -208,9 +240,10 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
 - **Archivo corrupto**: al abrir se ejecuta `PRAGMA quick_check`; si falla o SQLite lanza
   `DatabaseError`, se copia a `cola.db.corrupta-<fecha>`, se muestra un error claro y se sale
   con código 3. No se crea una cola nueva ni se toca ningún directorio de trabajo.
-- **Concurrencia de procesos**: un único `ejecutar` a la vez, garantizado con `fcntl.flock`
-  sobre `ejecutar.lock` en el mismo directorio (el sistema operativo libera el bloqueo si el
-  proceso muere).
+- **Concurrencia de procesos**: un único `ejecutar` a la vez, garantizado con un bloqueo
+  exclusivo sobre `ejecutar.lock` en el mismo directorio: `fcntl.flock` en Linux y
+  `msvcrt.locking` en Windows (R17). En ambos el sistema operativo libera el bloqueo si el
+  proceso muere.
 
 ## R12. Cookies del navegador
 
@@ -254,9 +287,13 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   - Un extractor de prueba (`InfoExtractor` registrado con `ydl.add_info_extractor`) para URLs
     `http://127.0.0.1:<puerto>/watch/<id>` que devuelve en cada extracción una URL de medios
     con un token nuevo: prueba la caducidad por el camino real.
-  - Prueba de cierre abrupto: lanzar `ejecutar` en un subproceso, `SIGKILL` a mitad,
-    relanzar y comprobar que el total de bytes servidos no supera el tamaño del archivo
-    en más de un 1 % (SC-002).
+  - Prueba de cierre abrupto: lanzar `ejecutar` en un subproceso (`python -m downloader`, sin
+    `uv run` en medio), matarlo a mitad con `Popen.kill()` (`SIGKILL` en POSIX,
+    `TerminateProcess` en Windows), relanzar y comprobar que el total de bytes servidos no
+    supera el tamaño del archivo en más de un 1 % (SC-002).
+  - Ctrl+C: en Windows no se puede enviar Ctrl+C a un solo proceso, así que el test lanza
+    `ejecutar` con `CREATE_NEW_PROCESS_GROUP` y le envía `CTRL_BREAK_EVENT` (R17); en Linux,
+    `SIGINT`.
   - Marcador `ffmpeg`: `conftest.py` omite esos tests si `shutil.which("ffmpeg")` o
     `shutil.which("ffprobe")` es `None`.
   - Sin acceso a internet en ningún test.
@@ -278,3 +315,56 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   `uv run`.
 - **Rationale**: `uv init` sin `--package` crea un `main.py` suelto sin punto de entrada
   instalable; `uv add pytest` sin `--dev` lo convertiría en dependencia de ejecución.
+
+## R17. Plataformas: Windows 10/11 y Linux
+
+- **Contexto**: en Windows, `uv run downloader` fallaba con `ModuleNotFoundError: No module
+  named 'fcntl'` (`store.py`, línea 3). La constitución v2.1.0 fija Windows 10/11 y Linux como
+  plataformas objetivo.
+- **Decision (bloqueo)**: `store.py` importa `msvcrt` si `os.name == "nt"` y `fcntl` en el
+  resto, y define `_bloquear`/`_desbloquear` con la misma interfaz. En Windows se bloquea el
+  primer byte de `ejecutar.lock` con `msvcrt.locking(fd, LK_NBLCK, 1)` (se puede bloquear más
+  allá del final del archivo; un bloqueo ocupado da `EACCES` o `EDEADLK`) y se desbloquea con
+  `LK_UNLCK` antes de cerrar, porque Windows libera los bloqueos de un descriptor cerrado
+  "cuando lo permiten los recursos del sistema", no necesariamente al instante.
+- **Rationale**: son unas 25 líneas sin dependencias nuevas (Principio I; la constitución pide
+  justificar cada dependencia). Ambos mecanismos son los que necesita R11: exclusivos entre
+  procesos y entre descriptores del mismo proceso, y liberados por el sistema si el proceso
+  muere (`SIGKILL`, `TerminateProcess`). `tests/unit/test_store.py` prueba la rama de Windows
+  con un `msvcrt` simulado en Linux, y los tests de bloqueo corren con `msvcrt` real en
+  `windows-latest`.
+- **Alternatives considered**: `portalocker` (PSF-2.0, pequeña y mantenida): envuelve lo mismo
+  (`msvcrt.locking` o `LockFileEx` con pywin32, y `fcntl.flock`), añade una dependencia y su
+  revisión de licencia, y aporta funciones (bloqueos con espera, compartidos, Redis) que no se
+  usan. `filelock`: bloqueo por existencia de archivo en algunas variantes, que no se libera
+  solo si el proceso muere. SQLite como bloqueo (`BEGIN EXCLUSIVE` permanente): bloquearía
+  también a `agregar`, que debe poder escribir mientras `ejecutar` corre.
+- **Revisión del resto de `src/`**: no hay `os.fork`, `os.getuid`/`geteuid`, `os.O_DIRECTORY`,
+  `fsync` sobre directorios, `resource`, `termios` ni señales POSIX. Se corrigió:
+  - `os.access(carpeta, W_OK | X_OK)` en `cli.py` y `worker.py`: en Windows siempre responde
+    que una carpeta es escribible (ignora las ACL). Se sustituye por `publish.escribible`, que
+    crea un archivo temporal en la carpeta.
+  - `progress._ruta_visible` construía `~/…` con `/` a mano; ahora usa `Path("~") / …`
+    (`~\Downloads\…` en Windows).
+  - `publish._SIN_ENLACES` solo miraba `errno` (ver R7).
+  - Salida redirigida: en Windows, `sys.stdout` hacia un archivo o una tubería usa la
+    codificación ANSI (cp1252) y un título con caracteres fuera de ella lanzaba
+    `UnicodeEncodeError`. `cli.principal` reconfigura `stdout` y `stderr` con
+    `errors="backslashreplace"`. En la consola, Python ya escribe en UTF-16 y no ocurre.
+  - Nuevo `src/downloader/__main__.py` para lanzar `python -m downloader` desde los tests.
+- **Ctrl+C en Windows**: Python convierte `CTRL_C_EVENT` en `SIGINT` y este en
+  `KeyboardInterrupt` en el hilo principal, como en Linux; el bucle de `ejecutar` corre en el
+  hilo principal y los hilos del monitor de red y del progreso son `daemon`. Diferencias:
+  - Ctrl+Break (`SIGBREAK`) terminaría el proceso sin limpiar; `cli.ejecutar` lo asocia a
+    `signal.default_int_handler`, así que interrumpe igual que Ctrl+C. Además es el único
+    evento que se puede enviar a un proceso concreto, y lo usa el test.
+  - Una llamada bloqueante (`recv` sobre un socket) no se interrumpe: la señal se atiende
+    cuando vuelve, como mucho tras `socket_timeout` (20 s). En Linux, `EINTR` la corta al
+    instante.
+  - El código de salida tras Ctrl+C, la vuelta de la fila a `queued` y el mensaje
+    "interrumpido; progreso guardado" siguen siendo de la Fase 5 (T042, T044).
+- **Verificación**: `tests/unit/test_plataforma.py` importa todos los módulos de `downloader` y
+  recorre el AST de `src/` y `tests/` para fallar ante un `import fcntl` (o `termios`,
+  `msvcrt`…) o un `signal.SIGKILL`, `os.fork`, `os.getuid`… que no estén bajo
+  `if os.name …`/`sys.platform …`, `hasattr(…)` o `try … except ImportError`. La verificación
+  real del comportamiento en Windows es el job `windows-latest` del CI.

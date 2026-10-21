@@ -1,8 +1,12 @@
+import errno
+import importlib.util
 import os
 import sqlite3
+import sys
 
 import pytest
 
+from downloader import store as modulo_store
 from downloader.errors import ErrorFatal
 from downloader.models import Calidad, Estado, TipoDescarga
 from downloader.store import EjecucionEnCurso, Store
@@ -190,3 +194,50 @@ def test_el_bloqueo_se_libera_al_cerrar(app_home):
         otro.bloquear_ejecucion().liberar()
     finally:
         otro.cerrar()
+
+
+class MsvcrtFalso:
+    """`msvcrt.locking` con la semántica de Windows: bloqueos por región, no reentrantes."""
+
+    LK_UNLCK, LK_NBLCK = 0, 2
+
+    def __init__(self):
+        self.bloqueos = {}  # (dispositivo, inodo, posición, bytes) -> descriptor
+
+    def locking(self, descriptor, modo, bytes_):
+        estado = os.fstat(descriptor)
+        clave = (estado.st_dev, estado.st_ino, os.lseek(descriptor, 0, os.SEEK_CUR), bytes_)
+        if modo == self.LK_NBLCK:
+            if clave in self.bloqueos:
+                raise PermissionError(errno.EACCES, "Permission denied")
+            self.bloqueos[clave] = descriptor
+        elif modo == self.LK_UNLCK:
+            if self.bloqueos.get(clave) != descriptor:
+                raise PermissionError(errno.EACCES, "Permission denied")
+            del self.bloqueos[clave]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="en Windows, los dos tests anteriores usan msvcrt real")
+def test_bloqueo_con_msvcrt_simulado(app_home, monkeypatch):
+    """La rama de Windows de `store` con un `msvcrt` simulado (la real la prueba el CI)."""
+    falso = MsvcrtFalso()
+    monkeypatch.setitem(sys.modules, "msvcrt", falso)
+    monkeypatch.setattr(os, "name", "nt")
+    spec = importlib.util.spec_from_file_location("store_windows", modulo_store.__file__)
+    windows = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(windows)
+    monkeypatch.undo()
+
+    primero, otro = windows.Store.abrir(app_home), windows.Store.abrir(app_home)
+    try:
+        bloqueo = primero.bloquear_ejecucion()
+        assert len(falso.bloqueos) == 1
+        with pytest.raises(windows.EjecucionEnCurso):
+            otro.bloquear_ejecucion()
+        bloqueo.liberar()
+        assert falso.bloqueos == {}
+        otro.bloquear_ejecucion()
+    finally:
+        primero.cerrar()
+        otro.cerrar()
+    assert falso.bloqueos == {}

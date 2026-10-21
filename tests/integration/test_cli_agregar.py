@@ -2,6 +2,8 @@
 
 import os
 import re
+import subprocess
+import sys
 
 from downloader.models import Estado
 from downloader.store import Store
@@ -61,11 +63,14 @@ def test_carpeta_inexistente(cli, tmp_path):
 
 
 def test_carpeta_sin_permisos(cli, destino, monkeypatch):
-    # Como root, `chmod` no impide escribir: se simula la respuesta de os.access.
-    acceso = os.access
+    # Como root, `chmod` no impide escribir, y en Windows harían falta ACL: se simula la
+    # comprobación.
+    from downloader import publish
+
+    escribible = publish.escribible
     monkeypatch.setattr(
-        os, "access", lambda ruta, modo, **kw: False if str(ruta) == str(destino.resolve())
-        else acceso(ruta, modo, **kw)
+        publish, "escribible",
+        lambda carpeta: str(carpeta) != str(destino.resolve()) and escribible(carpeta),
     )
     resultado = cli("agregar", "https://v.ejemplo/a", "--carpeta", destino)
     assert resultado.exit_code == 2
@@ -91,3 +96,16 @@ def test_cola_corrupta(cli, app_home, destino):
     assert resultado.exit_code == 3
     assert "corrupt" in resultado.output
     assert list(app_home.glob("cola.db.corrupta-*"))
+
+
+def test_salida_redirigida_en_una_codificacion_limitada(app_home, destino):
+    """En Windows, con la salida redirigida, Python escribe en cp1252: un carácter que no cabe
+    en ella no debe detener el programa."""
+    env = {**os.environ, "DOWNLOADER_HOME": str(app_home), "PYTHONIOENCODING": "cp1252"}
+    resultado = subprocess.run(
+        [sys.executable, "-m", "downloader", "agregar", "https://v.ejemplo/日本",
+         "--carpeta", str(destino)],
+        env=env, capture_output=True,
+    )
+    assert resultado.returncode == 0, resultado.stderr.decode("cp1252", "replace")
+    assert "agregada #1  https://v.ejemplo/\\u65e5\\u672c" in resultado.stdout.decode("cp1252")

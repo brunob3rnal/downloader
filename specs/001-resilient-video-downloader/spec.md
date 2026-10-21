@@ -197,7 +197,7 @@ El usuario puede configurar la carpeta de destino. Opcionalmente, puede indicar 
 - La primera versión es solo de línea de comandos; no hay interfaz gráfica ni web ni servicio en segundo plano. Tras un reinicio del equipo, el usuario relanza `ejecutar` para continuar.
 - La primera versión procesa una sola descarga a la vez. La concurrencia configurable queda para una feature futura.
 - El servidor de origen debe permitir reanudar peticiones parciales para reanudar sin repetir datos; si no, solo esa descarga se reinicia con aviso (FR-024).
-- La primera versión se ejecuta en Linux y macOS; Windows queda fuera de alcance.
+- Plataformas objetivo: Windows 10/11 y Linux (constitución v2.1.0, sección Plataformas). El programa funciona en ambas con el mismo comportamiento: un único `ejecutar` a la vez, publicación sin sobrescribir (también en unidades FAT32/exFAT sin enlaces duros), nombres de archivo válidos en Windows y Ctrl+C. macOS no es plataforma objetivo: el código no lo excluye, pero no se verifica.
 - El usuario tiene derecho legítimo a descargar el contenido que solicita.
 - El almacenamiento local es suficiente y escribible en la carpeta de destino.
 - Las cookies del navegador solo se leen en el momento de la descarga y no se persisten en la cola ni en el repositorio.

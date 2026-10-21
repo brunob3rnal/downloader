@@ -55,6 +55,21 @@ prueba MUST usar valores ficticios.
 - Los mensajes y logs MUST ocultar tokens y cookies presentes en URLs o cabeceras.
 - Las dependencias nuevas MUST justificarse conforme al Principio I y revisar su licencia.
 
+## Plataformas
+
+- El programa MUST funcionar en Windows 10/11 y en Linux. Una funcionalidad que no funcione en
+  una de las dos plataformas MUST NOT fusionarse.
+- El código MUST NOT depender sin alternativa de APIs de un solo sistema (`fcntl`, señales
+  POSIX como `SIGKILL`, `os.fork`, `os.getuid`…): cada uso MUST ir protegido por una
+  comprobación de plataforma y tener su equivalente en la otra.
+- Las rutas MUST construirse con `pathlib` u `os.path`, nunca concatenando `/` a mano, y los
+  nombres de archivo que se creen MUST ser válidos en Windows (caracteres, nombres reservados
+  y longitud de ruta).
+- El CI MUST ejecutar la suite completa en Linux y en Windows, con ffmpeg instalado en ambos.
+
+Justificación: el usuario principal trabaja en Windows; un descargador que solo funciona en
+Linux no cumple su propósito.
+
 ## Flujo de Desarrollo
 
 - Cada cambio MUST pasar por la especificación, el plan y las tareas de Spec Kit antes de
@@ -73,4 +88,4 @@ material, PATCH para aclaraciones y correcciones de redacción. Toda revisión d
 comprobar el cumplimiento; las desviaciones MUST justificarse en la sección de complejidad
 del plan.
 
-**Version**: 2.0.0 | **Ratified**: 2026-10-20 | **Last Amended**: 2026-10-21
+**Version**: 2.1.0 | **Ratified**: 2026-10-20 | **Last Amended**: 2026-10-21
