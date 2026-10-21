@@ -46,13 +46,13 @@ simultánea; ningún secreto en disco ni en logs
 | Principio | Cumplimiento en el diseño | Estado |
 |-----------|---------------------------|--------|
 | I. Código simple | un paquete, ~10 módulos, 2 dependencias Python, sin daemon ni concurrencia de descargas | Pasa |
-| II. Tests con cortes de red | servidor local con cortes, apagado/rearranque, tokens caducados y `SIGKILL`; sin internet (R15) | Pasa; CI MUST instalar ffmpeg para no omitir en silencio |
+| II. Tests con cortes de red | servidor local con respuestas truncadas, timeouts, 5xx, apagado/rearranque, tokens caducados y `SIGKILL`; sin internet (R15) | Pasa; CI MUST instalar ffmpeg para no omitir en silencio |
 | III. Errores claros | clasificación TEMPORAL/PERMANENTE/FATAL (R4); códigos de salida en [contracts/cli.md](contracts/cli.md) | Pasa |
-| IV. No perder progreso | `.part` en directorio de trabajo, `skip_unavailable_fragments=False`, recuperación al arrancar, Ctrl+C conserva todo | **Pasa con excepción a confirmar** (R3, ver Complexity Tracking) |
+| IV. No perder progreso reanudable (v2.0.0) | `.part` en directorio de trabajo, `skip_unavailable_fragments=False`, recuperación al arrancar, Ctrl+C conserva todo; si el servidor no permite reanudar, reinicio con aviso detectado por retroceso de bytes (R3, FR-024) | Pasa |
 | V. Sin DRM | rechazo de `has_drm` e `is_live` antes de descargar (R5) | Pasa |
 | VI. Sin credenciales | `cookiesfrombrowser` en memoria, sin `cookiefile`; la base de datos solo guarda el nombre del navegador; logger que filtra secretos (R12) | Pasa |
 
-**Re-check post-diseño**: sin cambios; la única excepción sigue siendo R3.
+**Re-check post-diseño**: pasa. La excepción de R3 quedó resuelta al enmendar el Principio IV (constitución v2.0.0).
 
 ## Project Structure
 
@@ -76,7 +76,7 @@ pyproject.toml           # uv init --package; script de consola "downloader"
 uv.lock
 src/downloader/
 ├── __init__.py
-├── cli.py               # Typer: agregar, ejecutar, update; códigos de salida
+├── cli.py               # Typer: agregar, ejecutar, actualizar; códigos de salida
 ├── config.py            # config.toml, rutas de la app, valores por defecto
 ├── models.py            # Estado, Calidad, Descarga, transiciones permitidas
 ├── store.py             # SQLite: esquema, altas, transiciones, recuperación, bloqueo
@@ -107,12 +107,10 @@ tests/
 2. `uv init --package` en lugar de `uv init` para tener `src/` y un script de consola (R16).
 3. Publicación con `os.link` + `unlink` en lugar de renombrado: `os.rename` sobrescribe en
    POSIX y violaría FR-022 (R7).
-4. Concurrencia fija en 1 descarga; la spec suponía "configurable". Se difiere por YAGNI.
-5. `update` se interpreta como "actualizar yt-dlp" (R14). Falta confirmación, y el nombre en
-   inglés no sigue a `agregar`/`ejecutar`.
+4. Una sola descarga simultánea en v1; la concurrencia configurable queda para una feature
+   futura (spec, Assumptions).
+5. El comando de mantenimiento se llama `actualizar` y actualiza yt-dlp (FR-025, R14).
 
 ## Complexity Tracking
 
-| Violation | Why Needed | Simpler Alternative Rejected Because |
-|-----------|------------|-------------------------------------|
-| Principio IV: si el servidor no permite reanudar, yt-dlp borra el `.part` y empieza de cero (R3) | Es comportamiento interno de yt-dlp; coincide con el caso límite de la spec ("se reinicia solo esa descarga") | Impedirlo exige reemplazar el descargador HTTP de yt-dlp. Mitigación propuesta: mover el `.part` a `.part.N.bak` antes de reintentar cuando el servidor no anuncie `Accept-Ranges`. **Requiere decisión: aceptar la mitigación o enmendar el principio IV.** |
+Sin violaciones de la constitución que justificar.

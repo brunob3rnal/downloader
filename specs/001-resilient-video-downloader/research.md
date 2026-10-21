@@ -31,18 +31,19 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
 - **Riesgo**: si tras re-extraer cambia el formato elegido, se empieza un `.part` nuevo; el
   anterior se conserva (no se pierde, pero se desperdicia).
 
-## R3. Servidor que no permite reanudar (conflicto con la constitución)
+## R3. Servidor que no permite reanudar
 
 - **Hallazgo**: `yt_dlp/downloader/http.py` borra el `.part` y descarga desde cero cuando el
   servidor ignora la cabecera `Range` ("resume is not possible, so wiping the local file").
-  Esto choca con el Principio IV ("un archivo parcial MUST nunca borrarse ni sobrescribirse
-  automáticamente") y coincide con el caso límite de la spec ("se reinicia solo esa
-  descarga").
-- **Decision propuesta**: antes de cada reintento, si existe un `.part` y el servidor no
-  anuncia `Accept-Ranges: bytes`, se mueve el `.part` a `*.part.N.bak` en el mismo directorio
-  de trabajo, se avisa al usuario y se deja que yt-dlp reinicie. Nada se borra
-  automáticamente; el usuario decide si descarta los respaldos.
-- **Pendiente**: requiere confirmación del usuario (ver Complexity Tracking del plan).
+- **Decision**: se acepta ese reinicio, conforme al Principio IV enmendado (v2.0.0) y a
+  FR-024. No se guardan respaldos del `.part`. El reinicio se detecta sin depender del texto
+  de yt-dlp: al empezar cada intento se anota el tamaño de cada `.part` existente; si el
+  primer evento del hook de progreso para ese archivo informa `downloaded_bytes` menor que ese
+  tamaño, la descarga se reinició. Entonces se muestra el aviso
+  "#N reiniciada desde cero: el servidor no permite reanudar" y se guarda en `ultimo_aviso`.
+- **Alternatives considered**: respaldar el `.part` antes de reintentar (rechazado por el
+  usuario: el progreso de un servidor que no permite reanudar no es aprovechable);
+  reemplazar el descargador HTTP de yt-dlp (complejidad desproporcionada).
 
 ## R4. Clasificación de errores
 
@@ -53,7 +54,11 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
     `exc_info` / `cause` de `DownloadError` y `ExtractorError`.
   - `PERMANENTE`: `UnsupportedError`, `ExtractorError(expected=True)` (video borrado,
     privado, restricción geográfica, DRM), contenido en directo, fallo de verificación.
-  - `FATAL` (detiene `ejecutar`): disco lleno (`ENOSPC`), carpeta sin permisos, ffmpeg ausente.
+  - `PERMANENTE` también: carpeta de destino inexistente o sin permisos al procesar (afecta
+    solo a esa descarga, FR-018).
+  - `FATAL` (detiene `ejecutar`, FR-021): disco lleno (`ENOSPC`), archivo de estado corrupto,
+    ffmpeg o ffprobe ausentes. Afectan a todo el entorno: seguir con otras descargas
+    fallaría igual.
 - **Rationale**: la regla "si no hay red, es temporal" evita marcar como permanente un
   `ExtractorError` provocado por el corte (yt-dlp envuelve el error de red al descargar la
   página).
@@ -101,6 +106,9 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
      -show_entries format=duration:stream=nb_read_packets` debe terminar sin errores, leer
      paquetes en todos los flujos y devolver una duración positiva. Para HLS/DASH sin tamaño
      total es la única comprobación; en el resto, complementa la de tamaño.
+  3. Si la verificación falla, la descarga pasa a `failed` y los archivos del intento se
+     mueven a `<directorio de trabajo>/invalidos/<fecha>/` (no se borran). Así, si el
+     usuario la vuelve a encolar, yt-dlp no da por buenos esos archivos y descarga de nuevo.
 - **Rationale**: el tamaño del archivo unido no coincide con la suma de los formatos, por lo
   que el tamaño se comprueba antes de unir. `-count_packets` lee todo el contenedor sin
   decodificar: detecta truncamientos y es rápido.
@@ -133,6 +141,9 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   `waiting_network` vuelven a `queued` (recuperación tras cierre abrupto).
 - **Rationale**: WAL permite `agregar` desde otra terminal mientras `ejecutar` corre;
   `synchronous=FULL` hace que un commit sobreviva a un corte de luz.
+- **Archivo corrupto**: al abrir se ejecuta `PRAGMA quick_check`; si falla o SQLite lanza
+  `DatabaseError`, se copia a `cola.db.corrupta-<fecha>`, se muestra un error claro y se sale
+  con código 3. No se crea una cola nueva ni se toca ningún directorio de trabajo.
 - **Concurrencia de procesos**: un único `ejecutar` a la vez, garantizado con `fcntl.flock`
   sobre `ejecutar.lock` en el mismo directorio (el sistema operativo libera el bloqueo si el
   proceso muere).
@@ -153,10 +164,13 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   calidad, carpeta y navegador), marca la padre como `completed` con tipo `playlist` y sigue.
 - **Rationale**: un único punto de extracción; las listas se benefician de los mismos
   reintentos.
+- **URLs mixtas** (video dentro de una lista, p. ej. `watch?v=…&list=…`): `noplaylist=True`
+  también al expandir, así que se descarga solo el video. Las URLs de lista propiamente dichas
+  se expanden igual.
 
-## R14. Comando `update`
+## R14. Comando `actualizar`
 
-- **Decision (supuesto a confirmar)**: `update` actualiza yt-dlp a su última versión
+- **Decision**: `actualizar` (FR-025) actualiza yt-dlp a su última versión
   ejecutando `uv lock --upgrade-package yt-dlp` y `uv sync` en el proyecto, y muestra la
   versión anterior y la nueva. Si la herramienta no corre desde el proyecto (por ejemplo,
   instalada con `uv tool install`), indica el comando equivalente (`uv tool upgrade
@@ -169,8 +183,10 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
 
 - **Decision**:
   - Servidor HTTP local en un hilo (`http.server`) con soporte de `Range`, y modos
-    configurables: cortar la conexión tras N bytes, rechazar `Range`, responder 403 a tokens
-    caducados, apagarse y volver a levantarse en el mismo puerto.
+    configurables: cortar la conexión tras N bytes (respuesta truncada), quedarse sin enviar
+    datos hasta agotar el timeout del cliente, responder 500/503, rechazar `Range`, responder
+    403 a tokens caducados, apagarse y volver a levantarse en el mismo puerto. Cubre los
+    casos que exige el Principio II.
   - Un extractor de prueba (`InfoExtractor` registrado con `ydl.add_info_extractor`) para URLs
     `http://127.0.0.1:<puerto>/watch/<id>` que devuelve en cada extracción una URL de medios
     con un token nuevo: prueba la caducidad por el camino real.
