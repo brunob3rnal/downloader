@@ -363,8 +363,8 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   - Una llamada bloqueante (`recv` sobre un socket) no se interrumpe: la señal se atiende
     cuando vuelve, como mucho tras `socket_timeout` (20 s). En Linux, `EINTR` la corta al
     instante.
-  - El código de salida tras Ctrl+C, la vuelta de la fila a `queued` y el mensaje
-    "interrumpido; progreso guardado" siguen siendo de la Fase 5 (T042, T044).
+  - Tras Ctrl+C, `ejecutar` guarda el último progreso, devuelve la fila a `queued`, muestra
+    "interrumpido; progreso guardado" y sale con 130 (Fase 5, T042, T044).
 - **Verificación**: `tests/unit/test_plataforma.py` importa todos los módulos de `downloader` y
   recorre el AST de `src/` y `tests/` para fallar ante un `import fcntl` (o `termios`,
   `msvcrt`…) o un `signal.SIGKILL`, `os.fork`, `os.getuid`… que no estén bajo

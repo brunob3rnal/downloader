@@ -15,8 +15,6 @@ import time
 
 import pytest
 
-pytestmark = pytest.mark.xfail(strict=True, reason="pendiente de la Fase 5 (US3)")
-
 LIMITE = 60
 
 

@@ -167,12 +167,12 @@ y `tests/integration/test_interrupcion.py` en verde.
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T042 [P] [US3] Escribir `tests/integration/test_interrupcion.py` (FR-020, FR-021, edge case Ctrl+C), partiendo de `tests/integration/test_ctrl_c.py` (T035a): enviar `SIGINT` (en Windows, `CTRL_BREAK_EVENT` a un grupo de procesos propio) a `ejecutar` a mitad de descarga → sale con 130, la fila vuelve a `queued`, `bytes_descargados` refleja el progreso, el `.part` se conserva; relanzar termina la descarga íntegra
+- [X] T042 [P] [US3] Escribir `tests/integration/test_interrupcion.py` (FR-020, FR-021, edge case Ctrl+C), partiendo de `tests/integration/test_ctrl_c.py` (T035a): enviar `SIGINT` (en Windows, `CTRL_BREAK_EVENT` a un grupo de procesos propio) a `ejecutar` a mitad de descarga → sale con 130, la fila vuelve a `queued`, `bytes_descargados` refleja el progreso, el `.part` se conserva; relanzar termina la descarga íntegra
 
 ### Implementation for User Story 3
 
 - [ ] T043 [US3] En `src/downloader/cli.py`, llamar a `store.recuperar()` al iniciar `ejecutar`, antes de procesar (research R11). Quitar el `xfail` de `tests/integration/test_crash_recovery.py`. Hace pasar T017
-- [ ] T044 [US3] En `src/downloader/worker.py` y `src/downloader/cli.py`, capturar `KeyboardInterrupt`: guardar el progreso, pasar la descarga activa a `queued`, mostrar "interrumpido; progreso guardado" y salir con 130. Hace pasar T042
+- [X] T044 [US3] En `src/downloader/worker.py` y `src/downloader/cli.py`, capturar `KeyboardInterrupt`: guardar el progreso, pasar la descarga activa a `queued`, mostrar "interrumpido; progreso guardado" y salir con 130. Hace pasar T042
 
 **Checkpoint**: T017 y T042 en verde; US1 y US2 siguen en verde.
 
