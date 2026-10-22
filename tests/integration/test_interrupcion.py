@@ -5,6 +5,7 @@ envía `CTRL_BREAK_EVENT`, que `cli.ejecutar` trata igual que Ctrl+C.
 """
 
 import os
+import sqlite3
 import subprocess
 import sys
 import time
@@ -27,6 +28,16 @@ def ejecutar(app_home, **kwargs):
     )
 
 
+def estado(app_home, id_):
+    """Estado de la fila leído sin bloquear al `ejecutar` en marcha."""
+    conexion = sqlite3.connect(f"{(app_home / 'cola.db').as_uri()}?mode=ro", uri=True)
+    try:
+        fila = conexion.execute("SELECT estado FROM descargas WHERE id = ?", (id_,)).fetchone()
+    finally:
+        conexion.close()
+    return fila[0] if fila else None
+
+
 def test_ctrl_c_guarda_el_progreso_y_relanzar_termina(app_home, destino, servidor, medios):
     datos = medios.datos_mp4
     servidor.registrar("lento.mp4", datos, tipo_contenido="video/mp4", velocidad=200_000)
@@ -37,17 +48,22 @@ def test_ctrl_c_guarda_el_progreso_y_relanzar_termina(app_home, destino, servido
 
     proceso = ejecutar(app_home)
     try:
-        trabajo = destino / ".downloader-tmp"
+        trabajo = destino / ".downloader-tmp" / str(id_)
         fin = time.monotonic() + LIMITE
+        # Se interrumpe solo con la fila en `downloading` y su `.part` con datos; además, más
+        # allá de los 2 s entre escrituras de progreso, para que solo el guardado al
+        # interrumpir deje en la cola lo que ya hay en el `.part`.
         while True:
-            parciales = list(trabajo.glob("*/*.part")) if trabajo.exists() else []
-            # Más de los 2 s entre escrituras de progreso: solo el guardado al interrumpir
-            # deja en la cola lo que ya hay en el `.part`.
-            if parciales and parciales[0].stat().st_size > 0.3 * len(datos):
+            parciales = list(trabajo.glob("*.part")) if trabajo.exists() else []
+            if (
+                parciales
+                and parciales[0].stat().st_size > 0.3 * len(datos)
+                and estado(app_home, id_) == Estado.DOWNLOADING
+            ):
                 break
             assert proceso.poll() is None, "ejecutar terminó antes de poder interrumpirlo"
             assert time.monotonic() < fin, "la descarga lenta no avanzó"
-            time.sleep(0.05)
+            time.sleep(0.05)  # intervalo de sondeo
         en_disco = parciales[0].stat().st_size
         interrumpir(proceso)
         _, errores = proceso.communicate(timeout=SALIDA_TRAS_INTERRUPCION)

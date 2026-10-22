@@ -396,3 +396,29 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   yt-dlp: el mismo límite de pérdida, pero yt-dlp llamaría al hook de progreso y escribiría
   en disco cada 4 KiB; (C) recuperar el búfer interno de urllib3 tras el error: depende de
   atributos privados (`_decoded_buffer`).
+
+## R19. Respuestas de la extracción que quedan abiertas
+
+- **Hallazgo** (yt-dlp 2026.08.19, verificado): con una URL directa cuyo `Content-Type` es
+  `video/*` (o `audio/*`), el extractor genérico (`yt_dlp/extractor/generic.py`) hace un GET
+  completo, sin `Range`, para inspeccionar la URL y devuelve el resultado sin leer ni cerrar la
+  respuesta. `YoutubeDL.close()` cierra el pool de conexiones, pero no las respuestas que nunca
+  se liberaron, así que la conexión sigue abierta hasta que la recoge el GC: el servidor sigue
+  enviando el video a un socket que nadie lee, hasta llenar el búfer de recepción de TCP (en
+  una red real, varios MB). En T017 eso era ~1,25 MB de más (161 % del tamaño; SC-002 exige
+  ≤ 101 %). No afecta a los extractores de sitios ni a HLS: leen sus respuestas enteras.
+- **Decision**: `YoutubeDLRegistrado.urlopen` apunta con `weakref` cada respuesta abierta en la
+  fase de extracción (no las de la descarga) y las cierra, tolerando que ya estén cerradas, al
+  empezar `process_ie_result` (el extractor ya devolvió su resultado), al empezar `dl` y en
+  `close`. `process_ie_result` se añadió porque, en un proceso recién arrancado, entre que el
+  extractor devuelve y `close()` pasan ~70 ms procesando formatos (~24 KB a 400 KB/s).
+  Las peticiones de la descarga (manifiesto, clave AES, fragmentos, el propio archivo) se
+  hacen con la fase ya en descarga y no se tocan.
+- **Queda**: con el cierre, en T017 sobran 25–27 KB (101,0–101,3 %): ~6–8 KB de los GET de
+  sondeo del extractor genérico (1–2 KB cada uno antes de cerrarse) y 12–19 KB recibidos pero
+  no escritos en el `.part` cuando llega el `SIGKILL` (lo que el envoltorio de lectura de R18
+  acumula para el bloque de yt-dlp, que a 400 KB/s ya pide bloques de 64–370 KB, más el búfer
+  de 8 KiB del archivo). Pendiente de decisión.
+- **Alternatives considered**: forzar el GC tras extraer (no garantiza el momento y depende de
+  ciclos de referencias); extraer con un `YoutubeDL` y descargar con otro (más llamadas a
+  yt-dlp y la misma fuga en el primero).
