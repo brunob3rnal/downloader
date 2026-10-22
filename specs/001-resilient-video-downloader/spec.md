@@ -23,6 +23,10 @@
 - Q: ¿Un acceso denegado (HTTP 403 o 410) es temporal o permanente? → A: Depende de la fase. Al obtener la información del video, es permanente. Durante la transferencia, se trata como URL caducada y se reintenta obteniendo una URL nueva (FR-012), pero con un tope: tras 3 intentos seguidos que terminan así sin descargar ningún byte nuevo, la descarga falla con un mensaje que sugiere `--cookies-de` (FR-026).
 - Q: ¿Qué protocolos de transmisión cubre la primera versión? → A: HTTP(S) directo y HLS/DASH por HTTP. RTMP y WebSocket quedan fuera de alcance.
 
+### Session 2026-10-22
+
+- Q: ¿Cuánto exceso de transferencia se admite tras una interrupción abrupta del proceso (SIGKILL, corte de luz), que no se puede capturar? → A: El 1 % del tamaño del archivo más una tolerancia fija de 128 KiB (enmienda de SC-002, research R20). Tras un corte de red controlado el límite sigue siendo el 1 % estricto.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Descargar videos desde una cola (Priority: P1)
@@ -183,7 +187,7 @@ El usuario puede configurar la carpeta de destino. Opcionalmente, puede indicar 
 ### Measurable Outcomes
 
 - **SC-001**: Tras un corte de red de hasta 24 horas, el 100 % de las descargas afectadas se reanuda sola al volver la conexión, sin intervención del usuario.
-- **SC-002**: Tras un corte, la descarga reanudada no vuelve a transferir más del 1 % del contenido ya obtenido (siempre que el servidor permita reanudar).
+- **SC-002**: Tras un corte de red, la descarga reanudada no vuelve a transferir más del 1 % del contenido ya obtenido (siempre que el servidor permita reanudar). Tras una interrupción abrupta del proceso (cierre forzado, `SIGKILL`, corte de luz), el exceso total transferido no supera el 1 % del tamaño del archivo más 128 KiB.
 - **SC-003**: Tras un cierre abrupto o reinicio del equipo, el 100 % de las descargas pendientes reaparece en la cola y continúa desde su progreso guardado.
 - **SC-004**: En 0 casos un archivo incompleto aparece en la carpeta de destino con su nombre final.
 - **SC-005**: Los errores permanentes se notifican al usuario en menos de 30 segundos desde el primer intento, con la causa indicada, y no se reintentan.

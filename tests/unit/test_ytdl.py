@@ -218,3 +218,78 @@ def test_sin_corte_entrega_lo_pedido_en_una_llamada():
     assert respuesta.read(50_000) == respuesta.datos[:50_000]
     assert respuesta.read(1 << 20) == respuesta.datos[50_000:]
     assert respuesta.read(1 << 20) == b""
+
+
+# --- Cierre de las respuestas abiertas al extraer (research R19) ---
+
+
+class RespuestaFalsa:
+    def __init__(self, cerrada=False):
+        self.status = 200
+        self.headers = {}
+        self.cerrada = cerrada
+        self.cierres = 0
+
+    def read(self, amt=None):
+        return b""
+
+    def close(self):
+        if self.cerrada:
+            raise ValueError("I/O operation on closed file")
+        self.cerrada = True
+        self.cierres += 1
+
+
+@pytest.fixture
+def ydl_con_respuestas(monkeypatch):
+    """`YoutubeDLRegistrado` cuyo `urlopen` devuelve, en orden, las respuestas falsas dadas."""
+    from yt_dlp import YoutubeDL
+
+    respuestas = []
+    monkeypatch.setattr(YoutubeDL, "urlopen", lambda self, req: respuestas.pop(0))
+    monkeypatch.setattr(YoutubeDL, "dl", lambda self, *a, **k: (True, True))
+    ydl = ytdl.crear_ydl({"quiet": True})
+    return ydl, respuestas
+
+
+INFO_HTTP = {"url": "http://127.0.0.1/v.mp4", "protocol": "https", "to_stdout": False}
+
+
+def test_dl_cierra_las_respuestas_abiertas_al_extraer(ydl_con_respuestas):
+    ydl, respuestas = ydl_con_respuestas
+    sondeo = RespuestaFalsa()
+    respuestas.append(sondeo)
+    ydl.urlopen("http://127.0.0.1/v.mp4")
+    assert not sondeo.cerrada
+    ydl.dl("destino.mp4", INFO_HTTP)
+    assert sondeo.cerrada and sondeo.cierres == 1
+
+
+def test_una_respuesta_ya_cerrada_no_da_error(ydl_con_respuestas):
+    ydl, respuestas = ydl_con_respuestas
+    respuestas.append(RespuestaFalsa())
+    ydl.urlopen("http://127.0.0.1/v.mp4")
+    respuestas_abiertas = [r() for r in ydl._respuestas_extraccion]
+    respuestas_abiertas[0].cerrada = True  # la cerró otro: un segundo `close` lanza
+    ydl.dl("destino.mp4", INFO_HTTP)
+    ydl.close()
+
+
+def test_no_toca_las_respuestas_abiertas_por_la_descarga(ydl_con_respuestas):
+    ydl, respuestas = ydl_con_respuestas
+    ydl.dl("destino.mp4", INFO_HTTP)
+    de_la_descarga = RespuestaFalsa()
+    respuestas.append(de_la_descarga)
+    ydl.urlopen("http://127.0.0.1/v.mp4")
+    ydl.dl("destino.f2.mp4", INFO_HTTP)  # p. ej. el segundo formato de una fusión
+    ydl.close()
+    assert not de_la_descarga.cerrada
+
+
+def test_close_cierra_las_respuestas_de_una_extraccion_sin_descarga(ydl_con_respuestas):
+    ydl, respuestas = ydl_con_respuestas
+    sondeo = RespuestaFalsa()
+    respuestas.append(sondeo)
+    ydl.urlopen("http://127.0.0.1/v.mp4")
+    ydl.close()
+    assert sondeo.cerrada

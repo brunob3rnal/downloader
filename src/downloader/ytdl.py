@@ -2,6 +2,7 @@
 
 import logging
 import threading
+import weakref
 from collections.abc import Callable
 from pathlib import Path
 from typing import NamedTuple
@@ -76,14 +77,44 @@ class YoutubeDLRegistrado(YoutubeDL):
     def __init__(self, params=None, *args, **kwargs):
         self.registro = RegistroRed()
         self._cerrojo_registro = threading.Lock()
+        # Respuestas abiertas al extraer, que se cierran al empezar la descarga (research R19).
+        self._respuestas_extraccion: list[weakref.ref] = []
         super().__init__({"hls_prefer_native": True, **(params or {})}, *args, **kwargs)
 
     def _registrar(self, resultado: UltimaPeticion) -> None:
         with self._cerrojo_registro:
             self.registro.ultima = resultado
 
+    def _cerrar_respuestas_extraccion(self) -> None:
+        """Cierra las respuestas de la extracción que nadie leyó ni cerró (research R19).
+
+        El extractor genérico, con una URL directa de `Content-Type: video/*`, hace un GET y no
+        cierra la respuesta; la conexión seguiría recibiendo el video hasta que la recogiera el
+        GC. Ninguna descarga usa esas respuestas: abre las suyas.
+        """
+        referencias, self._respuestas_extraccion = self._respuestas_extraccion, []
+        for referencia in referencias:
+            respuesta = referencia()
+            if respuesta is None:
+                continue
+            try:
+                respuesta.close()
+            except Exception:  # ya cerrada o conexión rota: no hay nada que liberar
+                pass
+
+    def close(self):
+        self._cerrar_respuestas_extraccion()
+        super().close()
+
+    def process_ie_result(self, ie_result, *args, **kwargs):
+        # El extractor ya devolvió su resultado: lo que siga abierto de él sobra. Cerrarlo aquí
+        # y no solo en `close` evita recibir datos mientras se procesan los formatos.
+        self._cerrar_respuestas_extraccion()
+        return super().process_ie_result(ie_result, *args, **kwargs)
+
     def dl(self, name, info, subtitle=False, test=False):
         if not test:
+            self._cerrar_respuestas_extraccion()
             descargador = get_suitable_downloader(info, self.params, to_stdout=(name == "-"))
             self.registro.fase = Fase.DESCARGA
             self.registro.externo = issubclass(descargador, ExternalFD)
@@ -99,6 +130,8 @@ class YoutubeDLRegistrado(YoutubeDL):
             self._registrar(UltimaPeticion(error=error))
             raise
         self._registrar(UltimaPeticion(estado=respuesta.status))
+        if self.registro.fase is Fase.EXTRACCION:
+            self._respuestas_extraccion.append(weakref.ref(respuesta))
         self._vigilar_cuerpo(respuesta)
         return respuesta
 

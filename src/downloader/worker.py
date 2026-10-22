@@ -47,6 +47,7 @@ class _Seguimiento:
         self.tope = retry.TopeSinAvance()
         self.sin_avance = descarga.intentos_sin_avance
         self.avisos: list[str] = []
+        self.ultimo: Progreso | None = None  # último progreso con bytes, para Ctrl+C
         self._maximos: dict[str | None, int] = {}
         self._avance = False
 
@@ -59,6 +60,7 @@ class _Seguimiento:
         """Anota el progreso; devuelve `True` si el archivo volvió a empezar desde cero."""
         if progreso.bytes is None:
             return False
+        self.ultimo = progreso
         self.tope.observar(progreso.archivo, progreso.bytes)
         nombre = Path(progreso.archivo).name if progreso.archivo else None
         anterior = self._maximos.get(nombre, 0)
@@ -106,17 +108,33 @@ def _procesar(store, monitor, presentador, tiempos, navegador, descarga, resulta
     presentador.inicio(descarga)
     navegador = navegador or descarga.navegador_cookies
     seguimiento = _Seguimiento(descarga)
-    while True:
-        try:
-            ruta = _intentar(store, presentador, tiempos, navegador, seguimiento)
-        except Exception as error:
-            if _fallo(store, monitor, presentador, tiempos, seguimiento, error, resultado):
-                continue
+    try:
+        while True:
+            try:
+                ruta = _intentar(store, presentador, tiempos, navegador, seguimiento)
+            except Exception as error:
+                if _fallo(store, monitor, presentador, tiempos, seguimiento, error, resultado):
+                    continue
+                return
+            if ruta is not None:
+                resultado.completadas.append(descarga.id)
+                presentador.completada(seguimiento.descarga, ruta)
             return
-        if ruta is not None:
-            resultado.completadas.append(descarga.id)
-            presentador.completada(seguimiento.descarga, ruta)
-        return
+    except KeyboardInterrupt:
+        _interrumpida(store, seguimiento)
+        raise
+
+
+def _interrumpida(store, seguimiento) -> None:
+    """Ctrl+C: guarda el último progreso y devuelve la descarga a la cola (FR-020).
+
+    Los bytes ya descargados siguen en el `.part`; `bytes_descargados` es informativo.
+    """
+    id_ = seguimiento.descarga.id
+    if seguimiento.ultimo is not None:
+        store.guardar_progreso(id_, seguimiento.ultimo.bytes, seguimiento.ultimo.total, forzar=True)
+    if store.obtener(id_).estado in (Estado.DOWNLOADING, Estado.WAITING_NETWORK):
+        store.transicion(id_, Estado.QUEUED)
 
 
 def _intentar(store, presentador, tiempos, navegador, seguimiento):

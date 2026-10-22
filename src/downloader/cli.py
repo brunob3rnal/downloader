@@ -19,6 +19,7 @@ from downloader.store import BaseCorrupta, EjecucionEnCurso, Store
 # Códigos de salida (contracts/cli.md).
 USO_INVALIDO = 2
 FATAL = 3
+INTERRUMPIDO = 130
 
 app = typer.Typer(
     help="Gestor de descargas de video resiliente.",
@@ -127,12 +128,18 @@ def ejecutar() -> None:
             store.bloquear_ejecucion()
         except EjecucionEnCurso as error:
             raise _error(str(error), USO_INVALIDO) from None
+        # Lo que un cierre abrupto dejó en `downloading` o `waiting_network` vuelve a la cola;
+        # el bloqueo garantiza que no es de otro `ejecutar` en marcha (R11).
+        store.recuperar()
         monitor = MonitorRed(ajustes.sondas_red)
         monitor.iniciar()
         try:
             worker.ejecutar(store, monitor, Presentador())
         except ErrorFatal as error:
             raise _error(f"{error}. El progreso se ha conservado.", FATAL) from None
+        except KeyboardInterrupt:
+            typer.echo("interrumpido; progreso guardado", err=True)
+            raise typer.Exit(INTERRUMPIDO) from None
         finally:
             monitor.detener()
     finally:

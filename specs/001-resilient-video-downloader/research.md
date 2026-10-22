@@ -363,8 +363,8 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   - Una llamada bloqueante (`recv` sobre un socket) no se interrumpe: la señal se atiende
     cuando vuelve, como mucho tras `socket_timeout` (20 s). En Linux, `EINTR` la corta al
     instante.
-  - El código de salida tras Ctrl+C, la vuelta de la fila a `queued` y el mensaje
-    "interrumpido; progreso guardado" siguen siendo de la Fase 5 (T042, T044).
+  - Tras Ctrl+C, `ejecutar` guarda el último progreso, devuelve la fila a `queued`, muestra
+    "interrumpido; progreso guardado" y sale con 130 (Fase 5, T042, T044).
 - **Verificación**: `tests/unit/test_plataforma.py` importa todos los módulos de `downloader` y
   recorre el AST de `src/` y `tests/` para fallar ante un `import fcntl` (o `termios`,
   `msvcrt`…) o un `signal.SIGKILL`, `os.fork`, `os.getuid`… que no estén bajo
@@ -396,3 +396,54 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   yt-dlp: el mismo límite de pérdida, pero yt-dlp llamaría al hook de progreso y escribiría
   en disco cada 4 KiB; (C) recuperar el búfer interno de urllib3 tras el error: depende de
   atributos privados (`_decoded_buffer`).
+
+## R19. Respuestas de la extracción que quedan abiertas
+
+- **Hallazgo** (yt-dlp 2026.08.19, verificado): con una URL directa cuyo `Content-Type` es
+  `video/*` (o `audio/*`), el extractor genérico (`yt_dlp/extractor/generic.py`) hace un GET
+  completo, sin `Range`, para inspeccionar la URL y devuelve el resultado sin leer ni cerrar la
+  respuesta. `YoutubeDL.close()` cierra el pool de conexiones, pero no las respuestas que nunca
+  se liberaron, así que la conexión sigue abierta hasta que la recoge el GC: el servidor sigue
+  enviando el video a un socket que nadie lee, hasta llenar el búfer de recepción de TCP (en
+  una red real, varios MB). En T017 eso era ~1,25 MB de más (161 % del tamaño; SC-002 exige
+  ≤ 101 %). No afecta a los extractores de sitios ni a HLS: leen sus respuestas enteras.
+- **Decision**: `YoutubeDLRegistrado.urlopen` apunta con `weakref` cada respuesta abierta en la
+  fase de extracción (no las de la descarga) y las cierra, tolerando que ya estén cerradas, al
+  empezar `process_ie_result` (el extractor ya devolvió su resultado), al empezar `dl` y en
+  `close`. `process_ie_result` se añadió porque, en un proceso recién arrancado, entre que el
+  extractor devuelve y `close()` pasan ~70 ms procesando formatos (~24 KB a 400 KB/s).
+  Las peticiones de la descarga (manifiesto, clave AES, fragmentos, el propio archivo) se
+  hacen con la fase ya en descarga y no se tocan.
+- **Queda**: con el cierre, en T017 sobran 25–27 KB (101,0–101,3 %): ~6–8 KB de los GET de
+  sondeo del extractor genérico (1–2 KB cada uno antes de cerrarse) y 12–19 KB recibidos pero
+  no escritos en el `.part` cuando llega el `SIGKILL` (lo que el envoltorio de lectura de R18
+  acumula para el bloque de yt-dlp, que a 400 KB/s ya pide bloques de 64–370 KB, más el búfer
+  de 8 KiB del archivo). Se resuelve enmendando SC-002 para las interrupciones abruptas (R20),
+  sin limitar el bloque del envoltorio.
+- **Alternatives considered**: forzar el GC tras extraer (no garantiza el momento y depende de
+  ciclos de referencias); extraer con un `YoutubeDL` y descargar con otro (más llamadas a
+  yt-dlp y la misma fuga en el primero).
+
+## R20. Exceso admitido tras una interrupción abrupta (enmienda de SC-002)
+
+- **Contexto**: un `SIGKILL` o un corte de luz no se pueden capturar: lo recibido que aún no
+  llegó al `.part` se pierde y se vuelve a pedir al reanudar. Medido en T017 (archivo de
+  ~2 MB a 400 KB/s), el exceso fue de 25–27 KB, por encima del 1 % (20,6 KB):
+  - GET de sondeo del extractor genérico de yt-dlp con URLs directas: ~6–8 KB (1–2 KB cada
+    uno, 3–4 por ejecución, hasta que R19 los cierra).
+  - Búfer del archivo `.part` abierto por yt-dlp: hasta 8 KiB (`io.DEFAULT_BUFFER_SIZE`).
+  - Bloque en vuelo: lo que el envoltorio de lectura (R18) acumula para el bloque pedido por
+    yt-dlp y aún no ha entregado; yt-dlp agranda el bloque según la velocidad (64–370 KB a
+    400 KB/s, hasta 4 MiB).
+- **Decision**: SC-002 admite, solo tras una interrupción abrupta, el 1 % del tamaño del
+  archivo más 128 KiB fijos. Los 128 KiB cubren los sondeos y el búfer del archivo con margen,
+  y el bloque en vuelo cuando la interrupción llega poco después de una escritura, como en el
+  test. Tras un corte de red (T016) el límite sigue siendo el 1 % estricto: ahí el envoltorio
+  entrega lo acumulado antes de relanzar el error (R18) y no se pierde nada.
+- **Alternatives considered**: limitar el bloque que entrega el envoltorio (p. ej. a 64 KiB)
+  para escribir el `.part` más a menudo: más llamadas al hook de progreso y más CPU, y un
+  `SIGKILL` seguiría perdiendo el bloque en curso y el búfer del archivo. Rechazado por el
+  usuario.
+- **Límite conocido**: con bloques grandes (conexiones rápidas), un `SIGKILL` en mitad de un
+  bloque puede perder más de 128 KiB; sigue siendo progreso que se vuelve a descargar, no un
+  archivo corrupto (el `.part` solo contiene bytes escritos en orden).

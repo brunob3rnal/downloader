@@ -145,6 +145,14 @@ tests/
     siguiente: yt-dlp pide bloques de hasta 4 MiB y urllib3 descarta lo recibido de un bloque
     incompleto, lo que incumplía SC-002. Cuesta CPU: la descarga local baja de ~700 a
     ~275 MiB/s (R18).
+14. `YoutubeDLRegistrado` cierra las respuestas abiertas durante la extracción al acabar esta
+    (`process_ie_result`), al empezar la descarga (`dl`) y al cerrarse: con URLs directas de
+    `Content-Type: video/*`, el extractor genérico de yt-dlp deja abierto un GET completo que
+    seguía recibiendo el video durante toda la descarga (R19).
+15. SC-002 enmendado (spec, Clarifications 2026-10-22): tras una interrupción abrupta del
+    proceso se admite un exceso del 1 % más 128 KiB, por lo que no se puede capturar (sondeos
+    del extractor genérico, búfer del archivo, bloque en vuelo). Tras un corte de red sigue el
+    1 % estricto (R20).
 
 ## Complexity Tracking
 
