@@ -28,13 +28,20 @@ def test_opciones_fijas():
     o = opciones()
     assert o["continuedl"] is True
     assert o["nopart"] is False
-    assert o["retries"] == 3
-    assert o["fragment_retries"] == 3
-    assert o["socket_timeout"] == 20
+    # Un solo reintento interno: el fallo sube pronto a los reintentos del trabajador (R21).
+    assert o["retries"] == 1
+    assert o["fragment_retries"] == 1
+    assert o["socket_timeout"] == 15
+    assert o["downloader_vigilancia"] is None
     assert o["noplaylist"] is True
     assert o["quiet"] is True
     assert isinstance(o["logger"], ytdl.Logger)
     assert len(o["progress_hooks"]) == 1
+
+
+def test_la_vigilancia_llega_a_las_opciones():
+    vigilancia = ytdl.Vigilancia(segundos=10, velocidad_minima=512)
+    assert opciones(vigilancia=vigilancia)["downloader_vigilancia"] is vigilancia
 
 
 def test_skip_unavailable_fragments_explicitamente_false():

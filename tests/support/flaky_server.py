@@ -43,6 +43,7 @@ class _Archivo:
     velocidad: int | None = None  # bytes por segundo (sirve lentamente); None = sin límite
     manifiesto_hls: bool = False  # con tokens, añade el token de la petición a cada fragmento
     # ("cortar", n) | ("colgar", None) | ("error", código) | ("caducar", None) | ("cortar_caducar", n)
+    # | ("pausar", n) | ("gotear", (n, intervalo))
     fallos: deque = field(default_factory=deque)
 
 
@@ -162,7 +163,8 @@ class FlakyServer:
 
     def programar(
         self, nombre, *, cortar_tras_bytes=None, colgarse=False, errores=None,
-        caducar_tokens=False, veces=1,
+        caducar_tokens=False, pausar_tras_bytes=None, gotear_tras_bytes=None, intervalo=1.0,
+        veces=1,
     ):
         """Añade fallos que se consumen en las siguientes peticiones al archivo, en orden.
 
@@ -172,6 +174,10 @@ class FlakyServer:
         - `caducar_tokens=True`: sirve la petición y después invalida todos los tokens emitidos
           (una URL temporal que caduca a mitad de la descarga). Junto con `cortar_tras_bytes`,
           corta y caduca en la misma petición (`veces` peticiones).
+        - `pausar_tras_bytes=N`: envía N bytes del cuerpo y deja la conexión abierta sin enviar
+          nada más hasta que el cliente la cierre (`veces` peticiones).
+        - `gotear_tras_bytes=N`: envía N bytes del cuerpo y luego un byte cada `intervalo` s
+          hasta terminar o hasta que el cliente cierre (`veces` peticiones).
         """
         with self._cerrojo:
             fallos = self._archivos[nombre].fallos
@@ -184,6 +190,10 @@ class FlakyServer:
                 fallos.extend([("colgar", None)] * veces)
             for codigo in errores or ():
                 fallos.append(("error", codigo))
+            if pausar_tras_bytes is not None:
+                fallos.extend([("pausar", pausar_tras_bytes)] * veces)
+            if gotear_tras_bytes is not None:
+                fallos.extend([("gotear", (gotear_tras_bytes, intervalo))] * veces)
 
     def registrar_hls(self, prefijo, directorio, *, fragmento_ausente=None, tokens=False):
         """Registra un manifiesto HLS y sus fragmentos desde un directorio generado por ffmpeg.
@@ -316,6 +326,8 @@ class _Manejador(BaseHTTPRequestHandler):
         if archivo.manifiesto_hls and token:
             datos = _con_token(datos, token)
         tipo = fallo[0] if fallo else None
+        if tipo in ("pausar", "gotear"):
+            return self._servir_estancado(ruta, archivo, datos, tipo, fallo[1])
         self._servir(ruta, archivo, datos, fallo[1] if tipo in ("cortar", "cortar_caducar") else None)
         if tipo in ("caducar", "cortar_caducar"):
             self.flaky.caducar_tokens()
@@ -370,6 +382,45 @@ class _Manejador(BaseHTTPRequestHandler):
             pass
         if cortar_tras is not None or len(cuerpo) < longitud:
             self._cerrar_conexion()
+
+    def _servir_estancado(self, ruta, archivo, datos, tipo, parametro):
+        """Respuesta completa (200, o 206 con `Range`) que se estanca tras N bytes del cuerpo."""
+        n, intervalo = (parametro, None) if tipo == "pausar" else parametro
+        total = len(datos)
+        inicio = 0
+        rango = _RANGE.match(self.headers.get("Range", ""))
+        if rango and not archivo.sin_range:
+            inicio = int(rango.group(1))
+        cuerpo = datos[inicio:]
+        self.send_response(206 if inicio else 200)
+        self.send_header("Content-Type", archivo.tipo_contenido)
+        self.send_header("Content-Length", str(len(cuerpo)))
+        self.send_header("Accept-Ranges", "bytes")
+        if inicio:
+            self.send_header("Content-Range", f"bytes {inicio}-{total - 1}/{total}")
+        self.end_headers()
+        try:
+            self._enviar(ruta, cuerpo[:n])
+            if tipo == "pausar":
+                return self._colgarse()
+            for posicion in range(n, len(cuerpo)):
+                if self.flaky._parado.wait(intervalo):
+                    break
+                self._enviar(ruta, cuerpo[posicion : posicion + 1])
+        except OSError:
+            pass
+        self._cerrar_conexion()
+
+    def _enviar(self, ruta, datos):
+        for desplazamiento in range(0, len(datos), _TROZO):
+            trozo = datos[desplazamiento : desplazamiento + _TROZO]
+            self.flaky.bytes_servidos[ruta] += len(trozo)
+            try:
+                self.wfile.write(trozo)
+                self.wfile.flush()
+            except OSError:
+                self.flaky.bytes_servidos[ruta] -= len(trozo)
+                raise
 
     def _colgarse(self):
         """No envía nada hasta que el cliente cierre la conexión o el servidor se detenga."""

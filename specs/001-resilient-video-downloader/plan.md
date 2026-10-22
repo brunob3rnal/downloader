@@ -153,6 +153,11 @@ tests/
     proceso se admite un exceso del 1 % más 128 KiB, por lo que no se puede capturar (sondeos
     del extractor genérico, búfer del archivo, bloque en vuelo). Tras un corte de red sigue el
     1 % estricto (R20).
+16. Vigilante de estancamiento en `YoutubeDLRegistrado`: aborta el intento con `SinDatos`
+    (TEMPORAL) tras 30 s sin bytes o con menos de 1 KiB/s sostenido durante 30 s,
+    configurables en `config.toml`; reintento tras ~5 s, sin contar para el tope de ambiguos
+    ni como intento sin avance. `retries=1`, `fragment_retries=1` y `socket_timeout=15`. El
+    cuerpo se lee con `read1` de urllib3 para que un goteo no bloquee el envoltorio (R21).
 
 ## Complexity Tracking
 

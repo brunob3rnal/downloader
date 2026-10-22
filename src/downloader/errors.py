@@ -28,6 +28,13 @@ class ErrorFatal(Exception):
     """Error propio que impide seguir con cualquier descarga (base corrupta, ffmpeg ausente…)."""
 
 
+class SinDatos(TransportError):
+    """La conexión sigue abierta pero no llegan datos, o llegan a goteo (research R21).
+
+    Es un error de transporte para que yt-dlp cierre el `.part` como en un corte.
+    """
+
+
 @dataclass
 class UltimaPeticion:
     """Resultado de la última petición de red de un intento.
@@ -60,6 +67,9 @@ class Clasificacion:
     # el tope de intentos seguidos sin avance de `retry.TopeSinAvance`.
     ambiguo: bool = False
     motivo: str | None = None  # p. ej. "HTTP 403" o "descargador externo"
+    # Conexión estancada: no cuenta para el tope de los ambiguos ni como intento sin avance, y
+    # se reintenta tras una espera corta (R21).
+    estancamiento: bool = False
 
 
 _TRANSPORTE = (TransportError, TimeoutError, ConnectionError)
@@ -134,6 +144,8 @@ def clasificar_detalle(exc: BaseException, en_linea: bool) -> Clasificacion:
     """Clasifica un error según research R4.
 
     1. FATAL prevalece siempre; después, sin conexión, todo es TEMPORAL.
+       Una conexión estancada (`SinDatos`, en la cadena o en el registro) es TEMPORAL con
+       `estancamiento=True`.
     2. El código HTTP o el error de transporte se toma de la cadena de causas y, si no hay, del
        registro de la última petición (`exc.registro`): yt-dlp descarta la excepción original
        cuando agota sus reintentos. La fase es extracción si la cadena tiene un
@@ -149,6 +161,10 @@ def clasificar_detalle(exc: BaseException, en_linea: bool) -> Clasificacion:
         return TEMPORAL
 
     registro = getattr(exc, "registro", None)
+    ultimo_error = registro.ultima.error if registro and registro.ultima else None
+    estancamiento = next((e for e in [*cadena, ultimo_error] if isinstance(e, SinDatos)), None)
+    if estancamiento is not None:
+        return Clasificacion(Tipo.TEMPORAL, motivo=str(estancamiento), estancamiento=True)
     if any(isinstance(e, ExtractorError) for e in cadena):
         fase = Fase.EXTRACCION
     else:

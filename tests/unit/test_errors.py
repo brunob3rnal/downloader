@@ -293,3 +293,28 @@ def test_fatal_prevalece_sobre_el_registro():
     error = download_error(OSError(errno.ENOSPC, "lleno"))
     error.registro = RegistroRed(UltimaPeticion(estado=503), DESCARGA)
     assert clasificar(error, en_linea=True) is Tipo.FATAL
+
+
+# --- Conexión estancada (research R21) ---
+
+
+def test_sin_datos_es_temporal_por_estancamiento():
+    from downloader.errors import SinDatos, clasificar_detalle
+
+    clasificacion = clasificar_detalle(SinDatos("sin datos hace 30 s"), en_linea=True)
+    assert clasificacion.tipo is Tipo.TEMPORAL
+    assert clasificacion.estancamiento and not clasificacion.ambiguo
+    assert clasificacion.motivo == "sin datos hace 30 s"
+
+
+def test_sin_datos_en_el_registro_de_un_download_error_sin_causa():
+    from downloader.errors import (
+        Fase, RegistroRed, SinDatos, UltimaPeticion, clasificar_detalle,
+    )
+
+    error = DownloadError("ERROR: [download] Got error: sin datos. Giving up after 1 retries")
+    error.registro = RegistroRed(UltimaPeticion(error=SinDatos("sin datos hace 31 s")),
+                                 Fase.DESCARGA)
+    clasificacion = clasificar_detalle(error, en_linea=True)
+    assert clasificacion.estancamiento
+    assert clasificacion.motivo == "sin datos hace 31 s"

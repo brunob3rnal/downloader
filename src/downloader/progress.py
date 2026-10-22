@@ -3,7 +3,7 @@
 import math
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from rich.console import Console, Group
@@ -15,6 +15,7 @@ from downloader.models import ETIQUETAS, Descarga, Estado
 from downloader.ytdl import Progreso
 
 INTERVALO = 1.0  # s entre líneas de una misma descarga cuando la salida no es una terminal
+SIN_DATOS = 5  # s sin bytes nuevos a partir de los que la línea lo indica (R21)
 _PASO = 0.1
 
 
@@ -23,6 +24,7 @@ class _Activa:
     descarga: Descarga
     progreso: Progreso | None = None
     ultima_linea: float | None = None
+    ultimo_avance: float = field(default_factory=time.monotonic)  # último byte nuevo informado
     # En `waiting_network`: la causa y el instante del reintento (reloj monotónico), o `None`
     # en `reintento` si se espera a que vuelva la conexión.
     causa_espera: str | None = None
@@ -64,6 +66,9 @@ def linea_activa(activa: _Activa) -> str:
     prefijo = f"#{descarga.id} {ETIQUETAS[Estado.DOWNLOADING]}"
     if progreso is None or progreso.bytes is None:
         return f"{prefijo}  {_nombre(descarga)}"
+    silencio = time.monotonic() - activa.ultimo_avance
+    if silencio >= SIN_DATOS:
+        return f"{prefijo}  sin datos hace {silencio:.0f} s, reintentando  {_nombre(descarga)}"
     if progreso.total:
         cantidad = f"{min(100.0, 100 * progreso.bytes / progreso.total):.1f}%"
     else:
@@ -127,6 +132,12 @@ class Presentador:
     def progreso(self, descarga: Descarga, progreso: Progreso) -> None:
         with self._cerrojo:
             activa = self._activas.setdefault(descarga.id, _Activa(descarga))
+            anterior = activa.progreso
+            if (
+                anterior is None or anterior.archivo != progreso.archivo
+                or (progreso.bytes or 0) > (anterior.bytes or 0)
+            ):
+                activa.ultimo_avance = time.monotonic()
             activa.progreso = progreso
 
     def esperando(self, descarga: Descarga, reintento: float | None, causa: str) -> None:
@@ -172,7 +183,12 @@ class Presentador:
 
     def _activas_renderizables(self):
         with self._cerrojo:
-            return Group(*(Text(linea_activa(a)) for a in self._activas.values()))
+            # Una línea por descarga, recortada al ancho de la terminal: un título largo no
+            # debe partirla en dos (rich.live redibujaría mal las líneas partidas).
+            return Group(*(
+                Text(linea_activa(a), no_wrap=True, overflow="ellipsis")
+                for a in self._activas.values()
+            ))
 
     def _latido(self) -> None:
         """Sin terminal: una línea por descarga activa como mucho cada `INTERVALO` s."""

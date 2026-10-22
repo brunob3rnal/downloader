@@ -10,6 +10,10 @@ import typer
 from downloader.models import Calidad
 
 ARCHIVO = "config.toml"
+CLAVES = (
+    "carpeta_destino", "calidad", "sondas_red",
+    "estancamiento_segundos", "estancamiento_velocidad_minima",
+)
 SONDAS_POR_DEFECTO = ["1.1.1.1:443", "8.8.8.8:443"]
 
 
@@ -37,6 +41,10 @@ class Configuracion:
     carpeta_destino: Path = field(default_factory=carpeta_por_defecto)
     calidad: Calidad = Calidad.MEJOR
     sondas_red: list[str] = field(default_factory=lambda: list(SONDAS_POR_DEFECTO))
+    # Vigilante de estancamiento (research R21): segundos sin datos, o por debajo de la
+    # velocidad mínima (bytes/s), antes de abortar el intento y reconectar.
+    estancamiento_segundos: float = 30
+    estancamiento_velocidad_minima: float = 1024
 
 
 def cargar(directorio: Path | None = None) -> Configuracion:
@@ -52,11 +60,11 @@ def cargar(directorio: Path | None = None) -> Configuracion:
     except tomllib.TOMLDecodeError as error:
         raise ConfiguracionInvalida(f"{ruta} no es un TOML válido: {error}") from error
 
-    desconocidas = set(valores) - {"carpeta_destino", "calidad", "sondas_red"}
+    desconocidas = set(valores) - set(CLAVES)
     if desconocidas:
         raise ConfiguracionInvalida(
             f"{ruta}: clave desconocida: {', '.join(sorted(desconocidas))}. "
-            "Claves admitidas: carpeta_destino, calidad, sondas_red"
+            f"Claves admitidas: {', '.join(CLAVES)}"
         )
 
     configuracion = Configuracion()
@@ -77,6 +85,12 @@ def cargar(directorio: Path | None = None) -> Configuracion:
                 f'{ruta}: sondas_red debe ser una lista de "host:puerto", p. ej. ["1.1.1.1:443"]'
             )
         configuracion.sondas_red = sondas
+    for clave in ("estancamiento_segundos", "estancamiento_velocidad_minima"):
+        if clave in valores:
+            valor = valores[clave]
+            if isinstance(valor, bool) or not isinstance(valor, (int, float)) or valor <= 0:
+                raise ConfiguracionInvalida(f"{ruta}: {clave} debe ser un número positivo")
+            setattr(configuracion, clave, float(valor))
     return configuracion
 
 

@@ -54,7 +54,8 @@ class Guion:
         self.extracciones += 1
         return {"id": "v", "title": "Video de prueba"}
 
-    def descargar(self, descarga, trabajo, navegador, al_progresar, socket_timeout=20):
+    def descargar(self, descarga, trabajo, navegador, al_progresar, socket_timeout=20,
+                  vigilancia=None):
         self.descargas += 1
         self.inicios.append(time.monotonic())
         intento = self.intentos.pop(0) if self.intentos else Intento()
@@ -243,4 +244,56 @@ def test_un_corte_entre_ambiguos_rompe_la_racha(entorno, cola):
         Intento(error=acceso_denegado()), Intento(error=acceso_denegado()),
     ])
     entorno.esperar_fin()
+    assert cola.obtener(entorno.id).estado is Estado.COMPLETED
+
+
+# --- Estancamiento (research R21) ---
+
+
+def estancado():
+    from downloader.errors import SinDatos
+
+    return SinDatos("sin datos hace 30 s")
+
+
+def test_primera_espera_tras_un_estancamiento_es_corta(entorno, cola):
+    # El backoff normal sería de 30 s o más: solo la espera de estancamiento (~0,3 s) cabe.
+    entorno.tiempos = Tiempos(backoff_base=30, backoff_tope=60, socket_timeout=1,
+                              espera_cola=0.05, espera_estancamiento=0.3)
+    guion = entorno.lanzar([Intento(bytes_=100, error=estancado())])
+    entorno.esperar_fin()
+    assert 0.3 * 0.8 - 0.01 <= guion.inicios[1] - guion.inicios[0] < 2
+    (espera,) = entorno.esperando()
+    assert espera.ultimo_error == "sin datos hace 30 s"
+    assert cola.obtener(entorno.id).estado is Estado.COMPLETED
+
+
+def test_un_estancamiento_no_cuenta_para_el_tope_de_ambiguos(entorno, cola):
+    # Tres 403 sin avance con estancamientos entre medias: los estancamientos ni suman ni
+    # rompen la racha, así que el tercer 403 agota el tope.
+    entorno.tiempos = Tiempos(backoff_base=0.05, backoff_tope=0.5, socket_timeout=1,
+                              espera_cola=0.05, espera_estancamiento=0.05)
+    entorno.lanzar([
+        Intento(error=acceso_denegado()), Intento(error=estancado()),
+        Intento(error=acceso_denegado()), Intento(error=estancado()),
+        Intento(error=acceso_denegado()),
+    ])
+    entorno.esperar_fin()
+    final = cola.obtener(entorno.id)
+    assert final.estado is Estado.FAILED
+    assert "3 intentos seguidos" in final.ultimo_error
+    assert entorno.guion.descargas == 5
+
+
+def test_un_estancamiento_no_cuenta_como_intento_sin_avance(entorno, cola):
+    entorno.tiempos = Tiempos(backoff_base=0.05, backoff_tope=0.5, socket_timeout=1,
+                              espera_cola=0.05, espera_estancamiento=0.05)
+    entorno.lanzar([
+        Intento(error=corte()),  # sin progreso: 1
+        Intento(error=estancado()),  # sigue en 1
+        Intento(bytes_=100, error=estancado()),  # avanza, pero el estancamiento no cierra: 1
+        Intento(error=corte()),  # el avance del intento estancado se suma a este: 0
+    ])
+    entorno.esperar_fin()
+    assert [f.intentos_sin_avance for f in entorno.esperando()] == [1, 1, 1, 0]
     assert cola.obtener(entorno.id).estado is Estado.COMPLETED

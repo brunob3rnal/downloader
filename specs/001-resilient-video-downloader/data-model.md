@@ -83,6 +83,8 @@ Toda transición no listada es un error de programación y se rechaza.
 | `carpeta_destino` | `~/Descargas` o `~/Downloads` si existe, si no `~` | sobrescribible con `--carpeta` |
 | `calidad` | `mejor` | sobrescribible con `--calidad` |
 | `sondas_red` | `["1.1.1.1:443", "8.8.8.8:443"]` | monitor de conectividad (R9) |
+| `estancamiento_segundos` | `30` | s sin datos (o por debajo de la velocidad mínima) antes de abortar el intento (R21) |
+| `estancamiento_velocidad_minima` | `1024` | bytes/s sostenidos durante `estancamiento_segundos` (R21) |
 
 No admite claves de credenciales ni cookies; una clave desconocida produce un error claro.
 
