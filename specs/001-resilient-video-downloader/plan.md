@@ -149,6 +149,10 @@ tests/
     (`process_ie_result`), al empezar la descarga (`dl`) y al cerrarse: con URLs directas de
     `Content-Type: video/*`, el extractor genérico de yt-dlp deja abierto un GET completo que
     seguía recibiendo el video durante toda la descarga (R19).
+15. SC-002 enmendado (spec, Clarifications 2026-10-22): tras una interrupción abrupta del
+    proceso se admite un exceso del 1 % más 128 KiB, por lo que no se puede capturar (sondeos
+    del extractor genérico, búfer del archivo, bloque en vuelo). Tras un corte de red sigue el
+    1 % estricto (R20).
 
 ## Complexity Tracking
 

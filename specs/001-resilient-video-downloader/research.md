@@ -418,7 +418,32 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   sondeo del extractor genérico (1–2 KB cada uno antes de cerrarse) y 12–19 KB recibidos pero
   no escritos en el `.part` cuando llega el `SIGKILL` (lo que el envoltorio de lectura de R18
   acumula para el bloque de yt-dlp, que a 400 KB/s ya pide bloques de 64–370 KB, más el búfer
-  de 8 KiB del archivo). Pendiente de decisión.
+  de 8 KiB del archivo). Se resuelve enmendando SC-002 para las interrupciones abruptas (R20),
+  sin limitar el bloque del envoltorio.
 - **Alternatives considered**: forzar el GC tras extraer (no garantiza el momento y depende de
   ciclos de referencias); extraer con un `YoutubeDL` y descargar con otro (más llamadas a
   yt-dlp y la misma fuga en el primero).
+
+## R20. Exceso admitido tras una interrupción abrupta (enmienda de SC-002)
+
+- **Contexto**: un `SIGKILL` o un corte de luz no se pueden capturar: lo recibido que aún no
+  llegó al `.part` se pierde y se vuelve a pedir al reanudar. Medido en T017 (archivo de
+  ~2 MB a 400 KB/s), el exceso fue de 25–27 KB, por encima del 1 % (20,6 KB):
+  - GET de sondeo del extractor genérico de yt-dlp con URLs directas: ~6–8 KB (1–2 KB cada
+    uno, 3–4 por ejecución, hasta que R19 los cierra).
+  - Búfer del archivo `.part` abierto por yt-dlp: hasta 8 KiB (`io.DEFAULT_BUFFER_SIZE`).
+  - Bloque en vuelo: lo que el envoltorio de lectura (R18) acumula para el bloque pedido por
+    yt-dlp y aún no ha entregado; yt-dlp agranda el bloque según la velocidad (64–370 KB a
+    400 KB/s, hasta 4 MiB).
+- **Decision**: SC-002 admite, solo tras una interrupción abrupta, el 1 % del tamaño del
+  archivo más 128 KiB fijos. Los 128 KiB cubren los sondeos y el búfer del archivo con margen,
+  y el bloque en vuelo cuando la interrupción llega poco después de una escritura, como en el
+  test. Tras un corte de red (T016) el límite sigue siendo el 1 % estricto: ahí el envoltorio
+  entrega lo acumulado antes de relanzar el error (R18) y no se pierde nada.
+- **Alternatives considered**: limitar el bloque que entrega el envoltorio (p. ej. a 64 KiB)
+  para escribir el `.part` más a menudo: más llamadas al hook de progreso y más CPU, y un
+  `SIGKILL` seguiría perdiendo el bloque en curso y el búfer del archivo. Rechazado por el
+  usuario.
+- **Límite conocido**: con bloques grandes (conexiones rápidas), un `SIGKILL` en mitad de un
+  bloque puede perder más de 128 KiB; sigue siendo progreso que se vuelve a descargar, no un
+  archivo corrupto (el `.part` solo contiene bytes escritos en orden).

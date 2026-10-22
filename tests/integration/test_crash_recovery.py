@@ -13,14 +13,23 @@ import subprocess
 import sys
 import time
 
-import pytest
 
 LIMITE = 60
+TOLERANCIA_ABRUPTA = 128 * 1024  # bytes; SC-002 para interrupciones abruptas (research R20)
 
 
 def downloader(*argumentos, env, **kwargs):
     comando = [sys.executable, "-m", "downloader", *map(str, argumentos)]
     return subprocess.Popen(comando, env=env, **kwargs)
+
+
+def fila(app_home, url):
+    """(id, estado) de la descarga, leído sin bloquear al `ejecutar` en marcha."""
+    conexion = sqlite3.connect(f"{(app_home / 'cola.db').as_uri()}?mode=ro", uri=True)
+    try:
+        return conexion.execute("SELECT id, estado FROM descargas WHERE url = ?", (url,)).fetchone()
+    finally:
+        conexion.close()
 
 
 def esperar(proceso):
@@ -46,16 +55,23 @@ def test_cierre_abrupto_a_mitad_y_relanzar(app_home, destino, servidor, medios):
     )
     assert esperar(agregar) == 0
 
+    id_lento = fila(app_home, servidor.url("lento.mp4"))[0]
     ejecutar = downloader("ejecutar", env=env)
-    trabajo = destino / ".downloader-tmp"
+    trabajo = destino / ".downloader-tmp" / str(id_lento)
     fin = time.monotonic() + LIMITE
+    # Solo el `.part` de la descarga lenta, y con su fila en `downloading`: la rápida también
+    # deja un `.part` mientras se descarga.
     while True:
-        parciales = list(trabajo.glob("*/*.part")) if trabajo.exists() else []
-        if parciales and parciales[0].stat().st_size > 0.3 * len(datos):
+        parciales = list(trabajo.glob("*.part")) if trabajo.exists() else []
+        if (
+            parciales
+            and parciales[0].stat().st_size > 0.3 * len(datos)
+            and fila(app_home, servidor.url("lento.mp4"))[1] == "downloading"
+        ):
             break
         assert ejecutar.poll() is None, "ejecutar terminó antes de poder interrumpirlo"
         assert time.monotonic() < fin, "la descarga lenta no avanzó"
-        time.sleep(0.05)
+        time.sleep(0.05)  # intervalo de sondeo
     ejecutar.kill()
     esperar(ejecutar)
 
@@ -74,5 +90,6 @@ def test_cierre_abrupto_a_mitad_y_relanzar(app_home, destino, servidor, medios):
     assert len(publicados) == 2
     for nombre in publicados:
         assert (destino / nombre).read_bytes() == datos
-    assert servidor.bytes_servidos["lento.mp4"] <= 1.01 * len(datos)  # SC-002, SC-003
+    # SC-002 enmendado: tras una interrupción abrupta, 1 % del tamaño + 128 KiB (research R20).
+    assert servidor.bytes_servidos["lento.mp4"] <= 1.01 * len(datos) + TOLERANCIA_ABRUPTA
     assert servidor.peticiones["rapido.mp4"] == peticiones_rapido
