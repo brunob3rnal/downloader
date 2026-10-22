@@ -2,8 +2,11 @@
 
 import logging
 import threading
+import time
 import weakref
+from collections import deque
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
@@ -13,12 +16,17 @@ from yt_dlp.downloader.external import ExternalFD
 from yt_dlp.networking.exceptions import HTTPError, IncompleteRead, TransportError
 from yt_dlp.utils import DownloadError
 
-from downloader.errors import Fase, RegistroRed, UltimaPeticion, ocultar_secretos
+from downloader.errors import Fase, RegistroRed, SinDatos, UltimaPeticion, ocultar_secretos
 from downloader.models import Calidad, Descarga
 
 DIRECTORIO_TEMPORAL = ".downloader-tmp"
 # Tamaño de cada lectura del cuerpo de una respuesta: lo máximo que se pierde en un corte (R18).
 TROZO_LECTURA = 4096
+# `retries` y `fragment_retries`: un fallo sube enseguida a los reintentos del trabajador, que
+# son indefinidos (FR-010, R21).
+REINTENTOS_INTERNOS = 1
+SOCKET_TIMEOUT = 15  # s por lectura de socket (R21)
+PASO_MUESTRAS = 0.25  # s entre muestras de la ventana de velocidad del vigilante (R21)
 # Nombre fijo y corto en el directorio de trabajo (que ya es uno por descarga): el id del video
 # podría ser largo o un nombre reservado de Windows (`CON`, `NUL`…), que `windowsfilenames` no
 # sanea. Cada intento usa el mismo nombre, así que yt-dlp continúa el mismo `.part` (R2, R7).
@@ -30,6 +38,18 @@ FORMATOS = {
     Calidad.P720: "bv*[height<=720]+ba/b[height<=720]/wv*+ba/w",
     Calidad.AUDIO: "ba/b",
 }
+
+
+@dataclass(frozen=True)
+class Vigilancia:
+    """Umbrales del vigilante de estancamiento de la descarga (research R21).
+
+    El intento se aborta si pasan `segundos` sin recibir ningún byte, o si en los últimos
+    `segundos` llegan menos de `velocidad_minima` bytes/s (goteo).
+    """
+
+    segundos: float = 30
+    velocidad_minima: float = 1024
 
 
 class Progreso(NamedTuple):
@@ -72,6 +92,9 @@ class YoutubeDLRegistrado(YoutubeDL):
 
     Fija `hls_prefer_native=True` para que HLS use el descargador nativo de yt-dlp, que sí pasa
     por `urlopen`, en lugar de ffmpeg.
+
+    Con el parámetro `downloader_vigilancia` (una `Vigilancia`), vigila durante la descarga los
+    bytes recibidos y aborta el intento con `SinDatos` si la conexión se estanca (R21).
     """
 
     def __init__(self, params=None, *args, **kwargs):
@@ -80,6 +103,54 @@ class YoutubeDLRegistrado(YoutubeDL):
         # Respuestas abiertas al extraer, que se cierran al empezar la descarga (research R19).
         self._respuestas_extraccion: list[weakref.ref] = []
         super().__init__({"hls_prefer_native": True, **(params or {})}, *args, **kwargs)
+        self._vigilancia: Vigilancia | None = self.params.get("downloader_vigilancia")
+        self._ultimo_byte: float | None = None  # None: la vigilancia aún no empezó
+        self._recibidos = 0
+        self._muestras: deque[tuple[float, int]] = deque()  # (instante, bytes recibidos)
+        self._estancado: SinDatos | None = None
+
+    # --- vigilante de estancamiento (R21) ---------------------------------------------
+
+    def _empezar_vigilancia(self) -> None:
+        if self._vigilancia is not None and self._ultimo_byte is None:
+            ahora = time.monotonic()
+            self._ultimo_byte = ahora
+            self._muestras.append((ahora, 0))
+
+    def _anotar_bytes(self, cantidad: int) -> None:
+        if self._ultimo_byte is None:
+            return
+        ahora = time.monotonic()
+        self._ultimo_byte = ahora
+        self._recibidos += cantidad
+        if ahora - self._muestras[-1][0] >= PASO_MUESTRAS:
+            self._muestras.append((ahora, self._recibidos))
+
+    def _comprobar_estancamiento(self) -> SinDatos | None:
+        """`SinDatos` si la conexión está estancada; una vez estancado, el intento lo está."""
+        if self._estancado is not None or self._ultimo_byte is None:
+            return self._estancado
+        ahora = time.monotonic()
+        umbral = self._vigilancia.segundos
+        silencio = ahora - self._ultimo_byte
+        if silencio >= umbral:
+            error = SinDatos(f"sin datos hace {silencio:.0f} s")
+        else:
+            limite = ahora - umbral
+            while len(self._muestras) > 1 and self._muestras[1][0] <= limite:
+                self._muestras.popleft()
+            desde, base = self._muestras[0]
+            if desde > limite:  # aún no hay una ventana completa
+                return None
+            if self._recibidos - base >= self._vigilancia.velocidad_minima * umbral:
+                return None
+            error = SinDatos(
+                f"menos de {self._vigilancia.velocidad_minima / 1024:g} KiB/s "
+                f"durante {umbral:.0f} s"
+            )
+        self._estancado = error
+        self._registrar(UltimaPeticion(error=error))
+        return error
 
     def _registrar(self, resultado: UltimaPeticion) -> None:
         with self._cerrojo_registro:
@@ -115,12 +186,16 @@ class YoutubeDLRegistrado(YoutubeDL):
     def dl(self, name, info, subtitle=False, test=False):
         if not test:
             self._cerrar_respuestas_extraccion()
+            self._empezar_vigilancia()
             descargador = get_suitable_downloader(info, self.params, to_stdout=(name == "-"))
             self.registro.fase = Fase.DESCARGA
             self.registro.externo = issubclass(descargador, ExternalFD)
         return super().dl(name, info, subtitle, test)
 
     def urlopen(self, req):
+        if self._estancado is not None:
+            # Intento abortado: sin esto, el reintento interno de yt-dlp volvería a esperar.
+            raise self._estancado
         try:
             respuesta = super().urlopen(req)
         except HTTPError as error:
@@ -128,6 +203,8 @@ class YoutubeDLRegistrado(YoutubeDL):
             raise
         except Exception as error:
             self._registrar(UltimaPeticion(error=error))
+            if isinstance(error, TransportError) and (estancado := self._comprobar_estancamiento()):
+                raise estancado from error
             raise
         self._registrar(UltimaPeticion(estado=respuesta.status))
         if self.registro.fase is Fase.EXTRACCION:
@@ -142,7 +219,18 @@ class YoutubeDLRegistrado(YoutubeDL):
         la conexión se corta antes de completarlo (research R18). Por eso se lee en trozos de
         `TROZO_LECTURA` bytes: si un trozo falla con un error de transporte tras haber
         acumulado bytes, se entregan esos bytes y el error se relanza en la lectura siguiente.
+
+        Con el manejador de `requests` cada trozo se lee con `read1`, que vuelve en cuanto llega
+        algún dato: así el vigilante de estancamiento comprueba también un goteo de bytes,
+        con el que `read(4096)` no volvería en horas (R21).
         """
+        leer_real = getattr(respuesta, "_real_read", None)
+        fp = getattr(respuesta, "fp", None)
+        if leer_real is not None and hasattr(fp, "read1"):
+            # `read` de yt-dlp sigue traduciendo las excepciones de urllib3.
+            respuesta._real_read = (
+                lambda amt=None: fp.read1(amt, decode_content=True) if amt else leer_real(amt)
+            )
         leer = respuesta.read
         esperado = respuesta.headers.get("Content-Length")
         esperado = int(esperado) if esperado and esperado.isdigit() else None
@@ -162,6 +250,13 @@ class YoutubeDLRegistrado(YoutubeDL):
                 self._registrar(UltimaPeticion(error=IncompleteRead(recibidos, esperado)))
             return datos
 
+        def abortar(error: SinDatos) -> SinDatos:
+            try:
+                respuesta.close()  # que el servidor deje de enviar a una conexión abandonada
+            except Exception:
+                pass
+            return error
+
         def read(amt=None):
             nonlocal aplazado
             if aplazado is not None:
@@ -174,13 +269,22 @@ class YoutubeDLRegistrado(YoutubeDL):
                 try:
                     trozo = leer_registrando(min(TROZO_LECTURA, amt - len(acumulado)))
                 except TransportError as error:
+                    # Un timeout de socket puede completar un estancamiento.
+                    estancado = self._comprobar_estancamiento()
+                    if estancado is not None:
+                        error = abortar(estancado)
                     if not acumulado:
-                        raise
+                        raise error
                     aplazado = error
                     break
                 if not trozo:
                     break
                 acumulado += trozo
+                self._anotar_bytes(len(trozo))
+                estancado = self._comprobar_estancamiento()
+                if estancado is not None:
+                    aplazado = abortar(estancado)
+                    break
             return bytes(acumulado)
 
         respuesta.read = read
@@ -223,7 +327,8 @@ def opciones(
     directorio_trabajo: Path,
     navegador: str | None,
     hook: Callable[[dict], None],
-    socket_timeout: float = 20,
+    socket_timeout: float = SOCKET_TIMEOUT,
+    vigilancia: Vigilancia | None = None,
 ) -> dict:
     opciones = _comunes(navegador, socket_timeout) | {
         "format": FORMATOS[descarga.calidad],
@@ -234,17 +339,20 @@ def opciones(
         "nopart": False,
         # yt-dlp lo activa por defecto y produciría archivos HLS/DASH incompletos (R1).
         "skip_unavailable_fragments": False,
-        # Pocos reintentos internos: los reintentos indefinidos son nuestros (FR-010).
-        "retries": 3,
-        "fragment_retries": 3,
+        # Pocos reintentos internos: los reintentos indefinidos son nuestros (FR-010, R21).
+        "retries": REINTENTOS_INTERNOS,
+        "fragment_retries": REINTENTOS_INTERNOS,
         "progress_hooks": [hook],
+        "downloader_vigilancia": vigilancia,
     }
     if descarga.calidad is Calidad.AUDIO:
         opciones["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "best"}]
     return opciones
 
 
-def extraer_plano(url: str, navegador: str | None = None, socket_timeout: float = 20) -> dict:
+def extraer_plano(
+    url: str, navegador: str | None = None, socket_timeout: float = SOCKET_TIMEOUT
+) -> dict:
     """Información de la URL sin descargar; las listas traen sus entradas sin resolver (R13)."""
     opciones = _comunes(navegador, socket_timeout) | {"extract_flat": "in_playlist"}
     return _ejecutar(opciones, url, download=False)
@@ -255,7 +363,8 @@ def descargar(
     directorio_trabajo: Path,
     navegador: str | None,
     al_progresar: Callable[[Progreso], None],
-    socket_timeout: float = 20,
+    socket_timeout: float = SOCKET_TIMEOUT,
+    vigilancia: Vigilancia | None = None,
 ) -> dict:
     """Vuelve a extraer y descarga (o continúa) en el directorio de trabajo (R2)."""
 
@@ -272,7 +381,7 @@ def descargar(
         )
 
     return _ejecutar(
-        opciones(descarga, directorio_trabajo, navegador, hook, socket_timeout),
+        opciones(descarga, directorio_trabajo, navegador, hook, socket_timeout, vigilancia),
         descarga.url,
         download=True,
     )

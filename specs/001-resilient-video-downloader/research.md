@@ -447,3 +447,60 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
 - **Límite conocido**: con bloques grandes (conexiones rápidas), un `SIGKILL` en mitad de un
   bloque puede perder más de 128 KiB; sigue siendo progreso que se vuelve a descargar, no un
   archivo corrupto (el `.part` solo contiene bytes escritos en orden).
+
+## R21. Conexión estancada sin cortarse (silencio o goteo)
+
+- **Defecto observado** (Windows, datos móviles): la conexión sigue abierta pero no avanza, o
+  avanza a goteo; la línea muestra "descargando --- MiB/s" más de 3 minutos. El monitor de
+  red indica conexión, así que no es un corte.
+- **Hallazgo** (yt-dlp 2026.08.19, verificado): usado como librería, `retries` y
+  `fragment_retries` valen `None`, que `RetryManager` trata como 0 (los "10 por defecto" son
+  solo de su línea de comandos); `socket_timeout` vale `None` y la capa de red usa
+  `DEFAULT_TIMEOUT = 20` s; no hay pausa entre reintentos. Fijábamos `retries=3`,
+  `fragment_retries=3` y `socket_timeout=20`. El timeout se aplica a cada lectura de socket:
+  - silencio total: 20 s por intento interno, 1 + 3 intentos = ~80 s antes de que el fallo
+    llegue al trabajador (por fragmento en HLS); dos rondas más el backoff superan 3 min;
+  - goteo: con un byte cada menos de 20 s el timeout no salta nunca y la descarga puede
+    quedarse colgada indefinidamente. Ningún ajuste de `socket_timeout` o `retries` lo evita.
+  - además, con `requests`, `urllib3.HTTPResponse.read(4096)` no vuelve hasta tener los 4096
+    bytes: a goteo, el envoltorio de lectura (R18) no recuperaría el control en horas.
+- **Decision**:
+  - `retries=1`, `fragment_retries=1` (`ytdl.REINTENTOS_INTERNOS`) y `socket_timeout=15`
+    (`ytdl.SOCKET_TIMEOUT`, por defecto en `worker.Tiempos`), en `ytdl.opciones`/`_comunes`:
+    el fallo sube pronto a los reintentos indefinidos del trabajador. No se fijan en
+    `crear_ydl`, que los tests sustituyen por `fake_extractor.crear_ydl`.
+  - Vigilante en `YoutubeDLRegistrado`, activo desde el primer `dl` del intento: anota el
+    instante del último byte y una muestra de bytes acumulados como mucho cada 0,25 s. Aborta
+    el intento con `errors.SinDatos` si pasan `estancamiento_segundos` (30) sin bytes
+    ("sin datos hace N s") o si en los últimos 30 s llegan menos de
+    `estancamiento_velocidad_minima` bytes/s (1024; "menos de 1 KiB/s durante 30 s"). Ambos
+    umbrales se configuran en `config.toml`.
+  - Se comprueba tras cada trozo leído y cuando una lectura o un `urlopen` fallan por
+    transporte (un timeout de socket de 15 s, o dos con el reintento interno, completan los
+    30 s de silencio). Cada trozo se lee con `read1` de urllib3 (`_real_read` de la respuesta
+    de `requests`), que vuelve en cuanto llega algún dato, a través del `read` de yt-dlp, que
+    sigue traduciendo las excepciones. Con el manejador `urllib` (si faltara `requests`) se
+    sigue usando `read` y el goteo solo se detecta por timeout.
+  - `SinDatos` es un `TransportError`: yt-dlp cierra el `.part` como en un corte, y se
+    registra como última petición para `DownloadError` sin causa. Una vez estancado, el
+    `urlopen` del mismo intento lo relanza al instante, así que el reintento interno de
+    yt-dlp no vuelve a esperar 30 s. La respuesta estancada se cierra. Los bytes ya recibidos
+    se entregan antes del error (R18), así que el intento siguiente abre una conexión nueva y
+    reanuda desde el `.part`.
+  - `clasificar_detalle`: `SinDatos` (en la cadena o en el registro) es `TEMPORAL` con
+    `estancamiento=True`. En el trabajador no cuenta para el tope de errores ambiguos (ni suma
+    ni rompe la racha), no cuenta como intento sin avance y lo descargado en el intento
+    estancado se suma al avance del siguiente. La espera es
+    `espera(n, base=espera_estancamiento)` con `n` = estancamientos seguidos − 1: unos 5 s la
+    primera vez y luego el backoff habitual.
+  - La línea de progreso muestra `#12 descargando  sin datos hace N s, reintentando  Título`
+    cuando no llegan bytes nuevos al hook desde hace 5 s, y en la terminal cada línea activa
+    se recorta al ancho (`no_wrap`, `overflow="ellipsis"`) para que un título largo no la
+    parta en dos.
+- **Coste medido** (como en R18, 200 MiB contra `flaky_server` en otro proceso, mediana de 10,
+  tres series de cada uno, misma sesión): código anterior 183–198 MiB/s; con `read1` y
+  vigilancia, 161–200 MiB/s: dentro del ruido de la medida.
+- **Alternatives considered**: un hilo vigilante que cierre el socket (cerrar un descriptor
+  con un `recv` bloqueado en otro hilo no lo despierta de forma fiable en todas las
+  plataformas, y exige atributos privados de urllib3); bajar `socket_timeout` (no detecta el
+  goteo). La opción `throttledratelimit` de yt-dlp no se evaluó.

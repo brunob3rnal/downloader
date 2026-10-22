@@ -23,8 +23,12 @@ AVISO_REINICIO = "reiniciada desde cero: el servidor no permite reanudar"
 class Tiempos:
     backoff_base: float = 2
     backoff_tope: float = 300
-    socket_timeout: float = 20
+    socket_timeout: float = ytdl.SOCKET_TIMEOUT
     espera_cola: float = 0.5  # s entre consultas cuando no hay nada en cola pero sí pendientes
+    # Vigilante de estancamiento (R21): umbrales y primera espera tras abortar un intento.
+    estancamiento: float = 30
+    velocidad_minima: float = 1024
+    espera_estancamiento: float = 5
 
 
 @dataclass
@@ -48,6 +52,7 @@ class _Seguimiento:
         self.sin_avance = descarga.intentos_sin_avance
         self.avisos: list[str] = []
         self.ultimo: Progreso | None = None  # último progreso con bytes, para Ctrl+C
+        self.estancamientos = 0  # intentos seguidos abortados por estancamiento (R21)
         self._maximos: dict[str | None, int] = {}
         self._avance = False
 
@@ -69,6 +74,12 @@ class _Seguimiento:
         return progreso.bytes < anterior
 
     def cerrar_intento(self, clasificacion: Clasificacion, en_linea: bool) -> retry.Decision:
+        if clasificacion.estancamiento:
+            # No cuenta para el tope de los ambiguos ni como intento sin avance, y el avance de
+            # este intento se suma al del siguiente (R21).
+            self.estancamientos += 1
+            return retry.Decision(Tipo.TEMPORAL)
+        self.estancamientos = 0
         avance, self._avance = self._avance, False
         if avance or en_linea:  # sin conexión, el intento no cuenta (FR-007)
             self.sin_avance = retry.siguiente_intento(self.sin_avance, avance)
@@ -189,7 +200,10 @@ def _descargar(store, presentador, tiempos, navegador, seguimiento):
         if progreso.bytes is not None:
             store.guardar_progreso(descarga.id, progreso.bytes, progreso.total)
 
-    info = ytdl.descargar(descarga, trabajo, navegador, al_progresar, tiempos.socket_timeout)
+    info = ytdl.descargar(
+        descarga, trabajo, navegador, al_progresar, tiempos.socket_timeout,
+        ytdl.Vigilancia(tiempos.estancamiento, tiempos.velocidad_minima),
+    )
     archivo = ytdl.archivo_descargado(info)
     nombre = publish.nombre_publicado(
         info.get("title") or info["id"], info["id"], archivo.suffix.lstrip("."),
@@ -222,7 +236,8 @@ def _fallo(store, monitor, presentador, tiempos, seguimiento, error, resultado) 
     """Decide qué hacer tras un intento fallido; `True` si hay que volver a intentarlo.
 
     PERMANENTE (o el tope de errores ambiguos) deja la descarga fallida. TEMPORAL la pasa a
-    `waiting_network` hasta el próximo intento (R10) y la devuelve a `downloading`.
+    `waiting_network` hasta el próximo intento (R10) y la devuelve a `downloading`. Tras un
+    estancamiento la primera espera es corta, `tiempos.espera_estancamiento` (R21).
     """
     descarga = seguimiento.descarga
     en_linea = monitor.en_linea.is_set()
@@ -239,7 +254,13 @@ def _fallo(store, monitor, presentador, tiempos, seguimiento, error, resultado) 
         presentador.fallida(descarga, mensaje)
         return False
 
-    segundos = retry.espera(seguimiento.sin_avance, tiempos.backoff_base, tiempos.backoff_tope)
+    if clasificacion.estancamiento:
+        mensaje = clasificacion.motivo
+        segundos = retry.espera(
+            seguimiento.estancamientos - 1, tiempos.espera_estancamiento, tiempos.backoff_tope
+        )
+    else:
+        segundos = retry.espera(seguimiento.sin_avance, tiempos.backoff_base, tiempos.backoff_tope)
     proximo = datetime.now(UTC) + timedelta(seconds=segundos)
     store.transicion(
         descarga.id, Estado.WAITING_NETWORK, ultimo_error=mensaje, titulo=descarga.titulo,

@@ -153,7 +153,12 @@ y `tests/integration/test_sin_reanudacion.py`) en verde.
 - [X] T040 [US2] Ampliar `src/downloader/progress.py` con la línea `#13 esperando red  reintento en 40 s  (<causa>)` (contracts/cli.md) y cuenta atrás actualizada cada segundo
 - [X] T041 [US2] Integrar `network.MonitorRed` en `src/downloader/cli.py` (`ejecutar` lo inicia con `config.sondas_red` y lo detiene al salir). Hecho junto con T035: `ejecutar` necesitaba un monitor para clasificar los errores
 
-**Checkpoint**: T016, T036–T037, T037a y T037b en verde; US1 sigue en verde.
+- [X] T041a [US2] Tests del estancamiento (research R21; escritos tras la implementación y validados con el vigilante desactivado: sin él, el caso de silencio termina por timeout y no por estancamiento, y el de goteo no termina): en `tests/support/flaky_server.py`, `programar(pausar_tras_bytes=N)` (envía N bytes y deja la conexión abierta sin datos) y `programar(gotear_tras_bytes=N, intervalo=s)` (luego un byte cada `s`); `tests/integration/test_estancamiento.py` con los dos casos, que deben terminar completados tras abortar y reanudar desde el `.part` (sin aviso de reinicio, `bytes_servidos` ≤ 101 %, `intentos_sin_avance` en 0, causa "sin datos hace" / "menos de 1 KiB/s"); en `tests/unit/test_worker_espera.py`, primera espera corta, no cuenta para el tope de ambiguos ni como intento sin avance; en `tests/unit/test_errors.py`, `SinDatos` en la cadena y en el registro; en `tests/unit/test_progress.py`, la línea "sin datos hace N s, reintentando" y el recorte al ancho; `tests/unit/test_config.py`, umbrales en `config.toml` y su paso al trabajador
+- [X] T041b [US2] En `src/downloader/errors.py`, `SinDatos(TransportError)` y `Clasificacion.estancamiento`; en `src/downloader/ytdl.py`, `Vigilancia`, el vigilante en `YoutubeDLRegistrado` (último byte, ventana de velocidad, `read1`, cortocircuito de `urlopen` tras estancarse), `REINTENTOS_INTERNOS = 1` y `SOCKET_TIMEOUT = 15` en las opciones; ajustar `test_opciones_fijas` a los nuevos valores
+- [X] T041c [US2] En `src/downloader/worker.py`, `Tiempos.estancamiento`, `velocidad_minima` y `espera_estancamiento` (5 s), la `Vigilancia` en cada intento y el trato del estancamiento en `_Seguimiento` y `_fallo`; en `src/downloader/config.py` y `src/downloader/cli.py`, las claves `estancamiento_segundos` y `estancamiento_velocidad_minima` (data-model.md)
+- [X] T041d [US2] En `src/downloader/progress.py`, "sin datos hace N s, reintentando" tras 5 s sin bytes nuevos y cada línea activa recortada al ancho de la terminal
+
+**Checkpoint**: T016, T036–T037, T037a, T037b y T041a en verde; US1 sigue en verde.
 
 ---
 

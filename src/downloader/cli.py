@@ -134,7 +134,11 @@ def ejecutar() -> None:
         monitor = MonitorRed(ajustes.sondas_red)
         monitor.iniciar()
         try:
-            worker.ejecutar(store, monitor, Presentador())
+            tiempos = worker.Tiempos(
+                estancamiento=ajustes.estancamiento_segundos,
+                velocidad_minima=ajustes.estancamiento_velocidad_minima,
+            )
+            worker.ejecutar(store, monitor, Presentador(), tiempos)
         except ErrorFatal as error:
             raise _error(f"{error}. El progreso se ha conservado.", FATAL) from None
         except KeyboardInterrupt:
