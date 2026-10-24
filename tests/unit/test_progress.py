@@ -1,6 +1,7 @@
 """Líneas de `ejecutar` y su presentación en una terminal (contracts/cli.md; T040, T041d, T092)."""
 
 import io
+import math
 import re
 import threading
 import time
@@ -24,6 +25,19 @@ def test_cuenta_atras_hasta_el_reintento():
     assert linea_activa(activa) == "#13 esperando red  reintento en 40 s  (conexión rechazada)"
     activa.reintento = time.monotonic() - 1
     assert linea_activa(activa) == "#13 esperando red  reintento en 0 s  (conexión rechazada)"
+
+
+def test_cuenta_atras_sin_el_error_de_coma_flotante(monkeypatch):
+    """En el tope de la espera (exactamente 300 s), con el reloj leído en el mismo instante que
+    al calcular `reintento` (en Windows con Python 3.12, `time.monotonic()` avanza a saltos de
+    15,6 ms), `(ahora + 300) - ahora` da 300.0000000000001: la línea no debe decir 301 s."""
+    from downloader import progress
+
+    ahora = 1000.003
+    assert math.ceil((ahora + 300.0) - ahora) == 301  # el caso que se prueba
+    monkeypatch.setattr(progress, "time", SimpleNamespace(monotonic=lambda: ahora))
+    activa = _Activa(descarga(), causa_espera="conexión rechazada", reintento=ahora + 300.0)
+    assert linea_activa(activa) == "#13 esperando red  reintento en 300 s  (conexión rechazada)"
 
 
 def test_sin_conexion_espera_a_la_red():

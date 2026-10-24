@@ -62,7 +62,10 @@ def linea_activa(activa: _Activa) -> str:
         if activa.reintento is None:
             cuando = "sin conexión, reintento al volver la red"
         else:
-            cuando = f"reintento en {max(0, math.ceil(activa.reintento - time.monotonic()))} s"
+            # Al milisegundo: la resta de dos lecturas del reloj arrastra errores de coma
+            # flotante (300.0000000000001) que `ceil` convertiría en un segundo de más.
+            resto = round(activa.reintento - time.monotonic(), 3)
+            cuando = f"reintento en {max(0, math.ceil(resto))} s"
         return f"#{descarga.id} {ETIQUETAS[Estado.WAITING_NETWORK]}  {cuando}  ({activa.causa_espera})"
     prefijo = f"#{descarga.id} {ETIQUETAS[Estado.DOWNLOADING]}"
     if progreso is None or progreso.bytes is None:
