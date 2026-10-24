@@ -119,8 +119,12 @@ def _comprobar_ffmpeg() -> None:
     ausentes = [programa for programa in ("ffmpeg", "ffprobe") if shutil.which(programa) is None]
     if ausentes:
         raise _error(
-            f"no se encuentra {' ni '.join(ausentes)} en el PATH; instale ffmpeg (incluye "
-            "ffprobe) y vuelva a ejecutar. La cola no se ha modificado.",
+            f"no se encuentra {' ni '.join(ausentes)} en el PATH. Instale ffmpeg, que incluye "
+            "ffprobe, y vuelva a ejecutar:\n"
+            "  Windows: winget install Gyan.FFmpeg  (o: choco install ffmpeg)\n"
+            "  macOS:   brew install ffmpeg\n"
+            "  Linux:   sudo apt install ffmpeg  (Debian, Ubuntu; o el gestor de su distribución)\n"
+            "La cola no se ha modificado.",
             FATAL,
         )
 

@@ -137,7 +137,11 @@ def _por_senal(senal, fase: Fase) -> Clasificacion:
     if senal in (403, 410) and fase is Fase.DESCARGA:
         # Suele ser una URL temporal caducada: el siguiente intento vuelve a extraer (FR-012).
         return Clasificacion(Tipo.TEMPORAL, ambiguo=True, motivo=f"HTTP {senal}")
-    return PERMANENTE  # 404 en cualquier fase; 403 y 410 al extraer; otros 4xx
+    if senal == 416 and fase is Fase.DESCARGA:
+        # Rango no satisfacible sin un `Content-Range */TOTAL` que lo explique (los que lo
+        # traen los resuelve `ytdl`, R23): puede ser pasajero, con tope (FR-026).
+        return Clasificacion(Tipo.TEMPORAL, ambiguo=True, motivo="HTTP 416")
+    return PERMANENTE  # 404 en cualquier fase; 403, 410 y 416 al extraer; otros 4xx
 
 
 def clasificar_detalle(exc: BaseException, en_linea: bool) -> Clasificacion:

@@ -46,6 +46,10 @@ def test_sin_ffmpeg_o_ffprobe_sale_con_3_sin_tocar_la_cola(
     assert resultado.exit_code == 3, resultado.output
     assert ausente in resultado.output
     assert "PATH" in resultado.output
+    # Cómo instalarlo en cada sistema.
+    assert "winget install Gyan.FFmpeg" in resultado.output  # Windows
+    assert "brew install ffmpeg" in resultado.output  # macOS
+    assert "apt install ffmpeg" in resultado.output  # Linux (Debian, Ubuntu)
     assert "Traceback" not in resultado.output
 
     store = Store.abrir(app_home)

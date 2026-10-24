@@ -182,6 +182,9 @@ TABLA = [
     (410, EXTRACCION, PERMANENTE, False),
     (403, DESCARGA, TEMPORAL, True),
     (410, DESCARGA, TEMPORAL, True),
+    # 416 que llega como error (sin `Content-Range */TOTAL` utilizable, research R23).
+    (416, EXTRACCION, PERMANENTE, False),
+    (416, DESCARGA, TEMPORAL, True),
 ]
 
 

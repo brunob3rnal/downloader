@@ -74,6 +74,7 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
      | HTTP 429 o 5xx | `TEMPORAL` | `TEMPORAL` |
      | HTTP 404 | `PERMANENTE` | `PERMANENTE` |
      | HTTP 403 o 410 | `PERMANENTE` | `TEMPORAL` ambiguo (URL caducada: se vuelve a extraer, FR-012) |
+     | HTTP 416 que llega como error (sin `Content-Range */TOTAL` utilizable, R23) | `PERMANENTE` | `TEMPORAL` ambiguo |
      | otro 4xx | `PERMANENTE` | `PERMANENTE` |
 
      La fase es extracción si la cadena contiene un `ExtractorError` (yt-dlp envuelve en él
@@ -550,3 +551,42 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   respuesta 2xx que se cierra sin ningún byte (exigía enmendar FR-026 y contradice la
   semántica de corte de T016); `ffprobe -v warning` sobre el TS antes del remux (incompleto y
   con falsos positivos).
+
+## R23. HTTP 416 al reanudar un parcial completo o que no encaja
+
+- **Hallazgos** (verificados en yt-dlp 2026.08.19, `yt_dlp/downloader/http.py`):
+  1. Al reanudar, yt-dlp pide `Range: bytes=N-` con N = tamaño del `.part`. Si el `.part` ya
+     tiene todo el archivo (cierre abrupto justo tras el último byte, o un servidor que
+     anunciaba de más y se corrige, R22), el servidor responde 416 con
+     `Content-Range: bytes */TOTAL`.
+  2. Ante un 416, yt-dlp repite la petición "sin la cabecera Range" para comparar el
+     `Content-Length` del archivo entero con el `.part`, pero la repite **con** `Range`: el
+     setter de `Request.headers` guarda el mismo `HTTPHeaderDict` que recibe, así que
+     `request.headers['Range'] = …` modifica también el `headers` compartido con la petición
+     repetida. Recibe otro 416 y lo lanza: `HTTP Error 416`, que R4 clasificaba como "otro 4xx"
+     → `PERMANENTE`. La descarga fallaba con el archivo entero en disco.
+  3. Aunque la petición repetida saliera sin `Range`, la comparación de yt-dlp no sirve aquí:
+     acepta como completo un `.part` que difiera menos de 100 bytes (issue #175 de
+     youtube-dl), no cierra la respuesta de ese GET completo (el servidor empieza a enviar el
+     archivo aunque nadie lo lea) y emite `finished` con `total_bytes` = tamaño del `.part`.
+- **Decision**: `YoutubeDLRegistrado.urlopen` resuelve el 416 de la fase de descarga con
+  comparación exacta, sin depender de que yt-dlp corrija su error:
+  - `Content-Range: bytes */TOTAL` con TOTAL == N: el `.part` está completo. Se relanza el
+    416 y la petición repetida de yt-dlp recibe, sin red, una respuesta vacía con
+    `Content-Length: TOTAL`; yt-dlp lo da por terminado (`finished` con `total_bytes` = N =
+    TOTAL). Después la verificación de R8 (tamaño y ffprobe) es la misma de siempre: un
+    `.part` del tamaño correcto pero dañado no se publica.
+  - TOTAL < N: el `.part` no encaja con el archivo del servidor. En lugar del 416 se devuelve
+    el GET del archivo entero sin `Range`; yt-dlp ve un 200 sin `Content-Range`, borra el
+    `.part` y descarga desde cero (FR-024, R3) aunque la diferencia sea menor de 100 bytes. El
+    aviso dice el motivo: "reiniciada desde cero: el parcial (N bytes) es mayor que el archivo
+    del servidor (TOTAL bytes)". El motivo llega al trabajador en `Progreso.motivo_reinicio`
+    a través del parámetro `downloader_reinicios`.
+  - Sin `Content-Range` (o TOTAL > N, una respuesta incoherente): la petición repetida recibe
+    el mismo 416 sin red, y en la fase de descarga el 416 es `TEMPORAL` ambiguo
+    (`motivo="HTTP 416"`): se reintenta con el tope de 3 intentos sin avance de FR-026, nunca
+    `PERMANENTE` de entrada. Al extraer sigue siendo `PERMANENTE` (otro 4xx).
+- **Alternatives considered**: quitar solo `Range` de la petición repetida (conserva la
+  tolerancia de ±100 bytes y el GET completo sin cerrar); copiar las cabeceras en cada
+  `Request` sobrescribiendo métodos del descargador HTTP de yt-dlp (mucho más acoplamiento);
+  clasificar todo 416 como ambiguo (un `.part` completo agotaría el tope y fallaría).

@@ -159,6 +159,14 @@ tests/
     ni como intento sin avance. `retries=1`, `fragment_retries=1` y `socket_timeout=15`. El
     cuerpo se lee con `read1` de urllib3 para que un goteo no bloquee el envoltorio (R21).
 
+17. `YoutubeDLRegistrado.urlopen` resuelve el HTTP 416 al reanudar con el tamaño exacto de
+    `Content-Range: bytes */TOTAL`, porque yt-dlp repite la petición con el mismo `Range` (su
+    `Request` comparte el diccionario de cabeceras) y, si no, tolera ±100 bytes: `.part`
+    completo → terminado sin pedir más bytes y verificado como siempre; `.part` mayor que el
+    archivo → reinicio con aviso que da el motivo (FR-024); 416 sin `Content-Range` → `TEMPORAL`
+    ambiguo con el tope de FR-026. Es un tercer comportamiento de `urlopen`, sin métodos nuevos
+    sobrescritos (R23).
+
 ## Complexity Tracking
 
 Sin violaciones de la constitución que justificar.

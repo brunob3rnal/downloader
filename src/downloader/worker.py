@@ -16,7 +16,8 @@ from downloader.store import Store
 from downloader.ytdl import Progreso
 
 PASO_ESPERA = 0.25  # s entre comprobaciones del monitor durante la espera de un reintento
-AVISO_REINICIO = "reiniciada desde cero: el servidor no permite reanudar"
+AVISO_REINICIO = "reiniciada desde cero: {motivo}"
+SIN_REANUDACION = "el servidor no permite reanudar"  # el motivo si no se conoce otro (R3)
 
 
 @dataclass
@@ -194,11 +195,13 @@ def _descargar(store, presentador, tiempos, navegador, seguimiento):
         if progreso.estado == "finished" and (formato := publish.formato_terminado(progreso)):
             formatos.append(formato)
         if seguimiento.observar(progreso):
-            # El servidor ignoró `Range` y yt-dlp borró el `.part` (FR-024, R3).
-            if AVISO_REINICIO not in seguimiento.avisos:
-                seguimiento.avisos.append(AVISO_REINICIO)
+            # yt-dlp borró el `.part`: el servidor ignoró `Range` o el parcial no encajaba con
+            # el archivo (FR-024, R3, R23).
+            aviso = AVISO_REINICIO.format(motivo=progreso.motivo_reinicio or SIN_REANUDACION)
+            if aviso not in seguimiento.avisos:
+                seguimiento.avisos.append(aviso)
                 store.guardar_aviso(descarga.id, "; ".join(seguimiento.avisos))
-            presentador.aviso(descarga, AVISO_REINICIO)
+            presentador.aviso(descarga, aviso)
         presentador.progreso(descarga, progreso)
         if progreso.bytes is not None:
             store.guardar_progreso(descarga.id, progreso.bytes, progreso.total)

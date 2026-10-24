@@ -119,13 +119,14 @@ def test_tamano_anunciado_mayor_que_el_servido_se_reintenta_sin_publicar(
     assert entorno.publicados() == []  # SC-004
     assert list((destino / ".downloader-tmp" / str(id_)).glob("*.part"))
 
-    # Para terminar: el video deja de existir (404, permanente). Tampoco entonces se publica
-    # nada ni se aparta el `.part`: no hubo un archivo terminado que verificar.
-    servidor.registrar_video("v1", "borrado.mp4", titulo="Video de prueba")
+    # El servidor se corrige: el `.part` ya tiene todo el archivo (responde 416 con
+    # `Content-Range: bytes */TOTAL`, research R23) y se publica tras verificarlo.
+    servidor.configurar("v1.mp4", anunciar_tamano=None)
     entorno.esperar_fin()
-    assert entorno.cola.obtener(id_).estado is Estado.FAILED
-    assert entorno.publicados() == []
-    assert list((destino / ".downloader-tmp" / str(id_)).glob("*.part"))
+    assert entorno.cola.obtener(id_).estado is Estado.COMPLETED
+    assert entorno.publicados() == ["Video de prueba [v1].mp4"]
+    assert (destino / "Video de prueba [v1].mp4").read_bytes() == datos
+    assert servidor.bytes_servidos["v1.mp4"] <= 1.01 * len(datos)  # SC-002
 
 
 def test_archivo_servido_truncado_no_se_publica(entorno, destino, servidor, medios):
