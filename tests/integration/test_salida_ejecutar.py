@@ -1,6 +1,8 @@
 """Condición de salida de `ejecutar` (FR-021)."""
 
+import os
 import signal
+import sqlite3
 import threading
 import time
 
@@ -62,6 +64,39 @@ def test_segundo_ejecutar_simultaneo_sale_con_2(cli, app_home):
         otro.cerrar()
     assert resultado.exit_code == 2
     assert "otro" in resultado.output and "ejecutar" in resultado.output
+
+
+def test_cola_corrupta_sale_con_3_sin_tocar_las_descargas_parciales(
+    cli, app_home, destino, servidor, medios
+):
+    """Edge case "archivo de estado corrupto" (spec; FR-021, T087)."""
+    registrar(servidor, medios, "v")
+    assert cli("agregar", servidor.url("watch/v"), "--carpeta", destino).exit_code == 0
+    trabajo = destino / ".downloader-tmp" / "1"
+    trabajo.mkdir(parents=True)
+    parciales = {"descarga.mp4.part": medios.datos_mp4[:300_000],
+                 "descarga.mp4.ytdl": b'{"downloader": {"current_fragment": {"index": 0}}}'}
+    for nombre, datos in parciales.items():
+        (trabajo / nombre).write_bytes(datos)
+    basura = os.urandom(4096)
+    (app_home / "cola.db").write_bytes(basura)
+
+    resultado = cli("ejecutar")
+
+    assert resultado.exit_code == 3, resultado.output
+    assert "cola.db" in resultado.stderr and "corrupt" in resultado.stderr
+    (copia,) = app_home.glob("cola.db.corrupta-*")
+    assert copia.read_bytes() == basura
+    assert copia.name in resultado.stderr
+    assert (app_home / "cola.db").read_bytes() == basura  # no hay una cola nueva
+    assert {p.name: p.read_bytes() for p in trabajo.iterdir()} == parciales
+    assert sum(servidor.peticiones.values()) == 0 and servidor.secretos_emitidos == []
+    # El bloqueo de `ejecutar` quedó libre: otro proceso lo podría tomar.
+    otro = Store(app_home, sqlite3.connect(":memory:"))
+    try:
+        otro.bloquear_ejecucion()
+    finally:
+        otro.cerrar()
 
 
 # `signal.SIGBREAK` solo existe en Windows; en Linux se simula con `SIGTERM`, que existe en ambos.

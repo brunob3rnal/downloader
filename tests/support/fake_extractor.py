@@ -10,7 +10,9 @@ Escenarios por `<id>`:
 - `directo`: `is_live=True`.
 - `drm`: todos los formatos con `has_drm=True` (yt-dlp lo rechaza como "DRM protected").
 - cualquier otro: lo que el servidor tenga registrado con `registrar_video`; si el archivo es
-  un manifiesto `.m3u8`, el formato es HLS.
+  un manifiesto `.m3u8`, el formato es HLS. Un manifiesto maestro se analiza como lo haría un
+  extractor real (`_extract_m3u8_formats`), y la página puede añadir la clave AES-128 del
+  extractor (`hls_aes`) o el manifiesto de medios ya leído (`hls_media_playlist_data`).
 """
 
 from yt_dlp.extractor.common import InfoExtractor
@@ -40,16 +42,23 @@ class FalsoIE(InfoExtractor):
         if pagina.get("lista") and not self.get_param("noplaylist"):
             return self._lista(base, pagina["lista"])
 
-        if pagina["url"].split("?")[0].endswith(".m3u8"):
+        if pagina.get("maestro"):
+            formatos = self._extract_m3u8_formats(pagina["url"], id_, "mp4", m3u8_id="hls")
+        elif pagina["url"].split("?")[0].endswith(".m3u8"):
             formatos = [{"format_id": "hls", "url": pagina["url"], "ext": "mp4",
                          "protocol": "m3u8_native", "height": pagina["alturas"][0]}]
+            if pagina.get("incrustado"):
+                formatos[0]["hls_media_playlist_data"] = pagina["incrustado"]
         else:
             formatos = [
                 {"format_id": f"{altura}p", "url": pagina["url"], "ext": "mp4", "height": altura,
                  "vcodec": "h264", "acodec": "aac"}
                 for altura in pagina["alturas"]
             ]
-        return {"id": id_, "title": pagina["titulo"], "formats": formatos}
+        info = {"id": id_, "title": pagina["titulo"], "formats": formatos}
+        if pagina.get("hls_aes"):
+            info["hls_aes"] = pagina["hls_aes"]
+        return info
 
     def _lista(self, base, id_lista):
         pagina = self._download_json(f"{base}/playlist/{id_lista}", id_lista)

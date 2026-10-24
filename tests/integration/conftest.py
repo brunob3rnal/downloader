@@ -3,7 +3,9 @@ from pathlib import Path
 import pytest
 
 # Tests de integración que no descargan y por tanto no necesitan ffmpeg.
-SIN_DESCARGA = {"test_cli_agregar.py", "test_actualizar.py", "test_ffmpeg_ausente.py"}
+SIN_DESCARGA = {
+    "test_cli_agregar.py", "test_actualizar.py", "test_ffmpeg_ausente.py", "test_estado.py",
+}
 
 # Marcadores de los archivos de T016 y T017, que no se modifican (T067): el resto de los tests
 # llevan sus marcadores `slow` y `ytdlp_internals` en el propio archivo.

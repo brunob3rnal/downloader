@@ -108,6 +108,17 @@ def medios(tmp_path_factory):
     return SimpleNamespace(mp4=mp4, datos_mp4=mp4.read_bytes(), hls=hls)
 
 
+@pytest.fixture(scope="session")
+def hls_cifrado(medios, tmp_path_factory):
+    """La versión HLS de `medios` cifrada con `AES-128` y la clave ficticia `hls.CLAVE`.
+
+    Los tests copian el directorio con otra etiqueta de clave (`hls.con_claves`).
+    """
+    from tests.support import hls
+
+    return hls.cifrar(medios.mp4, tmp_path_factory.mktemp("cifrado") / "aes")
+
+
 @pytest.fixture
 def cli(app_home, servidor, monkeypatch):
     """Ejecuta la app Typer en proceso con el extractor de prueba registrado.

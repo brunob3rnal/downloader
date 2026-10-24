@@ -361,3 +361,60 @@ def test_navegadores_admitidos_son_los_de_yt_dlp():
 
     assert ytdl.NAVEGADORES == SUPPORTED_BROWSERS
     assert {"firefox", "chrome", "edge"} <= ytdl.NAVEGADORES
+
+
+# --- Manifiestos HLS con DRM o un cifrado no soportado (research R5) ---
+
+
+def manifiesto_vigilado(cuerpo: bytes):
+    import io
+
+    from yt_dlp.networking.common import Response
+
+    ydl = ytdl.YoutubeDLRegistrado({"quiet": True})
+    respuesta = Response(io.BytesIO(cuerpo), "http://127.0.0.1/maestro.m3u8", {}, 200)
+    ydl._vigilar_manifiesto(respuesta)
+    return ydl, respuesta
+
+
+MAESTRO_WIDEVINE = (
+    b"#EXTM3U\n"
+    b'#EXT-X-SESSION-KEY:METHOD=AES-128,URI="clave",'
+    b'KEYFORMAT="urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"\n'
+    + b"#EXT-X-STREAM-INF:BANDWIDTH=1000000\nindex.m3u8\n" * 40
+)
+
+
+def test_el_rechazo_se_lanza_al_leer_las_lineas_completas():
+    from downloader.errors import ErrorPermanente
+
+    ydl, respuesta = manifiesto_vigilado(MAESTRO_WIDEVINE)
+    with pytest.raises(ErrorPermanente, match=r"DRM \(Widevine\)"):
+        respuesta.read(512)  # como el extractor, que lee primero 512 bytes
+    assert isinstance(ydl.registro.ultima.error, ErrorPermanente)  # registrado como última
+
+
+def test_process_info_lo_vuelve_a_lanzar_aunque_el_extractor_lo_capture():
+    from downloader.errors import ErrorPermanente
+
+    ydl, respuesta = manifiesto_vigilado(MAESTRO_WIDEVINE)
+    try:
+        respuesta.read()
+    except ErrorPermanente:
+        pass  # un extractor que sigue con otros formatos
+    with pytest.raises(ErrorPermanente, match=r"DRM \(Widevine\)"):
+        ydl.process_info({"id": "v", "title": "v", "url": "http://127.0.0.1/v.mp4", "ext": "mp4"})
+
+
+@pytest.mark.parametrize(
+    "cuerpo",
+    [
+        b"\x00\x00\x00\x18ftypmp42" + b'#EXT-X-KEY:METHOD=SAMPLE-AES,KEYFORMAT="identity"\n' * 3,
+        b"#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"clave.key\"\n#EXTINF:2,\nf0.ts\n",
+        b"",
+    ],
+    ids=["medios", "aes-128", "vacio"],
+)
+def test_los_demas_cuerpos_se_entregan_sin_cambios(cuerpo):
+    _, respuesta = manifiesto_vigilado(cuerpo)
+    assert respuesta.read(7) + respuesta.read() == cuerpo

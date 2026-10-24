@@ -97,7 +97,12 @@ secretos ocultos:
 #14 completada  100%  Título del video  ~/Descargas/Título del video.mp4
 #15 fallida  —  https://…/watch/abc  Video privado: el propietario restringió el acceso
 #16 completada  lista (3 videos)  https://…/playlist/xyz
+#17 en cola  35.2 MiB  Título del video
+#18 completada  100%  Título del video  ~/Descargas/Título del video (1).mp4  aviso: ya existía «Título del video.mp4»; …
 ```
+
+El error se muestra en las descargas fallidas y, entre paréntesis, en las que esperan la red; en
+las demás, el archivo publicado y el último aviso, tras `aviso:`.
 
 El progreso sale de `bytes_descargados` y `bytes_totales`, que `ejecutar` guarda como mucho
 cada 2 s: puede ir hasta 2 s por detrás de la línea de `ejecutar`. Sin `bytes_totales`, se

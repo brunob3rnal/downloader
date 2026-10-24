@@ -1,10 +1,11 @@
-"""Línea de comandos: `agregar`, `ejecutar` y `actualizar` (contracts/cli.md)."""
+"""Línea de comandos: `agregar`, `ejecutar`, `estado` y `actualizar` (contracts/cli.md)."""
 
 import logging
 import shutil
 import signal
 import sys
 import threading
+from collections import Counter
 from pathlib import Path
 from typing import Annotated
 
@@ -14,7 +15,7 @@ from downloader import actualizacion, config, publish, worker, ytdl
 from downloader.errors import ErrorFatal, ocultar_secretos
 from downloader.models import Calidad
 from downloader.network import MonitorRed
-from downloader.progress import Presentador
+from downloader.progress import Presentador, linea_estado
 from downloader.store import BaseCorrupta, EjecucionEnCurso, Store
 
 # Códigos de salida (contracts/cli.md).
@@ -203,6 +204,23 @@ def ejecutar(cookies_de: CookiesDe = None) -> None:
         store.cerrar()
     if resultado.fallidas:  # la cola se vació, pero no todo se completó (FR-021)
         raise typer.Exit(CON_FALLIDAS)
+
+
+@app.command()
+def estado() -> None:
+    """Muestra la cola sin modificarla; funciona también mientras corre `ejecutar`."""
+    # Sin bloqueo ni `recuperar()`: una fila en `downloading` puede ser de un `ejecutar` en
+    # marcha (plan, decisión 29).
+    try:
+        descargas = Store.leer(config.directorio_app())
+    except BaseCorrupta as error:
+        raise _error(str(error), FATAL) from None
+    if not descargas:
+        typer.echo("cola vacía")
+        return
+    hijas = Counter(d.padre_id for d in descargas if d.padre_id is not None)
+    for descarga in descargas:
+        typer.echo(linea_estado(descarga, hijas[descarga.id]))
 
 
 @app.command()

@@ -178,9 +178,9 @@ def clasificar_detalle(exc: BaseException, en_linea: bool) -> Clasificacion:
        registro de la última petición (`exc.registro`): yt-dlp descarta la excepción original
        cuando agota sus reintentos. La fase es extracción si la cadena tiene un
        `ExtractorError`; si no, la del registro (descarga si no hay registro).
-    3. Sin señal de red: los errores permanentes reconocidos (video borrado, DRM…) son
-       PERMANENTE; un fallo de un descargador externo (ffmpeg) es TEMPORAL ambiguo; el resto,
-       PERMANENTE.
+    3. Sin señal de red: los errores permanentes reconocidos (video borrado, DRM…), en la cadena
+       o registrados como última petición (el rechazo de un manifiesto, R5), son PERMANENTE; un
+       fallo de un descargador externo (ffmpeg) es TEMPORAL ambiguo; el resto, PERMANENTE.
     """
     cadena = _cadena(exc)
     if any(_es_fatal(e) for e in cadena):
@@ -201,7 +201,7 @@ def clasificar_detalle(exc: BaseException, en_linea: bool) -> Clasificacion:
     senal = _senal_de_la_cadena(cadena)
     if senal is not None:
         return _por_senal(senal, fase)
-    if any(_es_permanente(e) for e in cadena):
+    if any(_es_permanente(e) for e in [*cadena, ultimo_error]):
         return PERMANENTE
     senal = _senal_del_registro(registro)
     if senal is not None:

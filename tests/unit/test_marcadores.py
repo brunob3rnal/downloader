@@ -59,6 +59,20 @@ INTERNOS_YTDLP = {
     # R25: cadena de excepciones de yt-dlp al leer las cookies del navegador.
     "tests/unit/test_ytdl.py::test_cookies_ilegibles_indican_el_navegador_y_la_causa",
     "tests/unit/test_ytdl.py::test_los_demas_errores_con_cookies_no_se_confunden",
+    # R5: el manifiesto pasa por `urlopen` al extraer y al descargar, `process_info` antes de
+    # pedir nada, la clave AES-128 con `ydl.urlopen` y `hls_aes`, y la delegación en ffmpeg.
+    "tests/integration/test_directo_drm.py::"
+    "test_hls_con_drm_rechazado_sin_pedir_clave_ni_fragmentos",
+    "tests/integration/test_directo_drm.py::test_session_key_del_maestro_con_widevine",
+    "tests/integration/test_directo_drm.py::"
+    "test_manifiesto_entregado_por_el_extractor_con_widevine",
+    "tests/integration/test_directo_drm.py::test_metodo_no_soportado_con_clave_identity",
+    "tests/integration/test_hls_aes.py::test_aes_128_identity_se_descarga_y_descifra",
+    "tests/integration/test_hls_aes.py::test_aes_128_con_la_clave_en_una_uri_data",
+    "tests/integration/test_hls_aes.py::test_aes_128_con_la_clave_del_extractor",
+    "tests/integration/test_hls_aes.py::test_hls_sin_cifrar_sigue_descargandose",
+    "tests/integration/test_hls_aes.py::test_la_clave_se_pide_con_la_sesion_del_usuario",
+    "tests/integration/test_hls_aes.py::test_clave_data_con_base64_invalido_falla_sin_excepcion",
 }
 
 LENTOS = {

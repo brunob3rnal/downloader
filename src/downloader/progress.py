@@ -1,4 +1,5 @@
-"""Presentación del progreso de `ejecutar` (contracts/cli.md, FR-005, SC-007)."""
+"""Presentación del progreso de `ejecutar` y de la cola en `estado` (contracts/cli.md, FR-005,
+SC-007, FR-032)."""
 
 import math
 import threading
@@ -11,7 +12,7 @@ from rich.live import Live
 from rich.text import Text
 
 from downloader.errors import ocultar_secretos
-from downloader.models import ETIQUETAS, Descarga, Estado
+from downloader.models import ETIQUETAS, Descarga, Estado, TipoDescarga
 from downloader.ytdl import Progreso
 
 INTERVALO = 1.0  # s entre líneas de una misma descarga cuando la salida no es una terminal
@@ -61,7 +62,10 @@ def linea_activa(activa: _Activa) -> str:
         if activa.reintento is None:
             cuando = "sin conexión, reintento al volver la red"
         else:
-            cuando = f"reintento en {max(0, math.ceil(activa.reintento - time.monotonic()))} s"
+            # Al milisegundo: la resta de dos lecturas del reloj arrastra errores de coma
+            # flotante (300.0000000000001) que `ceil` convertiría en un segundo de más.
+            resto = round(activa.reintento - time.monotonic(), 3)
+            cuando = f"reintento en {max(0, math.ceil(resto))} s"
         return f"#{descarga.id} {ETIQUETAS[Estado.WAITING_NETWORK]}  {cuando}  ({activa.causa_espera})"
     prefijo = f"#{descarga.id} {ETIQUETAS[Estado.DOWNLOADING]}"
     if progreso is None or progreso.bytes is None:
@@ -75,6 +79,42 @@ def linea_activa(activa: _Activa) -> str:
         cantidad = f"{progreso.bytes / 2**20:.1f} MiB"
     velocidad = f"{progreso.velocidad / 2**20:.1f} MiB/s" if progreso.velocidad else "--- MiB/s"
     return f"{prefijo}  {cantidad}  {velocidad}  ETA {_tiempo(progreso.eta)}  {_nombre(descarga)}"
+
+
+def _progreso_guardado(descarga: Descarga, hijas: int) -> str:
+    """El progreso que guardó `ejecutar` (como mucho cada 2 s), o lo que la descarga es."""
+    if descarga.tipo is TipoDescarga.PLAYLIST:
+        return f"lista ({hijas} video{'s' * (hijas != 1)})"
+    if descarga.estado is Estado.COMPLETED:
+        return "100%"
+    if descarga.bytes_totales:
+        return f"{min(100.0, 100 * descarga.bytes_descargados / descarga.bytes_totales):.1f}%"
+    if descarga.bytes_descargados:
+        return f"{descarga.bytes_descargados / 2**20:.1f} MiB"
+    return "—"
+
+
+def linea_estado(descarga: Descarga, hijas: int = 0) -> str:
+    """`#13 esperando red  12.0%  Título  (causa)`: la línea de `estado` (contracts/cli.md).
+
+    Tras el progreso y el título (o la URL), el error si está fallida o esperando la red; si
+    no, el archivo publicado y el último aviso. `hijas` es el número de videos de una lista.
+    """
+    partes = [
+        f"#{descarga.id} {ETIQUETAS[descarga.estado]}", _progreso_guardado(descarga, hijas),
+        _nombre(descarga),
+    ]
+    error = ocultar_secretos(descarga.ultimo_error or "")
+    if error and descarga.estado is Estado.FAILED:
+        partes.append(error)
+    elif error and descarga.estado is Estado.WAITING_NETWORK:
+        partes.append(f"({error})")
+    else:
+        if descarga.archivo_final:
+            partes.append(_ruta_visible(descarga.archivo_final))
+        if descarga.ultimo_aviso:
+            partes.append(f"aviso: {ocultar_secretos(descarga.ultimo_aviso)}")
+    return "  ".join(partes)
 
 
 class Presentador:
