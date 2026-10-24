@@ -4,7 +4,7 @@ Sirve archivos registrados con soporte de `Range` y permite programar, por archi
 que se consumen petición a petición: cortar la conexión tras N bytes, colgarse sin enviar
 datos o responder códigos de error. Además admite propiedades persistentes por archivo:
 ignorar `Range`, exigir token, anunciar un tamaño falso, responder 404 a un fragmento HLS y
-limitar la velocidad.
+limitar la velocidad; y, para todo el servidor, exigir una cookie de sesión.
 
 También sirve las páginas que consulta `fake_extractor`: `/watch/<id>` y `/playlist/<id>`
 devuelven JSON con la URL de medios (con un token nuevo en cada consulta) o las entradas de
@@ -71,6 +71,7 @@ class FlakyServer:
         self._videos: dict[str, _Video] = {}
         self._listas: dict[str, tuple[str, list[str]]] = {}
         self._tokens_validos: set[str] = set()
+        self._sesion: tuple[str, str] | None = None  # cookie que exige `exigir_sesion`
         self._cerrojo = threading.Lock()
         self._parado = threading.Event()
         self._conexiones: set[socket.socket] = set()
@@ -236,6 +237,11 @@ class FlakyServer:
         """Hace que `/playlist/<id_lista>` devuelva esas entradas."""
         self._listas[id_lista] = (titulo or f"Lista {id_lista}", list(ids_videos))
 
+    def exigir_sesion(self, nombre, valor):
+        """Responde 403 a toda petición (páginas y medios) cuya cabecera `Cookie` no traiga
+        `nombre=valor`: un video que exige la sesión del usuario (US6)."""
+        self._sesion = (nombre, valor)
+
     # --- tokens --------------------------------------------------------------------
 
     def emitir_token(self):
@@ -258,6 +264,11 @@ class FlakyServer:
     def _token_valido(self, token):
         with self._cerrojo:
             return token in self._tokens_validos
+
+    def _sesion_valida(self, cabecera):
+        if self._sesion is None:
+            return True
+        return "=".join(self._sesion) in (cabecera or "").replace(" ", "").split(";")
 
 
 def _con_token(manifiesto, token):
@@ -303,6 +314,8 @@ class _Manejador(BaseHTTPRequestHandler):
         partes = urlsplit(self.path)
         ruta = partes.path.lstrip("/")
         consulta = parse_qs(partes.query)
+        if not self.flaky._sesion_valida(self.headers.get("Cookie")):
+            return self._responder_vacio(403)
         if ruta.startswith("watch/"):
             return self._pagina_video(ruta.removeprefix("watch/"), consulta)
         if ruta.startswith("playlist/"):

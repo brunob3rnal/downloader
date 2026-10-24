@@ -15,6 +15,9 @@ CLAVES = (
     "estancamiento_segundos", "estancamiento_velocidad_minima",
 )
 SONDAS_POR_DEFECTO = ["1.1.1.1:443", "8.8.8.8:443"]
+# Fragmentos de nombres de clave que delatan una credencial o las cookies (FR-016, FR-017,
+# Principio VI): el error lo explica en lugar de tratarlas como una clave desconocida más.
+SECRETOS = ("cookie", "password", "contrase", "token", "secret", "credencial", "auth")
 
 
 class ConfiguracionInvalida(ValueError):
@@ -50,7 +53,8 @@ class Configuracion:
 def cargar(directorio: Path | None = None) -> Configuracion:
     """Lee `config.toml`; sin archivo, valores por defecto.
 
-    Solo admite las claves conocidas: no hay claves de credenciales ni cookies (Principio VI).
+    Solo admite las claves conocidas: no hay claves de credenciales ni cookies, ni del navegador
+    de las cookies, que solo se elige con `--cookies-de` (FR-016, Principio VI).
     """
     ruta = (directorio or directorio_app()) / ARCHIVO
     if not ruta.exists():
@@ -61,6 +65,13 @@ def cargar(directorio: Path | None = None) -> Configuracion:
         raise ConfiguracionInvalida(f"{ruta} no es un TOML válido: {error}") from error
 
     desconocidas = set(valores) - set(CLAVES)
+    secretas = sorted(c for c in desconocidas if any(s in c.lower() for s in SECRETOS))
+    if secretas:  # sin repetir el valor: podría ser un secreto
+        raise ConfiguracionInvalida(
+            f"{ruta}: clave no admitida: {', '.join(secretas)}. config.toml no admite "
+            "credenciales ni cookies: las cookies del navegador solo se leen al pedirlo con "
+            "--cookies-de NAVEGADOR en agregar o ejecutar, y nunca se guardan. Quite esa clave."
+        )
     if desconocidas:
         raise ConfiguracionInvalida(
             f"{ruta}: clave desconocida: {', '.join(sorted(desconocidas))}. "
@@ -69,7 +80,13 @@ def cargar(directorio: Path | None = None) -> Configuracion:
 
     configuracion = Configuracion()
     if "carpeta_destino" in valores:
-        configuracion.carpeta_destino = Path(valores["carpeta_destino"]).expanduser()
+        carpeta = valores["carpeta_destino"]
+        if not isinstance(carpeta, str) or not carpeta.strip():
+            raise ConfiguracionInvalida(
+                f"{ruta}: carpeta_destino debe ser una ruta entre comillas, "
+                "p. ej. carpeta_destino = '~/Videos'"
+            )
+        configuracion.carpeta_destino = Path(carpeta).expanduser()
     if "calidad" in valores:
         try:
             configuracion.calidad = Calidad(valores["calidad"])

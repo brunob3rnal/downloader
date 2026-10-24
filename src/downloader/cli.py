@@ -10,7 +10,7 @@ from typing import Annotated
 
 import typer
 
-from downloader import config, publish, worker
+from downloader import config, publish, worker, ytdl
 from downloader.errors import ErrorFatal, ocultar_secretos
 from downloader.models import Calidad
 from downloader.network import MonitorRed
@@ -22,6 +22,16 @@ CON_FALLIDAS = 1
 USO_INVALIDO = 2
 FATAL = 3
 INTERRUMPIDO = 130
+
+# `--cookies-de` (FR-016, research R12): solo el nombre del navegador; nunca se guardan cookies.
+CookiesDe = Annotated[
+    str | None,
+    typer.Option(
+        "--cookies-de", metavar="NAVEGADOR", show_default=False,
+        help="Lee las cookies de ese navegador (p. ej. firefox) para videos que exigen su "
+        "sesión. Solo se leen al descargar; nunca se guardan.",
+    ),
+]
 
 app = typer.Typer(
     help="Gestor de descargas de video resiliente.",
@@ -70,6 +80,20 @@ def _calidad(valor: str | None, por_defecto: Calidad) -> Calidad:
         raise _error(f"calidad desconocida «{valor}»; admitidas: {admitidas}", USO_INVALIDO) from None
 
 
+def _navegador(valor: str | None) -> str | None:
+    """El nombre del navegador, si es uno de los que admite yt-dlp."""
+    if valor is None:
+        return None
+    navegador = valor.strip().lower()
+    if navegador not in ytdl.NAVEGADORES:
+        admitidos = ", ".join(sorted(ytdl.NAVEGADORES))
+        raise _error(
+            f"navegador no admitido en --cookies-de: «{valor}»; admitidos: {admitidos}",
+            USO_INVALIDO,
+        )
+    return navegador
+
+
 def _carpeta(valor: Path | None, por_defecto: Path) -> Path:
     carpeta = (valor or por_defecto).expanduser().resolve()
     if not carpeta.is_dir():
@@ -88,10 +112,12 @@ def agregar(
     carpeta: Annotated[
         Path | None, typer.Option(help="Carpeta de destino.", show_default=False)
     ] = None,
+    cookies_de: CookiesDe = None,
 ) -> None:
     """Guarda URLs en la cola. No necesita red."""
     if any(not url.strip() for url in urls):
         raise _error("URL vacía", USO_INVALIDO)
+    navegador = _navegador(cookies_de)
     ajustes = _configuracion()
     calidad_elegida = _calidad(calidad, ajustes.calidad)
     carpeta_elegida = _carpeta(carpeta, ajustes.carpeta_destino)
@@ -99,7 +125,9 @@ def agregar(
     store = _abrir_cola()
     try:
         for url in urls:
-            resultado = store.agregar(url.strip(), calidad_elegida, str(carpeta_elegida))
+            resultado = store.agregar(
+                url.strip(), calidad_elegida, str(carpeta_elegida), navegador_cookies=navegador
+            )
             descarga = resultado.descarga
             url_visible = ocultar_secretos(descarga.url)
             if resultado.accion == "agregada":
@@ -131,8 +159,12 @@ def _comprobar_ffmpeg() -> None:
 
 
 @app.command()
-def ejecutar() -> None:
-    """Procesa la cola en primer plano hasta que no queden descargas pendientes."""
+def ejecutar(cookies_de: CookiesDe = None) -> None:
+    """Procesa la cola en primer plano hasta que no queden descargas pendientes.
+
+    `--cookies-de` vale para esta ejecución y prevalece sobre el navegador de cada descarga.
+    """
+    navegador = _navegador(cookies_de)
     if hasattr(signal, "SIGBREAK") and threading.current_thread() is threading.main_thread():
         # Windows: Ctrl+Break, y `CTRL_BREAK_EVENT`, el único evento que se puede enviar a otro
         # grupo de procesos, interrumpen igual que Ctrl+C (`KeyboardInterrupt`). `signal.signal`
@@ -156,7 +188,7 @@ def ejecutar() -> None:
                 estancamiento=ajustes.estancamiento_segundos,
                 velocidad_minima=ajustes.estancamiento_velocidad_minima,
             )
-            resultado = worker.ejecutar(store, monitor, Presentador(), tiempos)
+            resultado = worker.ejecutar(store, monitor, Presentador(), tiempos, navegador)
         except ErrorFatal as error:
             raise _error(f"{error}. El progreso se ha conservado.", FATAL) from None
         except KeyboardInterrupt:

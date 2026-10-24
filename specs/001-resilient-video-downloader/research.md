@@ -259,7 +259,8 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   nunca se pasa `cookiefile`, así yt-dlp lee las cookies en memoria y no escribe ninguna. En
   la base de datos solo se guarda el nombre del navegador (si se indicó en `agregar`), nunca
   cookies. El `logger` propio filtra cabeceras `Cookie`/`Authorization` y parámetros de URL
-  con aspecto de token antes de mostrar o registrar mensajes.
+  con aspecto de token antes de mostrar o registrar mensajes. Navegadores admitidos, fiabilidad
+  en Windows y errores de lectura: R25.
 - **Rationale**: Principio VI y FR-017.
 
 ## R13. Listas de reproducción
@@ -625,3 +626,67 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   volvería a fallar mientras el archivo siga abierto); vaciar los marcos de la traza con
   `traceback.clear_frames` (depende de qué variables retiene yt-dlp en cada versión); un
   contador o un UUID en lugar de la fecha (se pierde el orden legible de los intentos).
+
+## R25. Cookies del navegador en Windows y errores al leerlas
+
+- **Hallazgos** (verificados en el código de `yt_dlp/cookies.py` y `YoutubeDL.py` de yt-dlp
+  2026.08.19; las ramas de Windows, emuladas en Linux con la misma cadena de excepciones; el
+  WAL de Firefox, probado con SQLite real):
+  1. yt-dlp lee las cookies en la primera petición de cada `YoutubeDL` (`cookiejar`, propiedad
+     perezosa) y solo en memoria: copia la base de datos del navegador a un directorio
+     temporal propio y la borra al terminar. Sin `cookiefile` no escribe ninguna cookie.
+  2. Cualquier fallo de la lectura se envuelve en `CookieLoadError("failed to load cookies")`
+     con la excepción original como `__context__`, y llega como `DownloadError`. En el código
+     de cookies, `logger.error` (`report_error`) ya lanza la excepción: un solo fallo aborta
+     toda la lectura, no solo la de esa cookie.
+  3. Chrome y Edge (y los demás basados en Chromium) en Windows: mientras el navegador está
+     abierto, la base `Cookies` está bloqueada; la copia falla con `PermissionError` 13 y el
+     mensaje de yt-dlp es "Could not copy Chrome cookie database. See …/issues/7271", que dice
+     "Chrome" también para Edge y no explica que hay que cerrarlo.
+  4. Cifrado en Windows: `WindowsChromeCookieDecryptor` solo descifra valores `v10` (AES-GCM
+     con la clave de `Local State` protegida con DPAPI); cualquier otro prefijo lo pasa a
+     DPAPI. Los valores `v20` de Chrome 127 y posteriores (cifrado ligado a la aplicación,
+     *App-Bound Encryption*) no son de DPAPI: `CryptUnprotectData` falla y la lectura entera
+     se aborta con "Failed to decrypt with DPAPI. See …/issues/10927", sin nombrar el
+     navegador. Esta versión de yt-dlp no tiene soporte para `v20` (la incidencia sigue
+     abierta). Edge usa el mismo código: funciona con el navegador cerrado mientras sus
+     cookies sean `v10`; si adopta el cifrado ligado a la aplicación, fallará como Chrome. No
+     se ha podido comprobar en un Windows real qué versión de Edge cifra así.
+  5. Firefox: `cookies.sqlite` no está cifrado, y yt-dlp no tiene ninguna rama que dependa de
+     que Firefox esté cerrado: la copia funciona con Firefox abierto porque SQLite abre sus
+     archivos compartidos para lectura en Windows (según el código de SQLite; no comprobado en
+     un Windows real). Pero Firefox usa WAL y yt-dlp
+     copia solo el archivo principal: una cookie confirmada en `cookies.sqlite-wal` y aún no
+     integrada no se ve (comprobado: no aparece con la conexión abierta y aparece al cerrarla).
+     Una sesión recién iniciada puede no llegar hasta que Firefox se cierre o integre el WAL.
+     Con varios perfiles se usa el `cookies.sqlite` modificado más recientemente.
+  6. `safari` solo existe en macOS; en Windows y Linux falla con "unsupported platform".
+- **Fiabilidad en Windows**: Firefox es el único fiable (abierto o cerrado, con la salvedad
+  del WAL). Edge, solo cerrado y mientras no cifre con clave ligada a la aplicación. Chrome
+  127+ no funciona con esta versión de yt-dlp, ni cerrado.
+- **Decision**:
+  - `--cookies-de` admite los nombres de `yt_dlp.cookies.SUPPORTED_BROWSERS` (sin perfil),
+    en minúsculas; otro valor sale con 2 y lista los admitidos. No se restringe a Firefox:
+    el mensaje de error explica el fallo cuando ocurre.
+  - Un fallo de lectura se convierte en `CookiesIlegibles` (`ErrorPermanente`) con el
+    mensaje «No se pudieron leer las cookies de NAVEGADOR: causa», con la causa traducida
+    para la base bloqueada (cerrar el navegador), el fallo de DPAPI (usar otro navegador) y
+    la base no encontrada; en otro caso, el mensaje original de yt-dlp sin sus «ERROR: ».
+  - Alcance: las cookies de `agregar --cookies-de` son de esa descarga, que queda `failed`
+    y la cola sigue (código 1). Las de `ejecutar --cookies-de` valen para todas las
+    descargas de la ejecución, que fallarían igual: se detiene como error FATAL (código 3),
+    la descarga vuelve a `queued` y ninguna se da por fallida.
+  - Reencolar con `agregar --cookies-de` una descarga `failed` guarda el navegador nuevo; es
+    lo que pide el mensaje de FR-026 («vuelva a agregarlo con --cookies-de NAVEGADOR»). Sin
+    la opción se conserva el anterior; una descarga pendiente no cambia.
+  - `config.toml` rechaza las claves con nombre de credencial o cookie con un mensaje que lo
+    explica y remite a `--cookies-de`, sin repetir el valor.
+- **Rationale**: Principio III (qué falló, en qué recurso y qué hacer) y FR-017. Con FATAL
+  para las cookies de una fila, una causa que no se corrige (Chrome 127+) dejaría la cola
+  atascada en esa fila; con PERMANENTE para las de `ejecutar`, un navegador abierto daría por
+  fallida toda la cola y habría que volver a agregar cada URL.
+- **Alternatives considered**: admitir solo `firefox` (el contrato promete los navegadores de
+  yt-dlp, y Edge funciona cerrado); leer las cookies una vez al iniciar `ejecutar` para
+  comprobarlas (una lectura más por ejecución, y no cubre las de cada fila); reintentar el
+  fallo como TEMPORAL (un navegador abierto no se cierra solo, y Chrome 127+ no se arregla
+  esperando).

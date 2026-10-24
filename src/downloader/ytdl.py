@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from yt_dlp import YoutubeDL
+from yt_dlp.cookies import SUPPORTED_BROWSERS
 from yt_dlp.downloader import get_suitable_downloader
 from yt_dlp.downloader.external import ExternalFD
 from yt_dlp.networking.common import Response
@@ -25,11 +26,13 @@ from downloader.errors import (
     RegistroRed,
     SinDatos,
     UltimaPeticion,
+    cookies_ilegibles,
     ocultar_secretos,
 )
 from downloader.models import Calidad, Descarga
 
 DIRECTORIO_TEMPORAL = ".downloader-tmp"
+NAVEGADORES = SUPPORTED_BROWSERS  # los que admite `--cookies-de` (research R12, R25)
 # Tamaño de cada lectura del cuerpo de una respuesta: lo máximo que se pierde en un corte (R18).
 TROZO_LECTURA = 4096
 # `retries` y `fragment_retries`: un fallo sube enseguida a los reintentos del trabajador, que
@@ -386,11 +389,18 @@ def crear_ydl(opciones: dict) -> YoutubeDLRegistrado:
 
 
 def _ejecutar(opciones: dict, url: str, download: bool) -> dict:
-    """`extract_info` que, si falla, adjunta al error el registro del intento."""
+    """`extract_info` que, si falla, adjunta al error el registro del intento.
+
+    Si lo que falló fue la lectura de las cookies del navegador (yt-dlp las lee en la primera
+    petición), lanza `CookiesIlegibles` con el navegador y la causa (research R25).
+    """
     with crear_ydl(opciones) as ydl:
         try:
             return ydl.sanitize_info(ydl.extract_info(url, download=download))
         except DownloadError as error:
+            navegador = (opciones.get("cookiesfrombrowser") or (None,))[0]
+            if navegador and (cookies := cookies_ilegibles(error, navegador)) is not None:
+                raise cookies from error
             error.registro = ydl.registro
             raise
 

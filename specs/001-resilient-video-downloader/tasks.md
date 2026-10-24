@@ -245,13 +245,17 @@ perder progreso; directos y DRM rechazados.
 
 ### Tests for User Story 6 ⚠️
 
-- [ ] T056 [P] [US6] Escribir `tests/unit/test_config.py` (FR-006): valores por defecto; `config.toml` con `carpeta_destino` y `calidad` aplicados; `--carpeta` y `--calidad` prevalecen; clave desconocida o con nombre de credencial o cookie (`cookies`, `password`, `token`) → error claro
-- [ ] T057 [P] [US6] Escribir `tests/integration/test_cookies.py` (escenario 9 de quickstart, FR-016, FR-017, Principio VI): sin `--cookies-de` las opciones de yt-dlp no llevan `cookiesfrombrowser` ni `cookiefile`; con `agregar --cookies-de firefox` se guarda solo `navegador_cookies='firefox'` y se pasa `cookiesfrombrowser=('firefox',)`; `ejecutar --cookies-de chrome` prevalece sobre el valor de la fila; tras la descarga, ni `cola.db` ni el directorio de trabajo contienen cadenas de cookies (sustituir la lectura de cookies del navegador por una función falsa que devuelve una cookie ficticia conocida y buscarla en disco); los mensajes de error no contienen esa cookie
+- [X] T056 [P] [US6] Escribir `tests/unit/test_config.py` (FR-006): valores por defecto; `config.toml` con `carpeta_destino` y `calidad` aplicados; `--carpeta` y `--calidad` prevalecen; clave desconocida o con nombre de credencial o cookie (`cookies`, `password`, `token`) → error claro. En rojo: las claves de credenciales o cookies (el error no lo explicaba) y `carpeta_destino` que no es texto (`TypeError`). Los valores por defecto y la precedencia ya pasaban (implementados en T035): comprobados con dos mutaciones de `cli.py` (sin la configuración como valor por defecto; la configuración por encima de las opciones), que los hacen fallar
+- [X] T057 [P] [US6] Escribir `tests/integration/test_cookies.py` (escenario 9 de quickstart, FR-016, FR-017, Principio VI): sin `--cookies-de` las opciones de yt-dlp no llevan `cookiesfrombrowser` ni `cookiefile`; con `agregar --cookies-de firefox` se guarda solo `navegador_cookies='firefox'` y se pasa `cookiesfrombrowser=('firefox',)`; `ejecutar --cookies-de chrome` prevalece sobre el valor de la fila; tras la descarga, ni `cola.db` ni el directorio de trabajo contienen cadenas de cookies (sustituir la lectura de cookies del navegador por una función falsa que devuelve una cookie ficticia conocida y buscarla en disco); los mensajes de error no contienen esa cookie. La lectura falsa es `tests/support/navegador_falso.py`, y `flaky_server.exigir_sesion` exige la cookie ficticia, así que el video solo se descarga si yt-dlp la envía (US6, escenario 2). La búsqueda en disco se hace durante la espera tras un corte (MP4 y HLS), justo antes de publicar y al terminar; comprobada con dos mutaciones de `ytdl.opciones` (`cookiefile` y `writeinfojson` en el directorio de trabajo), que la hacen fallar
+
+- [X] T057a [US6] Tests de las cookies que no se pueden leer y del reencolado (research R25), escritos y en rojo antes de T058a. Antes, verificación en el yt-dlp instalado de `cookiesfrombrowser` en Windows con Chrome, Edge y Firefox (R25, hallazgos). En `tests/unit/test_ytdl.py`, con `NavegadorFalso` reproduciendo la cadena de excepciones de yt-dlp: base no encontrada, base bloqueada (Chromium abierto en Windows), fallo de DPAPI, plataforma no admitida y otro error → `CookiesIlegibles` (`PERMANENTE`) con «No se pudieron leer las cookies de NAVEGADOR: causa» y sin «ERROR:»; con las cookies leídas, un fallo de red sigue siendo `TEMPORAL`; `ytdl.NAVEGADORES` son los de yt-dlp. En `tests/integration/test_cookies.py`: cookies ilegibles de una fila → solo esa `failed`, la otra se completa, código 1 y ninguna petición de medios; de `ejecutar --cookies-de` → código 3, las dos vuelven a `queued`, y al corregirlo se completan; navegador no admitido (`netscape`, `firefox:perfil`, vacío) → código 2 en `agregar` y `ejecutar`; el nombre se normaliza; reencolar con `--cookies-de` tras un 403 guarda el navegador y descarga. En `tests/unit/test_store.py`, reencolar con navegador lo guarda, sin él conserva el anterior y una pendiente no cambia. En `tests/unit/test_flaky_server.py`, `exigir_sesion`
 
 ### Implementation for User Story 6
 
-- [ ] T058 [US6] Añadir `--cookies-de NAVEGADOR` a `agregar` y `ejecutar` en `src/downloader/cli.py`, guardar solo el nombre en `navegador_cookies`, y en `src/downloader/ytdl.py` traducirlo a `cookiesfrombrowser=(navegador,)` sin `cookiefile`; `ejecutar --cookies-de` prevalece (contracts/cli.md). Hace pasar T057
-- [ ] T059 [US6] Conectar `config.carpeta_destino` y `config.calidad` como valores por defecto de `--carpeta` y `--calidad` en `src/downloader/cli.py`. Hace pasar T056
+- [X] T058 [US6] Añadir `--cookies-de NAVEGADOR` a `agregar` y `ejecutar` en `src/downloader/cli.py`, guardar solo el nombre en `navegador_cookies`, y en `src/downloader/ytdl.py` traducirlo a `cookiesfrombrowser=(navegador,)` sin `cookiefile`; `ejecutar --cookies-de` prevalece (contracts/cli.md). Hace pasar T057
+- [X] T059 [US6] Conectar `config.carpeta_destino` y `config.calidad` como valores por defecto de `--carpeta` y `--calidad` en `src/downloader/cli.py`. Hace pasar T056. Ya estaba hecho en T035; aquí, en `src/downloader/config.py`, el error que explica las claves de credenciales o cookies (`SECRETOS`) y la validación de `carpeta_destino`
+
+- [X] T058a [US6] En `src/downloader/errors.py`, `CookiesIlegibles` y `cookies_ilegibles` (busca `CookieLoadError` en la cadena y traduce la causa); en `src/downloader/ytdl.py`, `NAVEGADORES` y la conversión en `_ejecutar`; en `src/downloader/worker.py`, las cookies ilegibles de `ejecutar --cookies-de` se tratan como `FATAL`; en `src/downloader/store.py`, `agregar` guarda el navegador al reencolar; en `src/downloader/cli.py`, validación y normalización de `--cookies-de`. Hace pasar T057a
 
 **Checkpoint**: todas las historias en verde.
 
@@ -312,7 +316,7 @@ perder progreso; directos y DRM rechazados.
 | Escenario 6 | T052, T054, T055 |
 | Escenario 7 | T045, T046, T048, T049 |
 | Escenario 8 | T027, T032 |
-| Escenario 9 | T057, T058 |
+| Escenario 9 | T057, T057a, T058, T058a |
 | Escenario 10 | T053, T054 |
 | Escenario 11 | T036, T039 |
 | Escenario 12 | T060, T061 |

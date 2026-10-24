@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass
 from enum import Enum, StrEnum
 
+from yt_dlp.cookies import CookieLoadError
 from yt_dlp.networking.exceptions import HTTPError, TransportError
 from yt_dlp.utils import ExtractorError, UnsupportedError
 
@@ -26,6 +27,10 @@ class ErrorPermanente(Exception):
 
 class ErrorFatal(Exception):
     """Error propio que impide seguir con cualquier descarga (base corrupta, ffmpeg ausente…)."""
+
+
+class CookiesIlegibles(ErrorPermanente):
+    """yt-dlp no pudo leer las cookies del navegador de `--cookies-de` (research R25)."""
 
 
 class SinDatos(TransportError):
@@ -189,6 +194,45 @@ def clasificar_detalle(exc: BaseException, en_linea: bool) -> Clasificacion:
 
 def clasificar(exc: BaseException, en_linea: bool) -> Tipo:
     return clasificar_detalle(exc, en_linea).tipo
+
+
+_COOKIES_BLOQUEADAS = (
+    "su base de datos de cookies está bloqueada o sin permiso de lectura. En Windows, Chrome, "
+    "Edge y los demás navegadores basados en Chromium la bloquean mientras están abiertos: "
+    "cierre el navegador del todo (también en segundo plano) y vuelva a intentarlo"
+)
+_COOKIES_CIFRADAS = (
+    "no se pudieron descifrar con la protección de datos de Windows (DPAPI). Chrome 127 y "
+    "posteriores las cifran con una clave ligada a la aplicación que yt-dlp no sabe leer: use "
+    "otro navegador, por ejemplo --cookies-de firefox"
+)
+_COOKIES_NO_ENCONTRADAS = (
+    "no se encontró su base de datos de cookies. Compruebe que el navegador está instalado "
+    "para este usuario y que se ha abierto al menos una vez"
+)
+
+
+def cookies_ilegibles(exc: BaseException, navegador: str) -> CookiesIlegibles | None:
+    """El fallo de yt-dlp al leer las cookies del navegador, con el navegador y la causa.
+
+    yt-dlp envuelve cualquier fallo de la lectura en `CookieLoadError("failed to load
+    cookies")`, con la excepción original como `__context__`, y lo relanza como un
+    `DownloadError` cuyo mensaje no siempre nombra el navegador ni la causa (research R25).
+    `None` si `exc` no viene de la lectura de cookies.
+    """
+    carga = next((e for e in _cadena(exc) if isinstance(e, CookieLoadError)), None)
+    if carga is None:
+        return None
+    causas = _cadena(carga.__context__)
+    if any(isinstance(e, PermissionError) for e in causas):
+        causa = _COOKIES_BLOQUEADAS
+    elif any("DPAPI" in str(e) for e in causas):
+        causa = _COOKIES_CIFRADAS
+    elif any(isinstance(e, FileNotFoundError) for e in causas):
+        causa = _COOKIES_NO_ENCONTRADAS
+    else:  # el mensaje original, sin los «ERROR: » que antepone `report_error`
+        causa = re.sub(r"^(ERROR: )+", "", str(causas[0] if causas else carga))
+    return CookiesIlegibles(f"No se pudieron leer las cookies de {navegador}: {causa}")
 
 
 _CABECERA = re.compile(

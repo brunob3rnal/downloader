@@ -58,7 +58,7 @@ simultánea; ningún secreto en disco ni en logs
 | III. Errores claros | clasificación TEMPORAL/PERMANENTE/FATAL con una tabla única por fase y tope de 3 intentos sin avance para 403/410 y ffmpeg (R4, FR-026); códigos de salida en [contracts/cli.md](contracts/cli.md) | Pasa |
 | IV. No perder progreso reanudable (v2.0.0) | `.part` en directorio de trabajo, `skip_unavailable_fragments=False`, recuperación al arrancar, Ctrl+C conserva todo; si el servidor no permite reanudar, reinicio con aviso detectado por retroceso de bytes (R3, FR-024) | Pasa |
 | V. Sin DRM | rechazo de `has_drm` e `is_live` antes de descargar (R5) | Pasa |
-| VI. Sin credenciales | `cookiesfrombrowser` en memoria, sin `cookiefile`; la base de datos solo guarda el nombre del navegador; logger que filtra secretos (R12) | Pasa |
+| VI. Sin credenciales | `cookiesfrombrowser` en memoria, sin `cookiefile`; la base de datos solo guarda el nombre del navegador; `config.toml` rechaza claves de credenciales o cookies; logger que filtra secretos (R12, R25) | Pasa |
 | Plataformas (v2.1.0) | sin dependencias nuevas: `msvcrt`/`fcntl` con import condicional (R17); publicación con `os.link` también en NTFS y copia exclusiva en FAT32/exFAT (R7); nombres válidos en Windows; `tests/unit/test_plataforma.py` falla ante un `import fcntl` o un `signal.SIGKILL` sin proteger; CI en Linux y Windows | Pasa; la verificación real en Windows es el job `windows-latest` |
 
 **Re-check post-diseño**: pasa. La excepción de R3 quedó resuelta al enmendar el Principio IV (constitución v2.0.0). La sección Plataformas (v2.1.0) se cumple con R7 y R17.
@@ -172,6 +172,14 @@ tests/
     referencias, y en Windows el intento siguiente no podía renombrarlo al terminar
     (`WinError 32`). `apartar_invalidos` añade `-1`, `-2`… si ya existe la carpeta de esa
     fecha, porque en Windows el reloj avanza a saltos (R24).
+
+19. Las cookies que no se pueden leer se informan con el navegador y la causa
+    (`errors.CookiesIlegibles`), porque los mensajes de yt-dlp no siempre nombran ninguno de
+    los dos. Su alcance depende de dónde se pidieron: las de `agregar --cookies-de` hacen
+    fallar solo esa descarga; las de `ejecutar --cookies-de` detienen la ejecución como error
+    FATAL (código 3), sin dar ninguna descarga por fallida (R25).
+20. Reencolar con `agregar --cookies-de` una descarga fallida guarda el navegador nuevo, para
+    que funcione el consejo del mensaje de FR-026 (R25).
 
 ## Complexity Tracking
 
