@@ -146,7 +146,10 @@ def reloj(monkeypatch):
     """`time.monotonic` de `downloader.progress`, que solo avanza con `reloj.avanzar(s)`."""
     from downloader import progress
 
-    estado = SimpleNamespace(ahora=time.monotonic())
+    # Un valor entero: con uno cualquiera, `(ahora + 40) - ahora` puede dar 40.00000000000006 en
+    # coma flotante y la cuenta atrás (`ceil`) mostraría 41 s. Cerca del reloj real, para que
+    # `_Activa.ultimo_avance`, que lo toma al crearse, no parezca un silencio de minutos.
+    estado = SimpleNamespace(ahora=float(int(time.monotonic())))
     estado.avanzar = lambda segundos: setattr(estado, "ahora", estado.ahora + segundos)
     monkeypatch.setattr(progress, "time", SimpleNamespace(monotonic=lambda: estado.ahora))
     return estado
