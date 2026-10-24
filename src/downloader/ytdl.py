@@ -59,6 +59,9 @@ class Progreso(NamedTuple):
     eta: float | None
     archivo: str | None
     estado: str  # "downloading" | "finished" | "error"
+    # `total_bytes` de yt-dlp: el tamaño exacto anunciado; `None` si solo hay una estimación
+    # (`total`, entonces, es `total_bytes_estimate`). La verificación solo compara con este (R8).
+    total_exacto: int | None = None
 
 
 class Logger:
@@ -377,6 +380,7 @@ def descargar(
                 eta=evento.get("eta"),
                 archivo=evento.get("filename"),
                 estado=evento["status"],
+                total_exacto=evento.get("total_bytes"),
             )
         )
 

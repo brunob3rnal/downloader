@@ -1,6 +1,7 @@
 """Línea de comandos: `agregar` y `ejecutar` (contracts/cli.md)."""
 
 import logging
+import shutil
 import signal
 import sys
 import threading
@@ -113,6 +114,17 @@ def agregar(
         store.cerrar()
 
 
+def _comprobar_ffmpeg() -> None:
+    """ffmpeg une y convierte los formatos y ffprobe verifica antes de publicar (R8)."""
+    ausentes = [programa for programa in ("ffmpeg", "ffprobe") if shutil.which(programa) is None]
+    if ausentes:
+        raise _error(
+            f"no se encuentra {' ni '.join(ausentes)} en el PATH; instale ffmpeg (incluye "
+            "ffprobe) y vuelva a ejecutar. La cola no se ha modificado.",
+            FATAL,
+        )
+
+
 @app.command()
 def ejecutar() -> None:
     """Procesa la cola en primer plano hasta que no queden descargas pendientes."""
@@ -122,6 +134,7 @@ def ejecutar() -> None:
         # solo puede llamarse desde el hilo principal, y las señales solo llegan a él.
         signal.signal(signal.SIGBREAK, signal.default_int_handler)
     ajustes = _configuracion()
+    _comprobar_ffmpeg()  # antes de abrir la cola: sin ffmpeg no se toca (ni se recupera)
     store = _abrir_cola()
     try:
         try:

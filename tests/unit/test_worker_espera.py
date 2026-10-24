@@ -15,7 +15,7 @@ from rich.console import Console
 from yt_dlp.networking.exceptions import TransportError
 from yt_dlp.utils import DownloadError
 
-from downloader import progress, worker, ytdl
+from downloader import progress, publish, worker, ytdl
 from downloader.errors import Fase, RegistroRed, UltimaPeticion
 from downloader.models import Estado
 from downloader.store import Store
@@ -36,13 +36,18 @@ def acceso_denegado():
 
 
 class Intento:
-    def __init__(self, bytes_=None, error=None):
+    def __init__(self, bytes_=None, error=None, terminado=False):
         self.bytes = bytes_
         self.error = error
+        self.terminado = terminado  # informa el formato como terminado (hook `finished`)
 
 
 class Guion:
-    """Sustituye a yt-dlp: cada llamada a `descargar` consume un `Intento`."""
+    """Sustituye a yt-dlp: cada llamada a `descargar` consume un `Intento`.
+
+    Su archivo final (`b"video"`) no es un video: la fixture `entorno` sustituye también la
+    verificación con ffprobe (`publish.verificar`) por `Entorno.verificar`, que lo acepta.
+    """
 
     def __init__(self, intentos):
         self.intentos = list(intentos)
@@ -68,6 +73,8 @@ class Guion:
         if intento.error is not None:
             raise intento.error
         final.write_bytes(b"video")
+        if intento.terminado:
+            al_progresar(ytdl.Progreso(5, 5, None, None, str(final), "finished", 5))
         return {"id": "v", "title": "Video de prueba",
                 "requested_downloads": [{"filepath": str(final)}]}
 
@@ -100,10 +107,17 @@ def entorno(cola, destino, monitor_falso, tiempos_rapidos, monkeypatch):
         tiempos = tiempos_rapidos
         hilo = None
 
+        @staticmethod
+        def verificar(formatos, archivo_final):
+            pass
+
         def lanzar(self, intentos):
             self.guion = Guion(intentos)
             monkeypatch.setattr(ytdl, "extraer_plano", self.guion.extraer_plano)
             monkeypatch.setattr(ytdl, "descargar", self.guion.descargar)
+            monkeypatch.setattr(publish, "verificar",
+                                lambda formatos, archivo: self.verificar(formatos, archivo),
+                                raising=False)
             presentador = progress.Presentador(Console(file=io.StringIO()))
             self.hilo = threading.Thread(
                 target=worker.ejecutar, args=(cola, monitor_falso, presentador, self.tiempos),
@@ -297,3 +311,45 @@ def test_un_estancamiento_no_cuenta_como_intento_sin_avance(entorno, cola):
     entorno.esperar_fin()
     assert [f.intentos_sin_avance for f in entorno.esperando()] == [1, 1, 1, 0]
     assert cola.obtener(entorno.id).estado is Estado.COMPLETED
+
+
+# --- Verificación antes de publicar (FR-023, research R8) ---
+
+
+def test_verifica_antes_de_publicar(entorno, cola, destino):
+    llamadas = []
+
+    def verificar(formatos, archivo_final):
+        llamadas.append((list(formatos), archivo_final, sorted(p.name for p in destino.iterdir())))
+
+    entorno.verificar = verificar
+    entorno.lanzar([Intento(terminado=True)])
+    entorno.esperar_fin()
+
+    trabajo = destino / ".downloader-tmp" / str(entorno.id)
+    ((formatos, archivo_final, contenido),) = llamadas
+    assert archivo_final == trabajo / "descarga.mp4"
+    assert [(f.tamano, f.total) for f in formatos] == [(5, 5)]
+    assert contenido == [".downloader-tmp"]  # aún no se había publicado nada
+    final = cola.obtener(entorno.id)
+    assert final.estado is Estado.COMPLETED
+    assert (destino / "Video de prueba [v].mp4").read_bytes() == b"video"
+
+
+def test_verificacion_fallida_no_publica_y_aparta_los_archivos(entorno, cola, destino):
+    def verificar(formatos, archivo_final):
+        raise publish.VerificacionFallida("ffprobe no puede leer el archivo hasta el final")
+
+    entorno.verificar = verificar
+    entorno.lanzar([Intento(terminado=True)])
+    entorno.esperar_fin()
+
+    final = cola.obtener(entorno.id)
+    assert final.estado is Estado.FAILED
+    assert "ffprobe no puede leer el archivo hasta el final" in final.ultimo_error
+    assert entorno.guion.descargas == 1  # sin reintentos
+    assert sorted(p.name for p in destino.iterdir()) == [".downloader-tmp"]
+    trabajo = destino / ".downloader-tmp" / str(entorno.id)
+    assert sorted(p.name for p in trabajo.iterdir()) == [publish.INVALIDOS]
+    (intento,) = (trabajo / publish.INVALIDOS).iterdir()
+    assert (intento / "descarga.mp4").read_bytes() == b"video"

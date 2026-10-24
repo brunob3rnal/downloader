@@ -188,8 +188,11 @@ def _descargar(store, presentador, tiempos, navegador, seguimiento):
     trabajo = ytdl.directorio_trabajo(descarga)
     trabajo.mkdir(parents=True, exist_ok=True)
     seguimiento.empezar_intento(trabajo)
+    formatos = []  # los terminados en este intento, con su tamaño en disco al terminar (R8)
 
     def al_progresar(progreso):
+        if progreso.estado == "finished" and (formato := publish.formato_terminado(progreso)):
+            formatos.append(formato)
         if seguimiento.observar(progreso):
             # El servidor ignoró `Range` y yt-dlp borró el `.part` (FR-024, R3).
             if AVISO_REINICIO not in seguimiento.avisos:
@@ -205,6 +208,14 @@ def _descargar(store, presentador, tiempos, navegador, seguimiento):
         ytdl.Vigilancia(tiempos.estancamiento, tiempos.velocidad_minima),
     )
     archivo = ytdl.archivo_descargado(info)
+    try:
+        publish.verificar(formatos, archivo)
+    except publish.VerificacionFallida as error:
+        invalidos = publish.apartar_invalidos(trabajo)
+        raise publish.VerificacionFallida(
+            f"Verificación fallida: {error}. No se ha publicado; los archivos del intento "
+            f"están en {invalidos}. Vuelva a agregar la URL para descargarla de nuevo."
+        ) from error
     nombre = publish.nombre_publicado(
         info.get("title") or info["id"], info["id"], archivo.suffix.lstrip("."),
         descarga.carpeta_destino,
@@ -219,13 +230,24 @@ def _descargar(store, presentador, tiempos, navegador, seguimiento):
         titulo=info.get("title"), ultimo_aviso="; ".join(seguimiento.avisos + avisos) or None,
         intentos_sin_avance=0,
     )
-    # Solo tras publicar se borra el directorio de trabajo (data-model.md).
-    shutil.rmtree(trabajo, ignore_errors=True)
-    try:
-        trabajo.parent.rmdir()  # .downloader-tmp, si ya no queda ninguna otra descarga
-    except OSError:
-        pass
+    _limpiar_trabajo(trabajo)
     return publicacion.ruta
+
+
+def _limpiar_trabajo(trabajo: Path) -> None:
+    """Solo tras publicar se borra el directorio de trabajo, salvo `invalidos/` (data-model.md)."""
+    for entrada in trabajo.iterdir():
+        if entrada.name == publish.INVALIDOS:
+            continue  # intentos que no pasaron la verificación: nunca se borran solos
+        if entrada.is_dir():
+            shutil.rmtree(entrada, ignore_errors=True)
+        else:
+            entrada.unlink(missing_ok=True)
+    for directorio in (trabajo, trabajo.parent):  # y .downloader-tmp, si ya no queda nada
+        try:
+            directorio.rmdir()
+        except OSError:
+            break
 
 
 def _mensaje(error: BaseException) -> str:

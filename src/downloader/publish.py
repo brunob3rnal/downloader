@@ -1,13 +1,19 @@
-"""Publicación sin sobrescribir en la carpeta de destino (research R7, FR-022)."""
+"""Verificación y publicación sin sobrescribir en la carpeta de destino (research R7, R8,
+FR-022, FR-023)."""
 
 import errno
+import json
 import os
 import shutil
+import subprocess
 import tempfile
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from yt_dlp.utils import sanitize_filename
+
+from downloader.errors import ErrorFatal, ErrorPermanente
 
 # Errores con los que `os.link` indica que el sistema de archivos no admite enlaces duros.
 # En Windows (FAT32, exFAT, algunas unidades de red) llegan como `winerror`, cuya traducción a
@@ -142,3 +148,91 @@ def _copiar_exclusivo(origen: Path, destino: Path) -> None:
     except BaseException:
         destino.unlink(missing_ok=True)  # lo creamos nosotros: no queda una copia a medias
         raise
+
+
+# --- verificación antes de publicar (research R8, R22) ------------------------------------
+
+INVALIDOS = "invalidos"  # subdirectorio del directorio de trabajo con los intentos inválidos
+
+
+class VerificacionFallida(ErrorPermanente):
+    """El archivo descargado no supera la verificación: no se publica (FR-023)."""
+
+
+@dataclass(frozen=True)
+class Formato:
+    """Un formato que yt-dlp dio por terminado, con su tamaño en disco en ese momento."""
+
+    archivo: Path
+    tamano: int
+    total: int | None  # `total_bytes` exacto; `None` si solo hubo una estimación
+
+
+def formato_terminado(progreso) -> Formato | None:
+    """Anota un evento `finished` del hook de progreso (un `ytdl.Progreso`).
+
+    El tamaño se mide ahora: después yt-dlp une los formatos, remuxa el HLS o extrae el audio,
+    y el archivo cambia de tamaño o desaparece (R8).
+    """
+    if not progreso.archivo:
+        return None
+    archivo = Path(progreso.archivo)
+    return Formato(archivo, archivo.stat().st_size, progreso.total_exacto)
+
+
+def verificar(formatos, archivo_final: Path) -> None:
+    """Lanza `VerificacionFallida` si el resultado no se puede publicar como completo.
+
+    1. Cada formato con `total_bytes` exacto mide en disco exactamente eso.
+    2. `ffprobe` lee el archivo final hasta el final sin errores, con paquetes en todos sus
+       flujos y una duración positiva.
+    """
+    for formato in formatos:
+        if formato.total is not None and formato.tamano != formato.total:
+            raise VerificacionFallida(
+                f"{formato.archivo.name} mide {formato.tamano} bytes y el servidor anunció "
+                f"{formato.total}"
+            )
+    _comprobar_legible(Path(archivo_final))
+
+
+def _comprobar_legible(archivo: Path) -> None:
+    try:
+        resultado = subprocess.run(
+            ["ffprobe", "-v", "error", "-count_packets",
+             "-show_entries", "format=duration:stream=nb_read_packets", "-of", "json",
+             str(archivo)],
+            capture_output=True, text=True, errors="replace",
+        )
+    except FileNotFoundError:
+        raise ErrorFatal("ffprobe no está en el PATH; instale ffmpeg") from None
+    errores = resultado.stderr.strip()
+    if resultado.returncode != 0 or errores:
+        detalle = errores.splitlines()[-1] if errores else f"código {resultado.returncode}"
+        raise VerificacionFallida(f"ffprobe no puede leer el archivo hasta el final ({detalle})")
+    try:
+        datos = json.loads(resultado.stdout or "{}")
+        paquetes = [int(f.get("nb_read_packets") or 0) for f in datos.get("streams") or []]
+        duracion = float((datos.get("format") or {}).get("duration") or 0)
+    except ValueError:
+        raise VerificacionFallida("ffprobe devolvió una respuesta ilegible") from None
+    if not paquetes or 0 in paquetes:
+        raise VerificacionFallida("el archivo tiene flujos sin ningún paquete")
+    if duracion <= 0:
+        raise VerificacionFallida("el archivo no tiene duración")
+
+
+def apartar_invalidos(trabajo: Path) -> Path:
+    """Mueve los archivos del intento a `invalidos/<fecha>/` dentro de `trabajo`; no borra nada.
+
+    Así, si se vuelve a encolar, yt-dlp no da por buenos esos archivos y descarga de nuevo.
+    La fecha no lleva `:`, que no es válido en Windows.
+    """
+    trabajo = Path(trabajo)
+    fecha = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%S.%fZ")
+    destino = trabajo / INVALIDOS / fecha
+    destino.mkdir(parents=True)  # nuevo: nunca mezcla dos intentos
+    for entrada in list(trabajo.iterdir()):
+        if entrada.name != INVALIDOS:
+            entrada.rename(destino / entrada.name)  # el destino está vacío: no sobrescribe
+    return destino

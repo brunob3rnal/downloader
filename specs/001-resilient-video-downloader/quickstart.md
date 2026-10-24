@@ -34,7 +34,7 @@ Ningún test usa internet: todos van contra el servidor local de `tests/`.
 | 4 | Cierre abrupto | test: `Popen.kill()` a `ejecutar` (`SIGKILL` en Linux, `TerminateProcess` en Windows) y relanzar | la cola se restaura y la descarga continúa | US3, SC-003 |
 | 5 | URL caducada | test con el extractor de tokens | 403 → nueva extracción → continúa el mismo `.part` | US4, FR-012 |
 | 6 | Error permanente | test: extractor que lanza "video privado" | `failed` sin reintentos, mensaje claro, resto de la cola sigue; código 1 | US4, FR-011 |
-| 7 | Integridad | test: tamaño anunciado mayor que el servido; HLS truncado (marcado `ffmpeg`) | no aparece el nombre final en la carpeta; archivos en `invalidos/` | US5, SC-004 |
+| 7 | Integridad | test: archivo servido truncado con su tamaño truncado anunciado; tamaño anunciado mayor que el servido; fragmento HLS cortado (marcado `ffmpeg`) | el truncado no aparece con su nombre final y sus archivos quedan en `invalidos/`; el anunciado mayor sigue reintentando sin publicar; el HLS cortado termina íntegro | US5, SC-004, R22 |
 | 8 | Nombre repetido | test: archivo con el mismo nombre ya existente | se publica `nombre (1).ext`, el original intacto | FR-022 |
 | 9 | Cookies | test: sin `--cookies-de` no se leen; con él, opción pasada a yt-dlp y nada escrito en disco | sin cookies en la base de datos ni en el directorio de trabajo | US6, FR-017 |
 | 10 | Directo o DRM | test: extractor con `is_live` o `has_drm` | `failed` con mensaje claro, sin intento de descarga | FR-015 |
