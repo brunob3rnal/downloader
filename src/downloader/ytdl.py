@@ -20,6 +20,7 @@ from yt_dlp.networking.common import Response
 from yt_dlp.networking.exceptions import HTTPError, IncompleteRead, TransportError
 from yt_dlp.utils import DownloadError
 
+from downloader import drm
 from downloader.errors import (
     ErrorPermanente,
     Fase,
@@ -47,6 +48,7 @@ PLANTILLA = "descarga.%(ext)s"
 
 _RANGO_PEDIDO = re.compile(r"bytes=(\d+)-$")  # reanudación: desde el tamaño del `.part`
 _RANGO_416 = re.compile(r"bytes \*/(\d+)$")  # `Content-Range` de un 416: tamaño real
+CABECERA_M3U = b"#EXTM3U"  # así empieza todo manifiesto HLS (RFC 8216 §4.3.1.1)
 
 DIRECTO = (
     "Es una transmisión en directo: no se descargan directos. Vuelva a agregar la URL cuando "
@@ -139,8 +141,9 @@ class YoutubeDLRegistrado(YoutubeDL):
     Resuelve el 416 al reanudar con comparación exacta en lugar de la de yt-dlp (R23); el motivo
     de un reinicio se añade a la lista del parámetro `downloader_reinicios`.
 
-    Rechaza los directos antes de pedir ningún medio (R5). El contenido con DRM ya lo rechaza
-    yt-dlp al elegir el formato, con `ExtractorError(expected=True)`.
+    Rechaza los directos antes de pedir ningún medio, y el HLS con DRM o con un cifrado que
+    solo ffmpeg sabría descargar antes de pedir la clave o un fragmento (R5, `drm`). Los formatos
+    que yt-dlp marca `has_drm` los rechaza él al elegir el formato.
     """
 
     def __init__(self, params=None, *args, **kwargs):
@@ -156,6 +159,9 @@ class YoutubeDLRegistrado(YoutubeDL):
         self._estancado: SinDatos | None = None
         self._tras_416: _Tras416 | None = None
         self._reinicios: list[str] | None = self.params.get("downloader_reinicios")
+        # El primer manifiesto rechazado (R5): `process_info` vuelve a lanzarlo por si el
+        # extractor capturó el error de la lectura.
+        self._rechazo: ErrorPermanente | None = None
 
     # --- vigilante de estancamiento (R21) ---------------------------------------------
 
@@ -235,7 +241,25 @@ class YoutubeDLRegistrado(YoutubeDL):
         # Lo último antes de descargar un video ya resuelto: aún no se ha pedido ningún medio.
         if info_dict.get("is_live"):
             raise ErrorPermanente(DIRECTO)  # Principio V, FR-015
+        if self._rechazo is not None:
+            raise self._rechazo
+        # Lo que la descarga usaría sin pedirlo: el manifiesto ya leído y la clave del extractor.
+        self._comprobar_cifrado(drm.analizar(info_dict.get("hls_media_playlist_data") or ""))
+        self._comprobar_cifrado(drm.analizar_hls_aes(info_dict.get("hls_aes") or {}))
         return super().process_info(info_dict)
+
+    def _comprobar_cifrado(self, decision: drm.Decision) -> None:
+        """Lanza `ErrorPermanente` si el cifrado es DRM o no está soportado (R5, FR-015).
+
+        Se registra como última petición, para que la clasificación no dependa de cómo yt-dlp
+        envuelva el error.
+        """
+        if decision.veredicto is drm.Veredicto.ACEPTADO:
+            return
+        error = ErrorPermanente(decision.mensaje)
+        self._rechazo = self._rechazo or error
+        self._registrar(UltimaPeticion(error=error))
+        raise error
 
     def dl(self, name, info, subtitle=False, test=False):
         if not test:
@@ -271,7 +295,38 @@ class YoutubeDLRegistrado(YoutubeDL):
         if self.registro.fase is Fase.EXTRACCION:
             self._respuestas_extraccion.append(weakref.ref(respuesta))
         self._vigilar_cuerpo(respuesta)
+        self._vigilar_manifiesto(respuesta)
         return respuesta
+
+    def _vigilar_manifiesto(self, respuesta) -> None:
+        """Envuelve `respuesta.read` para analizar el cifrado de un manifiesto HLS (R5).
+
+        Si el cuerpo empieza por `#EXTM3U`, cada lectura analiza las líneas completas recibidas
+        (todo, al terminar) y lanza el rechazo antes de entregarlas: al extraer, antes de que el
+        extractor analice el maestro; al descargar, antes de que `HlsFD` pida la clave o un
+        fragmento, o pase la descarga a ffmpeg. El resto de los cuerpos no se copia.
+        """
+        leer = respuesta.read
+        leido = bytearray()
+        manifiesto: bool | None = None  # `None`: aún no hay bytes suficientes para saberlo
+
+        def read(amt=None):
+            nonlocal manifiesto
+            datos = leer(amt)
+            if manifiesto is False:
+                return datos
+            leido.extend(datos)
+            final = not datos or amt is None or amt < 0
+            if manifiesto is None and (final or len(leido) >= len(CABECERA_M3U)):
+                manifiesto = leido.startswith(CABECERA_M3U)
+                if not manifiesto:
+                    leido.clear()
+                    return datos
+            texto = leido.decode("utf-8", "ignore")
+            self._comprobar_cifrado(drm.analizar(texto if final else texto[:texto.rfind("\n") + 1]))
+            return datos
+
+        respuesta.read = read
 
     def _rango_no_satisfacible(self, req, error: HTTPError):
         """Un 416 al reanudar desde el byte N del `.part` (research R23).

@@ -126,6 +126,23 @@ def _valor(valor):
     return valor.value if isinstance(valor, Enum) else valor
 
 
+def _corrupta(ruta: Path, error: sqlite3.DatabaseError) -> BaseCorrupta:
+    """Guarda una copia de la cola corrupta y devuelve el error FATAL que lo explica."""
+    copia = ruta.with_name(f"{ARCHIVO}.corrupta-{datetime.now(UTC):%Y%m%dT%H%M%SZ}")
+    shutil.copy2(ruta, copia)
+    return BaseCorrupta(
+        f"El archivo de estado de la cola ({ruta}) está corrupto ({error}). "
+        f"Se guardó una copia en {copia}. No se ha creado una cola nueva ni se ha tocado "
+        f"ningún archivo descargado; mueva o borre {ruta} para empezar una cola vacía."
+    )
+
+
+def _comprobar_integridad(conexion: sqlite3.Connection) -> None:
+    resultado = conexion.execute("PRAGMA quick_check").fetchone()[0]
+    if resultado != "ok":
+        raise sqlite3.DatabaseError(resultado)
+
+
 def _descarga(fila: sqlite3.Row) -> Descarga:
     datos = dict(fila)
     datos["estado"] = Estado(datos["estado"])
@@ -150,9 +167,7 @@ class Store:
         conexion = None
         try:
             conexion = sqlite3.connect(ruta, isolation_level=None, check_same_thread=False)
-            resultado = conexion.execute("PRAGMA quick_check").fetchone()[0]
-            if resultado != "ok":
-                raise sqlite3.DatabaseError(resultado)
+            _comprobar_integridad(conexion)
             conexion.execute("PRAGMA journal_mode = WAL")
             conexion.execute("PRAGMA synchronous = FULL")
             conexion.execute("PRAGMA foreign_keys = ON")
@@ -160,15 +175,35 @@ class Store:
         except sqlite3.DatabaseError as error:
             if conexion is not None:
                 conexion.close()
-            copia = ruta.with_name(f"{ARCHIVO}.corrupta-{datetime.now(UTC):%Y%m%dT%H%M%SZ}")
-            shutil.copy2(ruta, copia)
-            raise BaseCorrupta(
-                f"El archivo de estado de la cola ({ruta}) está corrupto ({error}). "
-                f"Se guardó una copia en {copia}. No se ha creado una cola nueva ni se ha tocado "
-                f"ningún archivo descargado; mueva o borre {ruta} para empezar una cola vacía."
-            ) from error
+            raise _corrupta(ruta, error) from error
         conexion.row_factory = sqlite3.Row
         return cls(directorio, conexion)
+
+    @staticmethod
+    def leer(directorio: Path) -> list[Descarga]:
+        """Todas las descargas en orden de `id`, sin modificar la cola (FR-032, plan decisión 29).
+
+        Abre `cola.db` en solo lectura: si no existe no la crea (devuelve una lista vacía), y no
+        toma `ejecutar.lock` ni hace transiciones. Con WAL ve lo último que confirmó un
+        `ejecutar` en marcha (R11). Si está corrupta, guarda una copia y lanza FATAL, como `abrir`.
+        """
+        ruta = Path(directorio) / ARCHIVO
+        if not ruta.exists():
+            return []
+        conexion = sqlite3.connect(f"{ruta.resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            conexion.row_factory = sqlite3.Row
+            _comprobar_integridad(conexion)
+            filas = []
+            if conexion.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'descargas'"
+            ).fetchone():  # sin la tabla, el archivo está vacío: ninguna cola creada todavía
+                filas = conexion.execute("SELECT * FROM descargas ORDER BY id").fetchall()
+        except sqlite3.DatabaseError as error:
+            conexion.close()  # antes de copiarla: en Windows, la copia no debe chocar con ella
+            raise _corrupta(ruta, error) from error
+        conexion.close()
+        return [_descarga(fila) for fila in filas]
 
     def cerrar(self) -> None:
         for bloqueo in self._bloqueos:

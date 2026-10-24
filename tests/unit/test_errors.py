@@ -301,6 +301,15 @@ def test_un_permanente_reconocido_prevalece_sobre_el_registro():
     assert clasificar(error, en_linea=True) is PERMANENTE
 
 
+@pytest.mark.parametrize("externo", [False, True], ids=["nativo", "externo"])
+def test_un_permanente_registrado_como_ultima_peticion_es_permanente(externo):
+    """El rechazo de un manifiesto con DRM o un cifrado no soportado se registra como última
+    petición (research R5): es permanente aunque yt-dlp lo envuelva sin causa."""
+    rechazo = ErrorPermanente("contenido con DRM (Widevine): no se puede descargar")
+    error = sin_causa(UltimaPeticion(error=rechazo), DESCARGA, externo=externo)
+    assert clasificar_detalle(error, en_linea=True) == Clasificacion(PERMANENTE)
+
+
 def test_la_fase_de_la_cadena_prevalece_sobre_la_del_registro():
     error = desde_la_cadena(403, EXTRACCION)
     error.registro = RegistroRed(UltimaPeticion(estado=403), DESCARGA)

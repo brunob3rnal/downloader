@@ -53,6 +53,9 @@ class _Video:
     titulo: str
     alturas: list[int]
     firma: bool = False  # añade a la URL de medios parámetros de firma, como una URL prefirmada
+    maestro: bool = False  # `archivo` es un manifiesto HLS maestro: el extractor lo analiza
+    hls_aes: dict | None = None  # clave AES-128 que entrega el extractor (`info['hls_aes']`)
+    incrustado: str | None = None  # `hls_media_playlist_data`: el manifiesto, sin pedirlo
 
 
 class FlakyServer:
@@ -81,6 +84,8 @@ class FlakyServer:
         self._conexiones: set[socket.socket] = set()
         self.bytes_servidos: defaultdict[str, int] = defaultdict(int)
         self.peticiones: defaultdict[str, int] = defaultdict(int)
+        # Cabecera `Cookie` de cada petición a un archivo registrado (`None` si no la trae).
+        self.cookies: defaultdict[str, list[str | None]] = defaultdict(list)
         self.puerto = 0
         self._httpd = None
         self._hilo = None
@@ -233,14 +238,20 @@ class FlakyServer:
             self._archivos[nombre].ausente = indice == fragmento_ausente
         return nombre_manifiesto
 
-    def registrar_video(self, id_video, archivo, *, titulo=None, alturas=(720,), firma=False):
+    def registrar_video(self, id_video, archivo, *, titulo=None, alturas=(720,), firma=False,
+                        maestro=False, hls_aes=None, incrustado=None):
         """Hace que `/watch/<id_video>` describa el archivo registrado `archivo`.
 
         Con `firma=True`, la URL de medios lleva además parámetros de firma ficticios
         (`X-Amz-Security-Token`, `X-Amz-Signature`, `lsig`), que el servidor no comprueba.
+        Con `maestro=True`, `archivo` es un manifiesto HLS maestro, y el extractor obtiene los
+        formatos de él. `hls_aes` (p. ej. `{"key": "0x…"}`) es la clave AES-128 que entrega el
+        extractor. `incrustado` es el texto de un manifiesto HLS de medios que el extractor
+        entrega como `hls_media_playlist_data`, de modo que la descarga no lo pide.
         """
         self._videos[id_video] = _Video(
-            archivo, titulo or f"Video {id_video}", list(alturas), firma
+            archivo, titulo or f"Video {id_video}", list(alturas), firma, maestro, hls_aes,
+            incrustado,
         )
 
     def registrar_lista(self, id_lista, ids_videos, *, titulo=None):
@@ -343,6 +354,7 @@ class _Manejador(BaseHTTPRequestHandler):
         if archivo is None or archivo.ausente:
             return self._responder_vacio(404)
         self.flaky.peticiones[ruta] += 1
+        self.flaky.cookies[ruta].append(self.headers.get("Cookie"))
 
         token = consulta.get("token", [None])[0]
         if archivo.tokens and not self.flaky._token_valido(token):
@@ -499,6 +511,9 @@ class _Manejador(BaseHTTPRequestHandler):
             "url": self.flaky.firmar(url) if video.firma else url,
             "alturas": video.alturas,
         }
+        for clave in ("maestro", "hls_aes", "incrustado"):
+            if getattr(video, clave):
+                respuesta[clave] = getattr(video, clave)
         if "list" in consulta:
             respuesta["lista"] = consulta["list"][0]
         self._responder_json(respuesta)

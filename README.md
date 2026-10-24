@@ -76,6 +76,23 @@ reinicio del equipo, vuelva a lanzarlo y continúa donde se quedó.
 | 3 | error fatal: disco lleno, cola corrupta, ffmpeg ausente o cookies de `--cookies-de` ilegibles; el progreso se conserva |
 | 130 | interrumpido con Ctrl+C (en Windows, también Ctrl+Break); el progreso se conserva |
 
+### `estado`
+
+```bash
+uv run downloader estado
+```
+
+Muestra la cola sin modificarla, también mientras otro `ejecutar` está en marcha: una línea por
+descarga con su número, su estado, el progreso, el título (o la URL) y el último aviso o error,
+con los tokens y firmas ocultos. El progreso es el que `ejecutar` guarda cada 2 s. Sale con 0,
+o con 3 si la cola está corrupta (se guarda una copia, como en `agregar`).
+
+```text
+#12 descargando  43.1%  Título del video
+#13 esperando red  12.0%  Otro video  (conexión rechazada)
+#15 fallida  —  https://…/watch/abc  Video privado: el propietario restringió el acceso
+```
+
 ### `actualizar`
 
 ```bash
@@ -129,7 +146,7 @@ existe en macOS. Si las cookies no se pueden leer, el error nombra el navegador 
 Ningún test usa internet: todos van contra un servidor local.
 
 ```bash
-uv run pytest                      # todos (unos 1,5 min en Linux)
+uv run pytest                      # todos (unos 2 min en Linux)
 uv run pytest -m "not slow"        # los rápidos
 uv run pytest -m slow              # los lentos, de más de unos 5 s cada uno
 uv run pytest -m ytdlp_internals   # los que ejecuta `actualizar`
@@ -146,8 +163,14 @@ crea en Linux y en Windows).
   anunciado) no lo detecta la verificación: el video puede publicarse como completo con un
   salto en la imagen o el sonido. Un fragmento cortado durante la transferencia sí se detecta y
   se vuelve a pedir.
-- Se rechazan el contenido con DRM y las transmisiones en directo. RTMP y WebSocket quedan fuera
-  de alcance.
+- Se rechazan las transmisiones en directo y el contenido con DRM: todo lo que dependa de un
+  sistema de licencias (FairPlay, PlayReady, Widevine, Adobe Access, una URI `skd://`, una caja
+  PSSH o cualquier `KEYFORMAT` distinto de `identity`), sin llegar a pedir la clave. Un HLS
+  cifrado con `AES-128` sin licencias sí se descarga, venga la clave por HTTP(S) (con las
+  cookies de `--cookies-de`, si se usan), en una URI `data:` o del propio sitio.
+- Un HLS cifrado con `SAMPLE-AES`, `SAMPLE-AES-CTR` u otro método distinto de `AES-128` falla
+  como no soportado: solo ffmpeg sabe descargarlo, y ffmpeg no permite reanudar de forma
+  fiable. RTMP y WebSocket quedan fuera de alcance.
 - Una sola descarga a la vez.
 - El vigilante de estancamiento solo actúa durante la descarga de los medios, no durante la
   extracción de la información del video: ahí una conexión colgada solo se corta por el

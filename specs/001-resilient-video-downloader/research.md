@@ -193,13 +193,22 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
        contra de FR-008) y cuyas peticiones no ve el registro de R4.
     3. En otro caso se acepta: `AES-128` con la clave por URI http(s), `data:` o `hls_aes`.
     Los dos rechazos son `ErrorPermanente`, sin reintentos (R4, regla 4).
-  - Dónde se aplica, siempre antes de que yt-dlp pida la clave o un fragmento: sobre el
-    manifiesto maestro y `info['hls_media_playlist_data']` en `process_info` (como `is_live`),
-    y sobre cada cuerpo que empiece por `#EXTM3U` leído en la fase de descarga por
-    `YoutubeDLRegistrado.urlopen` (R4), antes de entregarlo a `HlsFD`. El error se registra
-    como última petición para que la clasificación no dependa de cómo yt-dlp lo envuelva.
-  - `test_hls_aes.py` ya cubre `AES-128` sin `KEYFORMAT` por HTTP(S); la Fase 10 de tasks.md
-    añade el resto de filas de la tabla.
+  - Dónde se aplica, siempre antes de que yt-dlp pida la clave o un fragmento: sobre cada
+    cuerpo que empiece por `#EXTM3U` leído por `YoutubeDLRegistrado.urlopen` (R4), en las dos
+    fases, analizando en cada lectura las líneas completas recibidas: al extraer, el manifiesto
+    maestro, antes de que el extractor lo analice; al descargar, antes de entregarlo a `HlsFD`
+    (que, si no, pasaría a ffmpeg los métodos que no sabe descifrar). En `process_info` (como
+    `is_live`), sobre `info['hls_media_playlist_data']` y la URI de `info['hls_aes']`, que la
+    descarga usaría sin pedirlos; ahí también se vuelve a lanzar el primer rechazo de la
+    extracción, por si el extractor capturó el error y siguió con otros formatos. El error se
+    registra como última petición para que la clasificación no dependa de cómo yt-dlp lo
+    envuelva: `errors.clasificar_detalle` trata como permanente un error permanente registrado.
+  - Una URI `data:` cuyo contenido no se puede decodificar no es una caja PSSH: el analizador
+    no lanza y la acepta (regla 3); yt-dlp no podrá leer la clave y la descarga fallará como
+    permanente por su cuenta.
+  - Cobertura (Fase 10 de tasks.md): `tests/unit/test_drm.py` (analizador y cada fila de la
+    tabla), `test_directo_drm.py` (rechazos, sin peticiones de clave ni de fragmentos y sin
+    lanzar ffmpeg) y `test_hls_aes.py` (aceptados y descifrados).
 - **Rationale**: Principio V; ninguna clave de un sistema de licencias se llega a pedir. El
   cifrado que solo ffmpeg sabe descargar se rechaza por FR-008, no por el Principio V.
 - **Alternatives considered**: confiar solo en `_has_drm` (deja pasar Widevine y el PSSH, y
