@@ -339,7 +339,9 @@ y T017 no se modifican.
 
 **Checkpoint**: `uv run pytest` completo con ffmpeg en Linux y en Windows (jobs del CI), en verde
 y con 0 omitidos fuera de los ya justificados (T067); escenarios 10, 13 y 14 de quickstart
-marcados.
+marcados. *(Linux: tres ejecuciones de `uv run pytest -rfxX`, 743 pasados y 1 omitido
+(FAT32/exFAT, T067) en cada una. CI (run 40129562442): 744 pasados en `ubuntu-latest` y 745 en
+`windows-latest`, 0 omitidos. Escenarios 10, 13 y 14 marcados en quickstart.)*
 
 ---
 
