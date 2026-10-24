@@ -120,8 +120,8 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
     o DASH en directo (rechazados antes, R5), HLS con un `METHOD` distinto de `NONE` y
     `AES-128` que yt-dlp no reconoce como DRM, por ejemplo `SAMPLE-AES` con clave `identity`
     o con un `KEYFORMAT` de Widevine (que `HlsFD` delega en ffmpeg en tiempo de ejecución, sin
-    que `dl` lo vea; R5 decide cuáles se rechazan antes), `rtmp_ffmpeg` y descargas por
-    secciones (no se usan). Su fallo sin señal → `TEMPORAL` ambiguo. El HLS que yt-dlp sí
+    que `dl` lo vea; desde R5 todos se rechazan antes de llegar ahí), `rtmp_ffmpeg` y descargas
+    por secciones (no se usan). Su fallo sin señal → `TEMPORAL` ambiguo. El HLS que yt-dlp sí
     reconoce como DRM (`HlsFD._has_drm`: URI `skd://`, `KEYFORMAT` de FairPlay o PlayReady,
     `#EXT-X-FAXS-CM`) no se delega: `HlsFD` falla con "This format is DRM protected"
     (verificado en 2026.10.21, `yt_dlp/downloader/hls.py`; antes este texto decía, por error,
@@ -148,46 +148,65 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
   entrega cada video resuelto a la descarga, antes de elegir el descargador (FFmpegFD para HLS
   en directo) y de pedir ningún medio. No se hace en `dl`, que debe seguir anotando la fase y
   el descargador externo de cualquier info (R4).
-- **Regla (DRM, constitución v3.0.0, Principio V; FR-015)**: un HLS cifrado se descarga solo si
-  la clave se obtiene por HTTP(S) desde la URI que declara `#EXT-X-KEY`, con
-  `KEYFORMAT="identity"` o sin `KEYFORMAT` (RFC 8216 §4.3.2.4: equivale a `identity`), y con la
-  misma sesión del usuario. Cualquier otra entrega de la clave es DRM y se rechaza sin pedirla.
+- **Regla (DRM, constitución v3.0.0, Principio V; FR-015)**: el criterio es el sistema de
+  licencias, no el transporte de la clave. Es DRM todo lo que dependa de uno: URI `skd://`,
+  FairPlay, PlayReady, Widevine, un PSSH y cualquier `KEYFORMAT` distinto de `identity`. Se
+  acepta `METHOD=AES-128` con `KEYFORMAT` ausente (RFC 8216 §4.3.2.4: equivale a `identity`) o
+  `identity`, con la clave por HTTP(S) desde la URI del manifiesto (con la misma sesión del
+  usuario), en una URI `data:` o en `info['hls_aes']` del extractor.
 - **Hallazgos** (yt-dlp 2026.10.21, verificado con `HlsFD.can_download` y `HlsFD._has_drm`
   sobre manifiestos de prueba, y leyendo `yt_dlp/downloader/hls.py`, `fragment.py` y
   `extractor/common.py`):
 
-  | `METHOD` | Entrega de la clave | Qué hace yt-dlp | Regla |
-  |----------|---------------------|-----------------|-------|
+  | `METHOD` | Clave | Qué hace yt-dlp | Decisión |
+  |----------|-------|-----------------|----------|
   | `NONE` | — | descargador nativo | se descarga |
   | `AES-128` | URI http(s), sin `KEYFORMAT` o `identity` | nativo; pide la clave con `ydl.urlopen` (mismas cookies y cabeceras) y descifra con pycryptodomex | se descarga |
-  | `AES-128` | URI `data:` (clave incrustada) | nativo; el manejador `urllib` admite `data:` y descifra con esa clave | **DRM** (yt-dlp no lo rechaza) |
-  | `AES-128` | `KEYFORMAT` Widevine (`urn:uuid:edef8ba9-…`) u otro desconocido | nativo; intenta usar como clave lo que devuelva la URI | **DRM** (yt-dlp no lo rechaza) |
-  | `AES-128` o `SAMPLE-AES` | URI `skd://` o `KEYFORMAT` de FairPlay o PlayReady | `_has_drm`: la extracción marca el formato `has_drm` y lo descarta; si llega a descargarse, `HlsFD` falla con "This format is DRM protected" sin delegar | DRM (ya lo rechaza yt-dlp) |
-  | `SAMPLE-AES` | URI http(s), `identity` | `can_download` falso y sin `_has_drm` → delega en ffmpeg, que descifra | permitido por la regla; ver "Pendiente" |
+  | `AES-128` | URI `data:` con la clave, `identity` | nativo; el manejador `urllib` admite `data:` y descifra con esa clave | se descarga |
+  | `AES-128` | `info['hls_aes']` (clave, URI o IV del extractor) | nativo; sustituye a la URI del manifiesto | se descarga si el manifiesto no declara DRM |
+  | `AES-128` | `KEYFORMAT` Widevine (`urn:uuid:edef8ba9-…`) u otro distinto de `identity` | nativo; intenta usar como clave lo que devuelva la URI | **DRM** (yt-dlp no lo rechaza) |
+  | `AES-128` | URI `data:` con un PSSH | nativo; usaría el PSSH como clave | **DRM** (yt-dlp no lo rechaza) |
+  | `AES-128` o `SAMPLE-AES` | URI `skd://` o `KEYFORMAT` de FairPlay o PlayReady | `_has_drm`: la extracción marca el formato `has_drm` y lo descarta; si llega a descargarse, `HlsFD` falla con "This format is DRM protected" sin delegar | DRM (ya lo rechaza yt-dlp; también nuestro código) |
   | `SAMPLE-AES`, `SAMPLE-AES-CTR` | `KEYFORMAT` Widevine | delega en ffmpeg, que falla | **DRM** (yt-dlp no lo rechaza) |
-  | `SAMPLE-AES` | atributos con `URI` antes que `METHOD` | la expresión `#EXT-X-KEY:METHOD=(?!NONE\|AES-128)` no casa: descargador nativo, que solo descifra `AES-128` y **guarda los fragmentos cifrados** | DRM si su `KEYFORMAT` no es `identity`; si lo es, archivo cifrado que ffprobe puede dar por bueno |
+  | `SAMPLE-AES`, `SAMPLE-AES-CTR` u otro | URI http(s), `identity` | delega en ffmpeg, que descifra | **no soportado** (ver abajo) |
+  | cualquiera | atributos con `URI` antes que `METHOD` | la expresión `#EXT-X-KEY:METHOD=(?!NONE\|AES-128)` no casa: descargador nativo, que solo descifra `AES-128` y **guarda cifrados** los fragmentos de otro método | según sus atributos, igual que con el orden habitual |
 
-  Además: `#EXT-X-SESSION-KEY` del manifiesto maestro solo cuenta para `_has_drm`; la clave
-  que el extractor pone en `info['hls_aes']` (o los parámetros de `extra_param_to_key_url`)
-  sustituyen o modifican la URI del manifiesto: `hls_aes` es "otra entrega" y se rechaza.
-- **Decision (DRM)**:
-  - Lo que ya rechaza yt-dlp no necesita código propio: descarta los formatos con `has_drm`,
-    lanza `ExtractorError(expected=True)` "This video is DRM protected" si no queda ninguno
-    (ya en `extraer_plano`) y `HlsFD` falla con "This format is DRM protected" si el DRM solo
-    aparece en el manifiesto de medios. Se clasifica `PERMANENTE` (R4, regla 4).
-  - Migración (Fase 10 de tasks.md): antes de pedir ninguna clave ni fragmento, `ytdl.py`
-    comprueba cada `#EXT-X-KEY` y `#EXT-X-SESSION-KEY` de los manifiestos que lee el descargador
-    (pasan por `YoutubeDLRegistrado.urlopen`, R4) y la info del formato: con `METHOD` distinto
-    de `NONE`, se exige URI `http`/`https` y `KEYFORMAT` ausente o `identity`, y que no haya
-    `hls_aes`; si no, `ErrorPermanente` "contenido con DRM: …" con el motivo. Cubre las filas
-    marcadas **DRM** de la tabla, incluido el orden de atributos.
-  - **Pendiente** (decisión del usuario): `SAMPLE-AES` con clave `identity` cumple la regla,
-    pero yt-dlp lo delega en ffmpeg, cuyas peticiones no ve el registro de R4. Hasta decidirlo,
-    se acepta tal como lo hace yt-dlp y no hay test que lo cubra.
-- **Rationale**: Principio V; ninguna clave que no sea `identity` se llega a pedir.
-- **Alternatives considered**: confiar solo en `_has_drm` (deja pasar Widevine con `AES-128`,
-  las claves `data:` y el `SAMPLE-AES` mal ordenado); rechazar todo HLS cifrado (también el
-  cifrado de transporte, que el Principio V v3.0.0 permite).
+  Además, `#EXT-X-SESSION-KEY` del manifiesto maestro solo cuenta para `_has_drm`. Lo marcado en
+  negrita no lo detecta yt-dlp, y lo que sí detecta depende del orden de los atributos.
+- **Decision (DRM y métodos no soportados)**:
+  - La detección la hace nuestro código con un analizador propio de atributos (módulo
+    `src/downloader/drm.py`, funciones puras; plan, decisión 30), no con la expresión de
+    yt-dlp: separa la lista de atributos por comas fuera de comillas, admite cualquier orden,
+    compara `METHOD` y `KEYFORMAT` sin distinguir mayúsculas y quita las comillas de `URI` y
+    `KEYFORMAT`. Se aplica a cada `#EXT-X-KEY` y `#EXT-X-SESSION-KEY` de cada manifiesto.
+  - Reglas, en este orden, para cada etiqueta con `METHOD` distinto de `NONE`:
+    1. **DRM** si la URI empieza por `skd://`; si `KEYFORMAT` existe y no es `identity` (cubre
+       FairPlay `com.apple.streamingkeydelivery`, PlayReady `com.microsoft.playready`, Widevine
+       `urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed` y cualquier otro); o si la URI es `data:`
+       y su contenido decodificado es una caja PSSH (bytes 4–8 = `pssh`). También si el
+       manifiesto tiene `#EXT-X-FAXS-CM`. Mensaje: "contenido con DRM (<sistema>): no se puede
+       descargar".
+    2. **No soportado** si `METHOD` no es `AES-128` (`SAMPLE-AES`, `SAMPLE-AES-CTR` o
+       desconocido). Mensaje: "no soportado: el cifrado SAMPLE-AES solo se puede descargar a
+       través de ffmpeg, que no permite reanudar de forma fiable". Motivo: yt-dlp delega en
+       `FFmpegFD`, que no continúa un `.part` ni fragmentos (cada intento empezaría de cero, en
+       contra de FR-008) y cuyas peticiones no ve el registro de R4.
+    3. En otro caso se acepta: `AES-128` con la clave por URI http(s), `data:` o `hls_aes`.
+    Los dos rechazos son `ErrorPermanente`, sin reintentos (R4, regla 4).
+  - Dónde se aplica, siempre antes de que yt-dlp pida la clave o un fragmento: sobre el
+    manifiesto maestro y `info['hls_media_playlist_data']` en `process_info` (como `is_live`),
+    y sobre cada cuerpo que empiece por `#EXTM3U` leído en la fase de descarga por
+    `YoutubeDLRegistrado.urlopen` (R4), antes de entregarlo a `HlsFD`. El error se registra
+    como última petición para que la clasificación no dependa de cómo yt-dlp lo envuelva.
+  - `test_hls_aes.py` ya cubre `AES-128` sin `KEYFORMAT` por HTTP(S); la Fase 10 de tasks.md
+    añade el resto de filas de la tabla.
+- **Rationale**: Principio V; ninguna clave de un sistema de licencias se llega a pedir. El
+  cifrado que solo ffmpeg sabe descargar se rechaza por FR-008, no por el Principio V.
+- **Alternatives considered**: confiar solo en `_has_drm` (deja pasar Widevine y el PSSH, y
+  depende del orden de los atributos); usar `yt_dlp.utils.parse_m3u8_attributes` (interno de
+  yt-dlp y sin la garantía de los tests `ytdlp_internals`); aceptar `SAMPLE-AES` `identity` a
+  través de ffmpeg (sin reanudación ni registro de peticiones); rechazar todo HLS cifrado
+  (también el `AES-128` sin licencias, que el Principio V v3.0.0 permite).
 
 ## R6. Selección de calidad
 
@@ -399,15 +418,23 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
   `synchronous=FULL` (R11) hace `fsync` en cada commit: lo confirmado sobrevive también a un
   corte de luz, y al relanzar se recupera igual (filas en `downloading` → `queued`). Un
   reinicio ordenado del equipo es un caso más suave: el sistema vacía su caché al apagarse.
-- **Límite de esa equivalencia**: `Popen.kill()` no simula la pérdida de la caché de páginas
-  del sistema. Tras un corte de luz, lo escrito en el `.part` y aún no volcado a disco se
-  pierde (en Linux, por defecto, hasta unos 30 s de escrituras). Con `ext4` en modo
-  `data=ordered` eso solo acorta el `.part`: se vuelve a descargar (no se pierde progreso
-  confirmado ni se corrompe el archivo), pero el exceso puede superar con mucho los 128 KiB de
-  SC-002. En sistemas de archivos que no ordenan datos y metadatos, el `.part` podría conservar
-  un tamaño cuyos últimos bloques no contengan los bytes recibidos; la verificación de R8 lo
-  detectaría solo si ffprobe encuentra el daño. No se ha comprobado en NTFS ni hay test que lo
-  cubra.
+- **Corte de luz (límite conocido; fuera de SC-002 desde el 2026-10-24)**: `Popen.kill()` no
+  simula la pérdida de la caché de páginas del sistema, así que no equivale a un corte de luz.
+  - Se garantiza: la cola tal como quedó en la última transacción confirmada, porque
+    `synchronous=FULL` hace `fsync` en cada commit (R11), y al relanzar la misma recuperación
+    que tras `SIGKILL`; la verificación final de R8 antes de publicar, también cuando la
+    descarga se reanuda tras el corte, porque ningún camino publica sin ella; y que lo que no la
+    pase se aparta en `invalidos/<fecha>/` sin borrarse (R8, R22).
+  - No se garantiza: el contenido del `.part` que el sistema no había volcado a disco (en Linux,
+    por defecto, hasta unos 30 s de escrituras). Se pierde y se vuelve a descargar; el exceso no
+    está acotado por SC-002.
+  - Hipótesis no verificada (zona vacía): en sistemas de archivos que no ordenan las escrituras
+    de datos y de metadatos, el `.part` podría conservar un tamaño cuyos últimos bloques no
+    contienen los bytes recibidos (ceros o datos anteriores). yt-dlp reanudaría tras esa zona y
+    el archivo final la contendría; solo la verificación podría detectarlo, si ffprobe encuentra
+    el daño. Con `ext4` en modo `data=ordered` (el habitual) no debería ocurrir; en NTFS no se ha
+    comprobado. No hay test que lo cubra: exigiría cortar la alimentación o simular la caché de
+    páginas.
 - **Riesgo**: si el entorno de CI no tiene ffmpeg, las pruebas de unión y verificación se
   omitirían en silencio. El CI MUST instalar ffmpeg.
 
@@ -529,7 +556,8 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
 
 ## R20. Exceso admitido tras una interrupción abrupta (enmienda de SC-002)
 
-- **Contexto**: un `SIGKILL` o un corte de luz no se pueden capturar: lo recibido que aún no
+- **Contexto** (el corte de luz salió de SC-002 el 2026-10-24; ver R15): un `SIGKILL` o un
+  corte de luz no se pueden capturar: lo recibido que aún no
   llegó al `.part` se pierde y se vuelve a pedir al reanudar. Medido en T017 (archivo de
   ~2 MB a 400 KB/s), el exceso fue de 25–27 KB, por encima del 1 % (20,6 KB):
   - GET de sondeo del extractor genérico de yt-dlp con URLs directas: ~6–8 KB (1–2 KB cada
