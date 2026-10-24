@@ -224,7 +224,9 @@ class Store:
         """Añade una URL a la cola.
 
         Si la pareja (url, calidad) ya existe sin haber fallado, no crea fila; si existe fallida,
-        la vuelve a poner en cola con el mismo id (y por tanto el mismo directorio de trabajo).
+        la vuelve a poner en cola con el mismo id (y por tanto el mismo directorio de trabajo) y,
+        si se indica un navegador, con ese navegador: así funciona el consejo de FR-026, «vuelva
+        a agregarlo con --cookies-de NAVEGADOR».
         """
         calidad = Calidad(calidad)
         with self._transaccion() as c:
@@ -239,8 +241,9 @@ class Store:
                 validar_transicion(Estado.FAILED, Estado.QUEUED)
                 c.execute(
                     "UPDATE descargas SET estado = ?, ultimo_error = NULL, proximo_intento = NULL,"
-                    " intentos_sin_avance = 0, actualizada = ? WHERE id = ?",
-                    (Estado.QUEUED.value, _ahora(), fila["id"]),
+                    " intentos_sin_avance = 0, navegador_cookies = COALESCE(?, navegador_cookies),"
+                    " actualizada = ? WHERE id = ?",
+                    (Estado.QUEUED.value, navegador_cookies, _ahora(), fila["id"]),
                 )
                 accion, id_ = "reencolada", fila["id"]
             else:

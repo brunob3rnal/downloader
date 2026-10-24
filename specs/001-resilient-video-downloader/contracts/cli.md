@@ -14,7 +14,7 @@ Guarda una o varias URLs en la cola. No necesita red.
 |--------|---------|-------------|
 | `--calidad` | `mejor`, `1080p`, `720p`, `audio` | `calidad` de la configuración |
 | `--carpeta` | ruta existente y escribible | `carpeta_destino` de la configuración |
-| `--cookies-de` | nombre de navegador admitido por yt-dlp | ninguno: no se leen cookies |
+| `--cookies-de` | nombre de navegador admitido por yt-dlp (`brave`, `chrome`, `chromium`, `edge`, `firefox`, `opera`, `safari`, `vivaldi`, `whale`), sin perfil; se guarda solo el nombre | ninguno: no se leen cookies |
 
 Salida (stdout), una línea por URL:
 
@@ -24,17 +24,25 @@ ya en cola #7  https://…  (720p, downloading)
 reencolada #3  https://…  (antes: failed)
 ```
 
+Reencolar con `--cookies-de` una descarga fallida guarda el navegador nuevo (research R25).
+
 | Código | Significado |
 |--------|-------------|
 | 0 | todas las URLs agregadas, ya presentes o reencoladas |
-| 2 | uso inválido (calidad desconocida, carpeta inexistente o sin permisos, URL vacía) |
+| 2 | uso inválido (calidad desconocida, carpeta inexistente o sin permisos, URL vacía, navegador no admitido en `--cookies-de`, `config.toml` inválido) |
 | 3 | archivo de estado de la cola corrupto; se guardó una copia |
 
 ## `ejecutar [--cookies-de NAVEGADOR]`
 
 Procesa la cola en primer plano. Solo termina cuando no quedan descargas en `queued`,
 `downloading` ni `waiting_network` (FR-021). Recoge las URLs agregadas mientras corre.
-`--cookies-de` aplica a esta ejecución y prevalece sobre el valor de cada descarga.
+`--cookies-de` aplica a esta ejecución y prevalece sobre el valor de cada descarga; no lo
+modifica.
+
+Si las cookies no se pueden leer, el error nombra el navegador y la causa
+(`No se pudieron leer las cookies de edge: …`): las de `agregar --cookies-de` hacen fallar solo
+esa descarga; las de `ejecutar --cookies-de`, que valen para todas, detienen la ejecución con
+el código 3 (research R25).
 
 Salida: una línea por descarga activa, actualizada al menos una vez por segundo (SC-007):
 
@@ -52,9 +60,9 @@ Al terminar, un resumen con el número de completadas y fallidas, y la causa de 
 | Código | Significado |
 |--------|-------------|
 | 0 | cola vacía; todas completadas |
-| 1 | cola vacía; al menos una falló de forma permanente |
-| 2 | uso inválido u otro `ejecutar` ya en marcha |
-| 3 | error fatal (disco lleno, archivo de estado corrupto, ffmpeg o ffprobe ausentes); progreso conservado |
+| 1 | cola vacía; al menos una falló de forma permanente (también por cookies de su `agregar --cookies-de` que no se pudieron leer) |
+| 2 | uso inválido (navegador no admitido en `--cookies-de`, `config.toml` inválido) u otro `ejecutar` ya en marcha |
+| 3 | error fatal (disco lleno, archivo de estado corrupto, ffmpeg o ffprobe ausentes, cookies de `ejecutar --cookies-de` que no se pueden leer); progreso conservado |
 | 130 | interrumpido con Ctrl+C (en Windows, también Ctrl+Break); progreso conservado |
 
 Los errores van a stderr y nunca incluyen cookies, cabeceras de autenticación ni tokens.

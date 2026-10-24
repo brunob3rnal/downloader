@@ -119,6 +119,7 @@ def ejecutar(
 def _procesar(store, monitor, presentador, tiempos, navegador, descarga, resultado):
     descarga = store.transicion(descarga.id, Estado.DOWNLOADING)
     presentador.inicio(descarga)
+    de_ejecucion = navegador is not None  # `ejecutar --cookies-de` prevalece sobre la fila
     navegador = navegador or descarga.navegador_cookies
     seguimiento = _Seguimiento(descarga)
     try:
@@ -126,6 +127,11 @@ def _procesar(store, monitor, presentador, tiempos, navegador, descarga, resulta
             try:
                 ruta = _intentar(store, presentador, tiempos, navegador, seguimiento)
             except Exception as error:
+                if de_ejecucion and isinstance(error, errors.CookiesIlegibles):
+                    # Las cookies de `ejecutar --cookies-de` valen para todas las descargas, que
+                    # fallarían igual: se detiene como FATAL sin dar ninguna por fallida. Las de
+                    # `agregar --cookies-de` solo afectan a su descarga (research R25).
+                    error = ErrorFatal(str(error))
                 if _fallo(store, monitor, presentador, tiempos, seguimiento, error, resultado):
                     continue
                 return

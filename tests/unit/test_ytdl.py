@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 
 import pytest
+from yt_dlp.utils import DownloadError
 
 from downloader import ytdl
 from downloader.models import Calidad, Descarga, Estado, TipoDescarga
@@ -300,3 +301,54 @@ def test_close_cierra_las_respuestas_de_una_extraccion_sin_descarga(ydl_con_resp
     ydl.urlopen("http://127.0.0.1/v.mp4")
     ydl.close()
     assert sondeo.cerrada
+
+
+# --- cookies del navegador que no se pueden leer (research R25) -------------------------
+
+COOKIES = [
+    # (fallo de `NavegadorFalso`, navegador, fragmento de la causa)
+    ("no_encontrada", "firefox", "no se encontró su base de datos de cookies"),
+    ("bloqueada", "chrome", "su base de datos de cookies está bloqueada o sin permiso"),
+    ("bloqueada", "edge", "cierre el navegador del todo"),
+    ("sin_descifrar", "chrome", "no se pudieron descifrar"),
+    ("sin_descifrar", "edge", "--cookies-de firefox"),
+    ("plataforma", "safari", "unsupported platform: linux"),
+    ("otro", "brave", "no se pudo leer el perfil"),
+]
+
+
+@pytest.mark.parametrize("fallo, navegador, causa", COOKIES)
+def test_cookies_ilegibles_indican_el_navegador_y_la_causa(monkeypatch, fallo, navegador, causa):
+    from downloader import errors
+    from tests.support import navegador_falso
+
+    falso = navegador_falso.NavegadorFalso().instalar(monkeypatch)
+    falso.fallo = getattr(navegador_falso, fallo)
+    # La carga de cookies falla antes de la primera petición: el puerto 9 no se llega a usar.
+    with pytest.raises(errors.CookiesIlegibles) as error:
+        ytdl.extraer_plano("http://127.0.0.1:9/watch/v", navegador, socket_timeout=1)
+    mensaje = str(error.value)
+    assert mensaje.startswith(f"No se pudieron leer las cookies de {navegador}: ")
+    assert causa in mensaje
+    assert "ERROR:" not in mensaje and "failed to load cookies" not in mensaje
+    assert falso.leidos == [navegador]
+    assert errors.clasificar_detalle(error.value, en_linea=True).tipo is errors.Tipo.PERMANENTE
+
+
+def test_los_demas_errores_con_cookies_no_se_confunden(monkeypatch):
+    """Con las cookies leídas, un fallo de red sigue siendo un fallo de red."""
+    from downloader import errors
+    from tests.support import navegador_falso
+
+    navegador_falso.NavegadorFalso().instalar(monkeypatch)
+    with pytest.raises(DownloadError) as error:
+        ytdl.extraer_plano("http://127.0.0.1:9/watch/v", "firefox", socket_timeout=1)
+    assert not isinstance(error.value, errors.CookiesIlegibles)
+    assert errors.clasificar_detalle(error.value, en_linea=True).tipo is errors.Tipo.TEMPORAL
+
+
+def test_navegadores_admitidos_son_los_de_yt_dlp():
+    from yt_dlp.cookies import SUPPORTED_BROWSERS
+
+    assert ytdl.NAVEGADORES == SUPPORTED_BROWSERS
+    assert {"firefox", "chrome", "edge"} <= ytdl.NAVEGADORES

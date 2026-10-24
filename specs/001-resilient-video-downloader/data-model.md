@@ -10,7 +10,7 @@ Almacenamiento: SQLite en `typer.get_app_dir("downloader")/cola.db` (ver researc
 | `url` | TEXT | obligatoria; URL tal como la dio el usuario o la entrada de una lista |
 | `calidad` | TEXT | `mejor` \| `1080p` \| `720p` \| `audio` |
 | `carpeta_destino` | TEXT | ruta absoluta, fijada al agregar |
-| `navegador_cookies` | TEXT NULL | solo el nombre del navegador; nunca cookies |
+| `navegador_cookies` | TEXT NULL | solo el nombre del navegador; nunca cookies. Reencolar con `agregar --cookies-de` lo sustituye (R25) |
 | `tipo` | TEXT | `video` (por defecto) \| `playlist` (padre ya expandida) |
 | `padre_id` | INTEGER NULL FK → `descargas.id` | descarga de lista que la originó |
 | `estado` | TEXT | ver máquina de estados y etiquetas visibles |
@@ -46,7 +46,8 @@ Almacenamiento: SQLite en `typer.get_app_dir("downloader")/cola.db` (ver researc
    │           ▼     │
    │       waiting_network
    │
-   └── Ctrl+C o error FATAL (disco lleno, ffmpeg ausente): la fila vuelve a queued
+   └── Ctrl+C o error FATAL (disco lleno, ffmpeg ausente, cookies de `ejecutar --cookies-de`
+       ilegibles): la fila vuelve a queued
 ```
 
 | Desde | Hacia | Disparador |
@@ -59,7 +60,7 @@ Almacenamiento: SQLite en `typer.get_app_dir("downloader")/cola.db` (ver researc
 | `downloading` | `completed` | verificación correcta y publicación sin sobrescribir |
 | `downloading` | `completed` (`tipo=playlist`) | la URL era una lista y se insertaron sus hijas |
 | `downloading` | `failed` | error `PERMANENTE` o verificación fallida (archivos movidos a `invalidos/`, R8) |
-| `downloading`, `waiting_network` | `queued` | Ctrl+C, error `FATAL` (disco lleno, ffmpeg ausente) o recuperación al iniciar |
+| `downloading`, `waiting_network` | `queued` | Ctrl+C, error `FATAL` (disco lleno, ffmpeg ausente, cookies de `ejecutar --cookies-de` ilegibles, R25) o recuperación al iniciar |
 
 Toda transición no listada es un error de programación y se rechaza.
 
@@ -86,7 +87,9 @@ Toda transición no listada es un error de programación y se rechaza.
 | `estancamiento_segundos` | `30` | s sin datos (o por debajo de la velocidad mínima) antes de abortar el intento (R21) |
 | `estancamiento_velocidad_minima` | `1024` | bytes/s sostenidos durante `estancamiento_segundos` (R21) |
 
-No admite claves de credenciales ni cookies; una clave desconocida produce un error claro.
+No admite claves de credenciales ni cookies, ni el navegador de las cookies (solo con
+`--cookies-de`): una clave con ese nombre produce un error que lo explica sin repetir su valor,
+y cualquier otra clave desconocida, un error que lista las admitidas.
 
 ## Archivos en disco
 

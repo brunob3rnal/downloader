@@ -198,3 +198,23 @@ def test_manifiesto_hls_con_token(servidor, tmp_path):
         assert respuesta.read() == b"cero"
     with pytest.raises(urllib.error.HTTPError):
         pedir(servidor.url("hls/f0.ts"))
+
+
+def test_exigir_sesion(servidor):
+    servidor.registrar("a.bin", DATOS)
+    servidor.registrar_video("v", "a.bin")
+    servidor.exigir_sesion("SID", "ficticia")
+
+    def pedir_con(ruta, cookie):
+        peticion = urllib.request.Request(servidor.url(ruta))
+        if cookie:
+            peticion.add_header("Cookie", cookie)
+        return urllib.request.urlopen(peticion, timeout=5)
+
+    for ruta in ("a.bin", "watch/v"):
+        for cookie in (None, "SID=otra", "XSID=ficticia"):
+            with pytest.raises(urllib.error.HTTPError) as error:
+                pedir_con(ruta, cookie)
+            assert error.value.code == 403
+        with pedir_con(ruta, "tema=oscuro; SID=ficticia") as respuesta:
+            assert respuesta.status == 200

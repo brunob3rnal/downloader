@@ -241,3 +241,27 @@ def test_bloqueo_con_msvcrt_simulado(app_home, monkeypatch):
         primero.cerrar()
         otro.cerrar()
     assert falso.bloqueos == {}
+
+
+def test_reencolar_con_navegador_lo_guarda(store):
+    """«Vuelva a agregarlo con --cookies-de NAVEGADOR» (FR-026) debe tener efecto."""
+    original = agregar(store).descarga
+    store.transicion(original.id, Estado.DOWNLOADING)
+    store.transicion(original.id, Estado.FAILED, ultimo_error="HTTP 403")
+    resultado = store.agregar(URL, Calidad.P720, "/tmp/destino", navegador_cookies="firefox")
+    assert resultado.accion == "reencolada"
+    assert resultado.descarga.navegador_cookies == "firefox"
+
+
+def test_reencolar_sin_navegador_conserva_el_anterior(store):
+    original = store.agregar(URL, Calidad.P720, "/tmp/destino", navegador_cookies="firefox")
+    store.transicion(original.descarga.id, Estado.DOWNLOADING)
+    store.transicion(original.descarga.id, Estado.FAILED, ultimo_error="Video privado")
+    assert agregar(store).descarga.navegador_cookies == "firefox"
+
+
+def test_ya_en_cola_no_cambia_el_navegador(store):
+    agregar(store)
+    resultado = store.agregar(URL, Calidad.P720, "/tmp/destino", navegador_cookies="firefox")
+    assert resultado.accion == "ya_en_cola"
+    assert resultado.descarga.navegador_cookies is None
