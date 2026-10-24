@@ -49,6 +49,8 @@ PLANTILLA = "descarga.%(ext)s"
 _RANGO_PEDIDO = re.compile(r"bytes=(\d+)-$")  # reanudación: desde el tamaño del `.part`
 _RANGO_416 = re.compile(r"bytes \*/(\d+)$")  # `Content-Range` de un 416: tamaño real
 CABECERA_M3U = b"#EXTM3U"  # así empieza todo manifiesto HLS (RFC 8216 §4.3.1.1)
+# Clave del resultado de `descargar`: representaciones protegidas excluidas de un MPD (R5).
+OMITIDAS = "downloader_omitidas"
 
 DIRECTO = (
     "Es una transmisión en directo: no se descargan directos. Vuelva a agregar la URL cuando "
@@ -142,8 +144,12 @@ class YoutubeDLRegistrado(YoutubeDL):
     de un reinicio se añade a la lista del parámetro `downloader_reinicios`.
 
     Rechaza los directos antes de pedir ningún medio, y el HLS con DRM o con un cifrado que
-    solo ffmpeg sabría descargar antes de pedir la clave o un fragmento (R5, `drm`). Los formatos
-    que yt-dlp marca `has_drm` los rechaza él al elegir el formato.
+    solo ffmpeg sabría descargar antes de pedir la clave o un fragmento (R5, `drm`). Con MPD,
+    ISM y F4M, la detección también es propia y no depende de lo que yt-dlp marque `has_drm`:
+    rechaza ISM y F4M con cualquier indicador, y de un MPD entrega al extractor el manifiesto
+    sin las representaciones protegidas, si lo que queda cubre la calidad del parámetro
+    `downloader_calidad`, o lo rechaza; las excluidas se cuentan, por URL del manifiesto, en el
+    diccionario del parámetro `downloader_omitidas`.
     """
 
     def __init__(self, params=None, *args, **kwargs):
@@ -296,6 +302,7 @@ class YoutubeDLRegistrado(YoutubeDL):
             self._respuestas_extraccion.append(weakref.ref(respuesta))
         self._vigilar_cuerpo(respuesta)
         self._vigilar_manifiesto(respuesta)
+        self._vigilar_xml(respuesta, getattr(req, "url", req))
         return respuesta
 
     def _vigilar_manifiesto(self, respuesta) -> None:
@@ -327,6 +334,70 @@ class YoutubeDLRegistrado(YoutubeDL):
             return datos
 
         respuesta.read = read
+
+    def _vigilar_xml(self, respuesta, url: str) -> None:
+        """Envuelve `respuesta.read` para analizar los manifiestos MPD, ISM y F4M (R5).
+
+        De un cuerpo que empieza por `<` (tras un BOM o espacios) no se entrega nada hasta
+        tenerlo entero, porque el extractor genérico lee 512 bytes antes que el resto. Si es un
+        manifiesto, se lanza el rechazo o se entrega lo que decida `drm.filtrar_xml`, antes de
+        que el extractor lo analice; si no, se entrega tal cual. El resto de los cuerpos no se
+        copia.
+        """
+        leer = respuesta.read
+        leido = bytearray()
+        pendiente: memoryview | None = None  # decidido: lo que falta por entregar
+        directo = False  # tras `pendiente`, el resto se lee sin copiarlo
+
+        def entregar(amt):
+            nonlocal pendiente
+            cantidad = len(pendiente) if amt is None or amt < 0 else amt
+            datos, pendiente = bytes(pendiente[:cantidad]), pendiente[cantidad:]
+            return datos
+
+        def read(amt=None):
+            nonlocal pendiente, directo
+            if amt == 0:
+                return b""
+            if pendiente is not None:
+                if pendiente or not directo:
+                    return entregar(amt)
+                return leer(amt)
+            datos = leer(amt)
+            leido.extend(datos)
+            final = not datos or amt is None or amt < 0
+            while (xml := drm.posible_xml(leido, final)) is None:
+                datos = leer(TROZO_LECTURA)
+                leido.extend(datos)
+                final = not datos
+            if not xml:
+                directo = not final
+                retenido, primera = bytes(leido), len(leido) == len(datos)
+                leido.clear()
+                if primera:  # decidido con la primera lectura: se entrega sin más
+                    pendiente = memoryview(b"")
+                    return datos
+                pendiente = memoryview(retenido)
+                return entregar(amt)
+            while not final:
+                datos = leer(TROZO_LECTURA)
+                leido.extend(datos)
+                final = not datos
+            pendiente = memoryview(self._filtrar_xml(url, bytes(leido)))
+            return entregar(amt)
+
+        respuesta.read = read
+
+    def _filtrar_xml(self, url: str, cuerpo: bytes) -> bytes:
+        """Lo que se entrega de un cuerpo XML; lanza `ErrorPermanente` si es un rechazo (R5)."""
+        filtrado = drm.filtrar_xml(cuerpo, self.params.get("downloader_calidad"))
+        if filtrado is None:
+            return cuerpo
+        self._comprobar_cifrado(filtrado.decision)
+        omitidas = self.params.get("downloader_omitidas")
+        if filtrado.omitidas and omitidas is not None:
+            omitidas[url] = filtrado.omitidas
+        return filtrado.cuerpo
 
     def _rango_no_satisfacible(self, req, error: HTTPError):
         """Un 416 al reanudar desde el byte N del `.part` (research R23).
@@ -499,6 +570,7 @@ def opciones(
         "fragment_retries": REINTENTOS_INTERNOS,
         "progress_hooks": [hook],
         "downloader_vigilancia": vigilancia,
+        "downloader_calidad": descarga.calidad,  # para las representaciones protegidas (R5)
     }
     if descarga.calidad is Calidad.AUDIO:
         opciones["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "best"}]
@@ -521,8 +593,12 @@ def descargar(
     socket_timeout: float = SOCKET_TIMEOUT,
     vigilancia: Vigilancia | None = None,
 ) -> dict:
-    """Vuelve a extraer y descarga (o continúa) en el directorio de trabajo (R2)."""
+    """Vuelve a extraer y descarga (o continúa) en el directorio de trabajo (R2).
+
+    En el resultado, `OMITIDAS` es el número de representaciones protegidas excluidas (R5).
+    """
     reinicios: list[str] = []  # los anota `YoutubeDLRegistrado` (R23)
+    omitidas: dict[str, int] = {}  # también los anota, por URL de cada MPD (R5)
 
     def hook(evento: dict) -> None:
         al_progresar(
@@ -539,12 +615,13 @@ def descargar(
             )
         )
 
-    return _ejecutar(
+    info = _ejecutar(
         opciones(descarga, directorio_trabajo, navegador, hook, socket_timeout, vigilancia)
-        | {"downloader_reinicios": reinicios},
+        | {"downloader_reinicios": reinicios, "downloader_omitidas": omitidas},
         descarga.url,
         download=True,
     )
+    return info | {OMITIDAS: sum(omitidas.values())}
 
 
 _ALTURAS = {Calidad.P1080: 1080, Calidad.P720: 720}

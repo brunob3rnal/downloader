@@ -86,6 +86,8 @@ class FlakyServer:
         self.peticiones: defaultdict[str, int] = defaultdict(int)
         # Cabecera `Cookie` de cada petición a un archivo registrado (`None` si no la trae).
         self.cookies: defaultdict[str, list[str | None]] = defaultdict(list)
+        # Ruta de cada petición, en orden: también páginas y rutas no registradas (404).
+        self.pedidas: list[str] = []
         self.puerto = 0
         self._httpd = None
         self._hilo = None
@@ -344,6 +346,7 @@ class _Manejador(BaseHTTPRequestHandler):
         partes = urlsplit(self.path)
         ruta = partes.path.lstrip("/")
         consulta = parse_qs(partes.query)
+        self.flaky.pedidas.append(ruta)
         if not self.flaky._sesion_valida(self.headers.get("Cookie")):
             return self._responder_vacio(403)
         if ruta.startswith("watch/"):

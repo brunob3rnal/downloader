@@ -168,6 +168,14 @@ crea en Linux y en Windows).
   PSSH o cualquier `KEYFORMAT` distinto de `identity`), sin llegar a pedir la clave. Un HLS
   cifrado con `AES-128` sin licencias sí se descarga, venga la clave por HTTP(S) (con las
   cookies de `--cookies-de`, si se usan), en una URI `data:` o del propio sitio.
+- En DASH, Smooth Streaming (ISM) y HDS (F4M) la protección se busca en el propio
+  manifiesto. Un ISM o un F4M protegido se rechaza entero. De un MPD se descartan las
+  representaciones protegidas, que nunca se piden: si lo que queda cubre la calidad pedida
+  (un audio con `--calidad audio`; si no, un video y, si el contenido tiene audio, un audio),
+  se descarga la mejor calidad sin proteger con el aviso «1 representación protegida omitida»
+  o «N representaciones protegidas omitidas»; si no, se rechaza. Un MPD protegido entero (en
+  el `Period` o en el `MPD`), o con varios periodos y alguna representación protegida, se
+  rechaza.
 - Un HLS cifrado con `SAMPLE-AES`, `SAMPLE-AES-CTR` u otro método distinto de `AES-128` falla
   como no soportado: solo ffmpeg sabe descargarlo, y ffmpeg no permite reanudar de forma
   fiable. RTMP y WebSocket quedan fuera de alcance.

@@ -119,6 +119,15 @@ def hls_cifrado(medios, tmp_path_factory):
     return hls.cifrar(medios.mp4, tmp_path_factory.mktemp("cifrado") / "aes")
 
 
+@pytest.fixture(scope="session")
+def pistas(medios, tmp_path_factory):
+    """El video y el audio de `medios` por separado (`video`, `audio`), para los MPD."""
+    from tests.support import dash
+
+    video, audio = dash.separar(medios.mp4, tmp_path_factory.mktemp("dash") / "pistas")
+    return SimpleNamespace(video=video, audio=audio)
+
+
 @pytest.fixture
 def cli(app_home, servidor, monkeypatch):
     """Ejecuta la app Typer en proceso con el extractor de prueba registrado.

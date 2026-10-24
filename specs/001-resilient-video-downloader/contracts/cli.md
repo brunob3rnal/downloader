@@ -57,6 +57,7 @@ Salida: una línea por descarga activa, actualizada al menos una vez por segundo
 #17 fallida  no se encontraron videos; la URL puede no estar soportada o requerir sesión (ver --cookies-de)
 #18 aviso  ya existía «Título del video.mp4»; se publicó como «Título del video (1).mp4» sin tocar el anterior
 #19 aviso  2 representaciones protegidas omitidas
+#20 aviso  1 representación protegida omitida
 ```
 
 El nombre publicado sale de `plantilla_nombre` (por defecto `{titulo}`, sin el id del video); en

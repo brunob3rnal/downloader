@@ -209,7 +209,7 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
   - Cobertura (Fase 10 de tasks.md): `tests/unit/test_drm.py` (analizador y cada fila de la
     tabla), `test_directo_drm.py` (rechazos, sin peticiones de clave ni de fragmentos y sin
     lanzar ffmpeg) y `test_hls_aes.py` (aceptados y descifrados). DASH, ISM y F4M: T095 y T096
-    (Fase 11).
+    (Fase 11), en los mismos `test_drm.py` y `test_directo_drm.py`.
 - **Regla (DASH, ISM y F4M; FR-015, hallazgo G1 de `/speckit-analyze`)**: detección propia
   sobre el manifiesto, no lo que yt-dlp marque como DRM (`has_drm`), que no basta (ver
   "Hallazgos" abajo).
@@ -229,17 +229,47 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
     proteger; con `mejor`, `1080p` y `720p`, hace falta un video sin proteger y, si el
     contenido tiene audio (alguna representación del MPD, protegida o no, lo lleva), un audio
     sin proteger. Si se cumple, se descarga la mejor calidad sin proteger según la selección de
-    R6 y se añade a `ultimo_aviso` "N representaciones protegidas omitidas", junto a los demás
-    avisos (separados por "; "). Si no se cumple, se rechaza.
+    R6 y se añade a `ultimo_aviso` "N representaciones protegidas omitidas" ("1 representación
+    protegida omitida" con N = 1), junto a los demás avisos (separados por "; "). Si no se
+    cumple, se rechaza. Si una representación lleva video o audio se decide por sus códecs
+    (`codecs`), como yt-dlp, y si no reconoce ninguno, por `contentType` o `mimeType`; los
+    atributos que no tiene los hereda de su `AdaptationSet`. Una representación con video y
+    audio cuenta como los dos.
+  - MPD con varios `Period` y alguna representación protegida (decisión de T096, que la
+    regla anterior no cubría): se rechaza entero. yt-dlp une los periodos por formato
+    (`_merge_mpd_periods`), así que excluir una representación en un periodo y no en otro
+    daría un archivo incompleto, o solo los anuncios de un MPD con anuncios insertados
+    (Principio III).
   - Todo rechazo es `ErrorPermanente`, sin reintentos y sin pedir ningún medio (ni segmentos ni
     representaciones), con el mensaje "contenido con DRM (DASH|ISM|F4M): no se puede
     descargar".
   - Dónde se aplica (plan, decisión 30): sobre cada manifiesto MPD, ISM o F4M leído por
-    `YoutubeDLRegistrado.urlopen`, como con HLS, y antes de que yt-dlp elija el formato.
-    Implementación pendiente: T095 y T096 (Fase 11).
+    `YoutubeDLRegistrado.urlopen`, como con HLS, en las dos fases, antes de que el extractor
+    lo analice y, por tanto, antes de que yt-dlp elija el formato:
+    - De un cuerpo que empieza por `<` (tras un BOM o espacios) no se entrega nada hasta
+      tenerlo entero, porque el extractor genérico lee 512 bytes antes que el resto. Si su
+      raíz, por su nombre local y sin distinguir mayúsculas, es `MPD`, `SmoothStreamingMedia`
+      o `manifest` (F4M), `drm.filtrar_xml` decide; si no, se entrega tal cual.
+    - La exclusión no marca formatos: el extractor recibe el MPD sin los bytes de cada
+      `Representation` protegida (sus posiciones exactas, según expat; el resto, intacto y en
+      su codificación), así que yt-dlp nunca crea sus formatos.
+    - La calidad llega en el parámetro `downloader_calidad`. La extracción sin descarga
+      (`ytdl.extraer_plano`) no la conoce y solo rechaza si no queda ningún video ni audio sin
+      proteger; el rechazo que depende de la calidad llega al volver a extraer para descargar,
+      también antes de pedir ningún medio (el manifiesto se pide dos veces).
+    - Las omitidas se cuentan por URL del manifiesto (parámetro `downloader_omitidas`), y el
+      trabajador añade el aviso a `ultimo_aviso`. Sin omitidas no hay aviso.
+    - Un cuerpo que expat no puede leer tal cual (p. ej. UTF-8 inválido sin declaración) se
+      analiza como lo decodifica yt-dlp sin `charset` en la respuesta: UTF-8, sustituyendo los
+      bytes inválidos. Si hay que quitar algo, se entrega ese cuerpo reparado.
+    - Detalles internos de yt-dlp en los que se apoya (tests `ytdlp_internals`): los
+      extractores, también el genérico, leen el manifiesto con `ydl.urlopen(...).read()` y
+      crean los formatos solo a partir de esos bytes, un formato por `Representation`
+      (`InfoExtractor._parse_mpd_periods`); y la descarga DASH (`DashSegmentsFD`) no vuelve a
+      pedir el MPD.
 - **Defecto observado con la regla anterior** (rechazar solo lo que yt-dlp marca): con el video
   protegido y el audio sin proteger, yt-dlp descarta el video y descarga solo el audio, sin
-  ningún aviso, con las cuatro calidades; es lo que hace el programa hasta T096. Con la regla
+  ningún aviso, con las cuatro calidades; era lo que hacía el programa hasta T096. Con la regla
   nueva se rechaza como DRM y no se descarga el audio, salvo que se pida `audio`.
 - **Hallazgos (DASH, ISM y F4M)**: verificados el 2026-10-24 con el yt-dlp instalado
   (2026.10.21), con manifiestos servidos por un servidor HTTP local y el extractor genérico; la
@@ -294,7 +324,12 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
   no con manifiestos reales de sitios (los tests no usan internet), tampoco en HLS; y la
   descarga completa de un ISM sin protección no tiene test: el ISM de prueba sin protección se
   extrajo sin `has_drm` (control), pero su descarga no terminó, porque los fragmentos de prueba
-  no eran válidos.
+  no eran válidos. Un MPD que solo se puede leer reparado (en Latin-1 u otra codificación de un
+  byte, sin declaración XML y con caracteres no ASCII) y del que hay que quitar
+  representaciones se entrega como UTF-8: si la respuesta declara otro `charset`, esos
+  caracteres llegan mal a yt-dlp (una `BaseURL` con ellos fallaría), aunque la protección se
+  detecta igual. Un manifiesto que no llega por `urlopen` (p. ej. incrustado en la página del
+  sitio) no se analiza: queda a lo que detecte yt-dlp.
 - **Rationale**: Principio V; ninguna clave de un sistema de licencias se llega a pedir. El
   cifrado que solo ffmpeg sabe descargar se rechaza por FR-008, no por el Principio V.
 - **Alternatives considered**: confiar solo en `_has_drm` (deja pasar Widevine y el PSSH, y

@@ -94,3 +94,6 @@ def test_ctrl_c_guarda_el_progreso_y_relanzar_termina(app_home, destino, servido
     publicados = [p for p in destino.iterdir() if p.is_file()]
     assert len(publicados) == 1
     assert publicados[0].read_bytes() == datos
+    # Ctrl+C no es una terminación abrupta: el 1 % de SC-002, sin la tolerancia de 128 KiB de
+    # un cierre abrupto (R20).
+    assert servidor.bytes_servidos["lento.mp4"] <= 1.01 * len(datos)

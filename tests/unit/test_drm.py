@@ -1,15 +1,18 @@
-"""Política de cifrado de HLS: DRM, no soportado o aceptado (research R5; plan, decisión 30).
+"""Política de cifrado: DRM, no soportado o aceptado (research R5; plan, decisión 30).
 
-`downloader.drm` es puro: analiza el texto de los manifiestos, sin red ni yt-dlp.
+`downloader.drm` es puro: analiza los manifiestos HLS, MPD, ISM y F4M, sin red ni yt-dlp.
 """
 
 import subprocess
 import sys
+from xml.etree import ElementTree
 
 import pytest
 
 from downloader import drm
 from downloader.drm import Veredicto
+from downloader.models import Calidad
+from tests.support import dash
 from tests.support.hls import CLAVE, FAIRPLAY, IV, PLAYREADY, WIDEVINE, caja_pssh, uri_data
 
 NO_SOPORTADO = (
@@ -240,3 +243,313 @@ def test_otras_etiquetas_parecidas_no_cuentan():
 )
 def test_clave_del_extractor(hls_aes, veredicto):
     assert drm.analizar_hls_aes(hls_aes).veredicto is veredicto
+
+
+# --- MPD, ISM y F4M: indicadores, alcance y decisión (FR-015, hallazgo G1; R5) --------
+
+CALIDADES_DE_VIDEO = [Calidad.MEJOR, Calidad.P1080, Calidad.P720]
+CP = dash.WIDEVINE_CP
+
+
+def video(id_, altura=720, dentro=""):
+    return dash.representacion(id_, f"{id_}.mp4", dash.VIDEO, altura=altura, dentro=dentro)
+
+
+def audio(id_="audio", dentro=""):
+    return dash.representacion(id_, f"{id_}.m4a", dash.AUDIO, dentro=dentro)
+
+
+def conjunto_video(*representaciones, dentro=""):
+    return dash.conjunto(dash.VIDEO, *representaciones, dentro=dentro)
+
+
+def conjunto_audio(*representaciones, dentro=""):
+    return dash.conjunto(dash.AUDIO, *(representaciones or [audio()]), dentro=dentro)
+
+
+def quedan(cuerpo: bytes) -> list[str]:
+    """Los `id` de las `Representation` que quedan en el manifiesto."""
+    return [e.get("id") for e in ElementTree.fromstring(cuerpo).iter()
+            if e.tag.rpartition("}")[2] == "Representation"]
+
+
+def rechazado(filtrado, sistema="DASH"):
+    return (filtrado is not None and filtrado.decision.veredicto is Veredicto.DRM
+            and filtrado.decision.mensaje
+            == f"contenido con DRM ({sistema}): no se puede descargar")
+
+
+def aceptado_sin_cambios(filtrado, cuerpo):
+    return (filtrado is not None and filtrado.decision.veredicto is Veredicto.ACEPTADO
+            and filtrado.cuerpo == cuerpo and filtrado.omitidas == 0)
+
+
+@pytest.mark.parametrize(
+    "cuerpo",
+    [
+        b"<!DOCTYPE html>\n<html><head><title>v</title></head><body></body></html>",
+        b'<?xml version="1.0"?><rss version="2.0"><channel/></rss>',
+        b'<smil xmlns="http://www.w3.org/2001/SMIL20/Language"><body/></smil>',
+        b"<MPD><Period>sin cerrar",  # XML mal formado: yt-dlp tampoco lo leería
+        b"\x00\x00\x00\x18ftypmp42",
+        b"",
+    ],
+    ids=["html", "rss", "smil", "mal-formado", "binario", "vacio"],
+)
+def test_lo_que_no_es_un_manifiesto_no_se_analiza(cuerpo):
+    assert drm.filtrar_xml(cuerpo, Calidad.MEJOR) is None
+
+
+@pytest.mark.parametrize("calidad", [*Calidad, None])
+def test_mpd_sin_proteccion_se_entrega_igual(calidad):
+    cuerpo = dash.mpd(dash.periodo(conjunto_video(video("v1080", 1080), video("v720")),
+                                   conjunto_audio()))
+    assert aceptado_sin_cambios(drm.filtrar_xml(cuerpo, calidad), cuerpo)
+
+
+# Indicadores por su nombre local, con cualquier espacio de nombres (o ninguno).
+CON_PREFIJO = (
+    b'<dash:MPD xmlns:dash="urn:mpeg:dash:schema:mpd:2011"><dash:Period>'
+    b'<dash:ContentProtection schemeIdUri="urn:mpeg:dash:mp4protection:2011"/>'
+    b'<dash:AdaptationSet mimeType="video/mp4"><dash:Representation id="v" height="720">'
+    b"<dash:BaseURL>v.mp4</dash:BaseURL></dash:Representation></dash:AdaptationSet>"
+    b"</dash:Period></dash:MPD>"
+)
+
+
+@pytest.mark.parametrize(
+    "cuerpo",
+    [
+        dash.mpd(dash.periodo(conjunto_video(video("v")), dentro=CP)),
+        CON_PREFIJO,
+        dash.mpd(dash.periodo(conjunto_video(video("v")),
+                              dentro='<otro:ContentProtection xmlns:otro="urn:ejemplo"/>')),
+        dash.mpd(dash.periodo(conjunto_video(video("v")), dentro='<ContentProtection xmlns=""/>')),
+        CON_PREFIJO.replace(b"dash:", b"").replace(b' xmlns:dash="urn:mpeg:dash:schema:mpd:2011"',
+                                                     b""),
+        CON_PREFIJO.replace(b"dash:MPD", b"dash:mpd"),
+    ],
+    ids=["espacio-por-defecto", "con-prefijo", "otro-espacio", "sin-espacio-en-un-mpd-con-el",
+         "mpd-sin-espacio", "raiz-en-minusculas"],
+)
+def test_content_protection_por_su_nombre_local(cuerpo):
+    assert rechazado(drm.filtrar_xml(cuerpo, Calidad.AUDIO))
+
+
+@pytest.mark.parametrize("calidad", [*Calidad, None])
+@pytest.mark.parametrize(
+    "cuerpo",
+    [
+        dash.mpd(dash.periodo(conjunto_video(video("v")), conjunto_audio()), dentro=CP),
+        dash.mpd(dash.periodo(conjunto_video(video("v")), conjunto_audio(), dentro=CP)),
+        dash.mpd(dash.periodo(conjunto_video(video("v")), conjunto_audio(),
+                              dentro=f"<EventStream>{CP}</EventStream>")),
+    ],
+    ids=["mpd", "period", "period-fuera-de-un-adaptationset"],
+)
+def test_proteccion_en_el_mpd_o_en_un_period_rechaza_todo(cuerpo, calidad):
+    assert rechazado(drm.filtrar_xml(cuerpo, calidad))
+
+
+VIDEO_PROTEGIDO = {
+    "adaptationset": conjunto_video(video("v"), dentro=CP),
+    "contentcomponent": conjunto_video(
+        video("v"), dentro=f'<ContentComponent contentType="video">{CP}</ContentComponent>'),
+    "representation": conjunto_video(video("v", dentro=CP)),
+    "subrepresentation": conjunto_video(
+        video("v", dentro=f'<SubRepresentation level="0">{CP}</SubRepresentation>')),
+}
+
+
+@pytest.mark.parametrize("nivel", VIDEO_PROTEGIDO)
+@pytest.mark.parametrize("calidad", CALIDADES_DE_VIDEO)
+def test_video_protegido_con_audio_libre_se_rechaza_si_se_pide_video(nivel, calidad):
+    """El defecto de R5: yt-dlp descargaba solo el audio, sin aviso."""
+    cuerpo = dash.mpd(dash.periodo(VIDEO_PROTEGIDO[nivel], conjunto_audio()))
+    assert rechazado(drm.filtrar_xml(cuerpo, calidad))
+
+
+@pytest.mark.parametrize("nivel", VIDEO_PROTEGIDO)
+def test_video_protegido_con_audio_libre_se_descarga_si_se_pide_audio(nivel):
+    cuerpo = dash.mpd(dash.periodo(VIDEO_PROTEGIDO[nivel], conjunto_audio()))
+    filtrado = drm.filtrar_xml(cuerpo, Calidad.AUDIO)
+    assert filtrado.decision.veredicto is Veredicto.ACEPTADO
+    assert filtrado.omitidas == 1
+    assert quedan(filtrado.cuerpo) == ["audio"]
+
+
+@pytest.mark.parametrize("calidad", [*Calidad])
+def test_audio_protegido_con_video_libre_se_rechaza(calidad):
+    """Con video, el contenido tiene audio (protegido): hace falta un audio sin proteger."""
+    cuerpo = dash.mpd(dash.periodo(conjunto_video(video("v")), conjunto_audio(dentro=CP)))
+    assert rechazado(drm.filtrar_xml(cuerpo, calidad))
+
+
+@pytest.mark.parametrize("calidad", [*Calidad, None])
+def test_mixto_excluye_la_1080p_protegida(calidad):
+    cuerpo = dash.mpd(dash.periodo(
+        conjunto_video(video("v1080", 1080, dentro=CP), video("v720")), conjunto_audio(),
+    ))
+    filtrado = drm.filtrar_xml(cuerpo, calidad)
+    assert filtrado.decision.veredicto is Veredicto.ACEPTADO
+    assert filtrado.omitidas == 1
+    assert quedan(filtrado.cuerpo) == ["v720", "audio"]
+
+
+def test_solo_se_quitan_los_bytes_de_las_representaciones_protegidas():
+    protegida = video("v1080", 1080, dentro=CP)
+    cuerpo = dash.mpd(dash.periodo(conjunto_video(protegida, video("v720")), conjunto_audio()))
+    filtrado = drm.filtrar_xml(cuerpo, Calidad.MEJOR)
+    assert filtrado.cuerpo == cuerpo.replace(protegida.encode(), b"")
+
+
+def test_la_proteccion_del_conjunto_alcanza_a_todas_sus_representaciones():
+    cuerpo = dash.mpd(dash.periodo(
+        conjunto_video(video("v1440", 1440), video("v1080", 1080), dentro=CP),
+        conjunto_video(video("v720")), conjunto_audio(),
+    ))
+    filtrado = drm.filtrar_xml(cuerpo, Calidad.MEJOR)
+    assert filtrado.omitidas == 2
+    assert quedan(filtrado.cuerpo) == ["v720", "audio"]
+
+
+def test_contenido_sin_audio_basta_un_video_libre():
+    cuerpo = dash.mpd(dash.periodo(conjunto_video(video("v1080", 1080, dentro=CP), video("v720"))))
+    filtrado = drm.filtrar_xml(cuerpo, Calidad.MEJOR)
+    assert filtrado.decision.veredicto is Veredicto.ACEPTADO
+    assert quedan(filtrado.cuerpo) == ["v720"]
+    assert rechazado(drm.filtrar_xml(cuerpo, Calidad.AUDIO))
+
+
+MIXTA = ('<Representation id="{id}" codecs="avc1.64001e,mp4a.40.2" height="720" bandwidth="1">'
+         '{dentro}<BaseURL>{id}.mp4</BaseURL></Representation>')
+
+
+def test_una_representacion_con_video_y_audio_cuenta_como_los_dos():
+    # Protegida: el contenido tiene audio, y no queda ninguno sin proteger.
+    cuerpo = dash.mpd(dash.periodo(conjunto_video(MIXTA.format(id="m", dentro=CP), video("v"))))
+    assert rechazado(drm.filtrar_xml(cuerpo, Calidad.MEJOR))
+    # Libre: cubre el video y el audio.
+    cuerpo = dash.mpd(dash.periodo(conjunto_video(MIXTA.format(id="m", dentro="")),
+                                   conjunto_audio(dentro=CP)))
+    for calidad in Calidad:
+        filtrado = drm.filtrar_xml(cuerpo, calidad)
+        assert filtrado.decision.veredicto is Veredicto.ACEPTADO
+        assert quedan(filtrado.cuerpo) == ["m"]
+
+
+def test_los_codecs_prevalecen_sobre_el_mime_type():
+    """Como yt-dlp: una representación `video/mp4` con solo `mp4a` es un audio."""
+    solo_audio = ('<Representation id="a" codecs="mp4a.40.2" bandwidth="1">'
+                  "<BaseURL>a.mp4</BaseURL></Representation>")
+    cuerpo = dash.mpd(dash.periodo(conjunto_video(video("v", dentro=CP), solo_audio)))
+    assert quedan(drm.filtrar_xml(cuerpo, Calidad.AUDIO).cuerpo) == ["a"]
+    assert rechazado(drm.filtrar_xml(cuerpo, Calidad.MEJOR))
+
+
+def test_sin_calidad_basta_cualquier_representacion_libre():
+    """La extracción sin descarga (`ytdl.extraer_plano`) no conoce la calidad pedida."""
+    cuerpo = dash.mpd(dash.periodo(conjunto_video(video("v"), dentro=CP), conjunto_audio()))
+    assert quedan(drm.filtrar_xml(cuerpo, None).cuerpo) == ["audio"]
+    todo = dash.mpd(dash.periodo(conjunto_video(video("v"), dentro=CP), conjunto_audio(dentro=CP)))
+    assert rechazado(drm.filtrar_xml(todo, None))
+
+
+def test_varios_period_con_proteccion_parcial_se_rechazan():
+    """yt-dlp une los periodos por formato: excluir en uno y no en otro daría un archivo
+    incompleto (o solo los anuncios de un MPD con anuncios insertados)."""
+    libre = dash.periodo(conjunto_video(video("v1080", 1080), video("v720")), conjunto_audio())
+    mixto = dash.periodo(conjunto_video(video("v1080", 1080, dentro=CP), video("v720")),
+                         conjunto_audio())
+    assert rechazado(drm.filtrar_xml(dash.mpd(libre, mixto), Calidad.MEJOR))
+    sin_proteccion = dash.mpd(libre, libre)
+    assert aceptado_sin_cambios(drm.filtrar_xml(sin_proteccion, Calidad.MEJOR), sin_proteccion)
+
+
+@pytest.mark.parametrize("codificacion", ["utf-16", "iso-8859-1"])
+def test_otras_codificaciones_declaradas(codificacion):
+    texto = dash.mpd(dash.periodo(
+        conjunto_video(video("v1080", 1080, dentro=CP), video("v720")),
+        conjunto_audio(audio("audio-ñ")),
+    )).decode().replace('encoding="UTF-8"', f'encoding="{codificacion}"')
+    filtrado = drm.filtrar_xml(texto.encode(codificacion), Calidad.MEJOR)
+    assert filtrado.omitidas == 1
+    assert quedan(filtrado.cuerpo) == ["v720", "audio-ñ"]
+
+
+def test_utf8_invalido_sin_declaracion_se_analiza_igual():
+    """yt-dlp lo decodifica sustituyendo los bytes inválidos; el analizador también lo lee."""
+    cuerpo = dash.mpd(dash.periodo(conjunto_video(video("v")), dentro=CP))
+    cuerpo = cuerpo.replace(b'<?xml version="1.0" encoding="UTF-8"?>\n', b"")
+    cuerpo = cuerpo.replace(b'type="static"', b'type="static" titulo="\xe9\xff"')
+    assert rechazado(drm.filtrar_xml(cuerpo, Calidad.MEJOR))
+
+
+@pytest.mark.parametrize(
+    "proteccion",
+    [
+        dash.PROTECTION, dash.PROTECTION_SOLA, dash.PROTECTION_HEADER,
+        '<otro:Protection xmlns:otro="urn:ejemplo"/>',
+    ],
+    ids=["protection-y-header", "protection", "protection-header", "otro-espacio"],
+)
+def test_ism_con_cualquier_indicador_se_rechaza(proteccion):
+    assert rechazado(drm.filtrar_xml(dash.ism(proteccion), Calidad.AUDIO), "ISM")
+
+
+def test_protection_header_dentro_de_un_stream_index():
+    cuerpo = dash.ism().replace(b"</StreamIndex>",
+                                f"{dash.PROTECTION_HEADER}</StreamIndex>".encode())
+    assert rechazado(drm.filtrar_xml(cuerpo, Calidad.MEJOR), "ISM")
+
+
+def test_ism_sin_proteccion_se_entrega_igual():
+    cuerpo = dash.ism()
+    assert aceptado_sin_cambios(drm.filtrar_xml(cuerpo, Calidad.MEJOR), cuerpo)
+
+
+@pytest.mark.parametrize("junto", [False, True], ids=["solo", "con-media-sin-cifrar"])
+@pytest.mark.parametrize(
+    "indicador",
+    [dash.DRM_HEADER, dash.DRM_HEADER_SET, dash.MEDIA_CON_HEADER_ID,
+     dash.MEDIA_CON_HEADER_SET_ID],
+    ids=["drm-header", "drm-header-set", "media-header-id", "media-header-set-id"],
+)
+def test_f4m_con_cualquier_indicador_se_rechaza_entero(indicador, junto):
+    elementos = [indicador, dash.MEDIA_SIN_CIFRAR] if junto else [indicador]
+    assert rechazado(drm.filtrar_xml(dash.f4m(*elementos), Calidad.MEJOR), "F4M")
+
+
+def test_f4m_2_0():
+    cuerpo = dash.f4m(dash.MEDIA_CON_HEADER_ID).replace(b"f4m/1.0", b"f4m/2.0")
+    assert rechazado(drm.filtrar_xml(cuerpo, Calidad.MEJOR), "F4M")
+
+
+def test_f4m_sin_cifrar_se_entrega_igual():
+    cuerpo = dash.f4m(dash.MEDIA_SIN_CIFRAR)
+    assert aceptado_sin_cambios(drm.filtrar_xml(cuerpo, Calidad.MEJOR), cuerpo)
+
+
+# --- Qué cuerpos se retienen hasta tenerlos enteros ---------------------------------
+
+
+@pytest.mark.parametrize(
+    ("prefijo", "final", "esperado"),
+    [
+        (b"<MPD", False, True),
+        (b' \r\n\t<?xml version="1.0"?>', False, True),
+        (b"\xef\xbb\xbf<MPD", False, True),
+        (b"\xff\xfe<\x00", False, True),
+        (b"\xfe\xff\x00<", False, True),
+        (b"\x00\x00\x00\x18ftypmp42", False, False),
+        (b"#EXTM3U\n", False, False),
+        (b"G@\x11", False, False),
+        (b"  \n", False, None),
+        (b"\xef\xbb", False, None),
+        (b"", False, None),
+        (b"  \n", True, False),
+        (b"", True, False),
+    ],
+)
+def test_posible_xml(prefijo, final, esperado):
+    assert drm.posible_xml(prefijo, final) is esperado
