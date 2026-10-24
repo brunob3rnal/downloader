@@ -7,10 +7,13 @@ Lo que la verificación debe atrapar es un archivo que yt-dlp da por terminado y
 un servidor que anuncia menos bytes de los que tiene el archivo y sirve justo esos.
 """
 
+import gc
 import io
+import os
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -93,6 +96,25 @@ def paquetes(archivo):
         check=True, capture_output=True, text=True,
     ).stdout
     return [int(linea) for linea in salida.split()]
+
+
+def abiertos(carpeta):
+    """Archivos de `carpeta` que algún objeto de archivo de este proceso tiene abiertos."""
+    archivos = {}
+    for ruta in Path(carpeta).iterdir():
+        if ruta.is_file():
+            estado = ruta.stat()
+            archivos[estado.st_dev, estado.st_ino] = ruta.name
+    nombres = []
+    for objeto in gc.get_objects():
+        if isinstance(objeto, io.FileIO) and not objeto.closed:
+            try:
+                estado = os.fstat(objeto.fileno())
+            except (OSError, ValueError):  # cerrado entre medias
+                continue
+            if (estado.st_dev, estado.st_ino) in archivos:
+                nombres.append(archivos[estado.st_dev, estado.st_ino])
+    return sorted(nombres)
 
 
 def test_tamano_anunciado_mayor_que_el_servido_se_reintenta_sin_publicar(
@@ -223,6 +245,41 @@ def test_fragmento_hls_cortado_en_transito_se_reintenta_y_termina_integro(
     assert Estado.WAITING_NETWORK in entorno.estados
     assert entorno.publicados() == ["Video HLS [h].mp4"]
     assert paquetes(destino / "Video HLS [h].mp4") == paquetes(medios.mp4)
+
+
+def test_cada_intento_empieza_sin_archivos_del_anterior_abiertos(
+    entorno, destino, servidor, medios, monkeypatch
+):
+    """En Windows no se puede renombrar un archivo abierto (WinError 32): si un intento fallido
+    deja abierto el `.part`, el siguiente no puede terminarlo (research R24)."""
+    from downloader import ytdl
+    from downloader.models import Estado
+
+    al_empezar = []  # archivos del directorio de trabajo abiertos al empezar cada intento
+    descargar = ytdl.descargar
+
+    def espiar(descarga, trabajo, *args, **kwargs):
+        al_empezar.append(abiertos(trabajo))
+        return descargar(descarga, trabajo, *args, **kwargs)
+
+    monkeypatch.setattr(ytdl, "descargar", espiar)
+    manifiesto = servidor.registrar_hls("hls", medios.hls)
+    servidor.programar("hls/fragmento2.ts", cortar_tras_bytes=1000, veces=4)
+    servidor.registrar_video("h", manifiesto, titulo="Video HLS")
+    id_ = entorno.agregar(servidor.url("watch/h")).descarga.id
+    # Sin el recolector de ciclos, solo se cierra lo que cierre el trabajador: el resultado no
+    # depende de cuándo le toque actuar.
+    activo = gc.isenabled()
+    gc.disable()
+    try:
+        entorno.ejecutar()
+    finally:
+        if activo:
+            gc.enable()
+
+    assert entorno.cola.obtener(id_).estado is Estado.COMPLETED
+    assert len(al_empezar) >= 2, "no hubo reintentos"
+    assert al_empezar == [[]] * len(al_empezar)
 
 
 def test_fragmento_hls_ausente_no_se_salta(entorno, destino, servidor, medios):

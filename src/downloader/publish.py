@@ -2,6 +2,7 @@
 FR-022, FR-023)."""
 
 import errno
+import itertools
 import json
 import os
 import shutil
@@ -226,12 +227,18 @@ def apartar_invalidos(trabajo: Path) -> Path:
     """Mueve los archivos del intento a `invalidos/<fecha>/` dentro de `trabajo`; no borra nada.
 
     Así, si se vuelve a encolar, yt-dlp no da por buenos esos archivos y descarga de nuevo.
-    La fecha no lleva `:`, que no es válido en Windows.
+    La fecha no lleva `:`, que no es válido en Windows. Si ya existe una carpeta con la misma
+    fecha (en Windows el reloj avanza a saltos), se añade `-1`, `-2`… (R24).
     """
     trabajo = Path(trabajo)
     fecha = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%S.%fZ")
     destino = trabajo / INVALIDOS / fecha
-    destino.mkdir(parents=True)  # nuevo: nunca mezcla dos intentos
+    for numero in itertools.count(1):
+        try:
+            destino.mkdir(parents=True)  # nuevo: nunca mezcla dos intentos
+            break
+        except FileExistsError:
+            destino = trabajo / INVALIDOS / f"{fecha}-{numero}"
     for entrada in list(trabajo.iterdir()):
         if entrada.name != INVALIDOS:
             entrada.rename(destino / entrada.name)  # el destino está vacío: no sobrescribe

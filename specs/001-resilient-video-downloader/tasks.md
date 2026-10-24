@@ -230,6 +230,11 @@ perder progreso; directos y DRM rechazados.
 
 **Checkpoint**: escenarios 5, 6 y 10 en verde; todo lo anterior sigue en verde.
 
+### Corrección: archivos abiertos y carpetas repetidas en Windows (añadida tras la Fase 7)
+
+- [X] T055a Tests (research R24), escritos y en rojo antes de T055b. Origen: el CI de Windows del PR #8, donde `tests/integration/test_integridad.py::test_fragmento_hls_cortado_en_transito_se_reintenta_y_termina_integro` fallaba con `WinError 32` al renombrar el `.part` y `tests/unit/test_verificacion.py::test_apartar_dos_veces_conserva_los_anteriores` a veces con `FileExistsError`. En `tests/integration/test_integridad.py`, con el recolector de ciclos desactivado, un HLS con un fragmento cortado más veces que los reintentos de yt-dlp empieza cada intento sin ningún archivo del directorio de trabajo abierto (comprobado por `fstat` de los objetos de archivo vivos, igual en Linux y en Windows); en `tests/unit/test_verificacion.py`, `apartar_invalidos` dos veces con el reloj fijado en el mismo instante crea dos carpetas distintas
+- [X] T055b En `src/downloader/worker.py`, `gc.collect()` antes de cada intento de descarga; en `src/downloader/publish.py`, `apartar_invalidos` añade `-1`, `-2`… si ya existe la carpeta de esa fecha. Hace pasar T055a
+
 ---
 
 ## Phase 8: User Story 6 - Configuración y cookies del navegador (Priority: P3)

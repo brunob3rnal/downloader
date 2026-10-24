@@ -6,7 +6,7 @@ se une, se remuxa o se borra, así que `formato_terminado` lo anota en ese momen
 """
 
 import subprocess
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
@@ -158,3 +158,27 @@ def test_apartar_dos_veces_conserva_los_anteriores(tmp_path):
     assert (primero / "descarga.mp4").read_bytes() == b"primero"
     assert (segundo / "descarga.mp4").read_bytes() == b"segundo"
     assert sorted(p.name for p in trabajo.iterdir()) == [publish.INVALIDOS]
+
+
+def test_apartar_dos_veces_en_el_mismo_instante(tmp_path, monkeypatch):
+    """En Windows el reloj avanza a saltos: dos llamadas seguidas pueden dar la misma fecha."""
+    instante = datetime(2026, 10, 24, 3, 12, 18, 373500, tzinfo=UTC)
+
+    class Parado(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return instante
+
+    monkeypatch.setattr(publish, "datetime", Parado)
+    trabajo = tmp_path / "7"
+    trabajo.mkdir()
+    (trabajo / "descarga.mp4").write_bytes(b"primero")
+    primero = publish.apartar_invalidos(trabajo)
+    (trabajo / "descarga.mp4").write_bytes(b"segundo")
+    segundo = publish.apartar_invalidos(trabajo)
+
+    assert primero != segundo
+    assert primero.parent == segundo.parent == trabajo / publish.INVALIDOS
+    assert segundo.name.startswith(primero.name)  # la misma fecha, distinguida
+    assert (primero / "descarga.mp4").read_bytes() == b"primero"
+    assert (segundo / "descarga.mp4").read_bytes() == b"segundo"
