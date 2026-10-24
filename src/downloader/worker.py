@@ -1,5 +1,6 @@
 """Bucle de `ejecutar`: tomar de la cola, extraer, descargar, publicar (FR-021)."""
 
+import gc
 import os
 import shutil
 import time
@@ -188,6 +189,10 @@ def _descargar(store, presentador, tiempos, navegador, seguimiento):
     _comprobar_carpeta(descarga.carpeta_destino)
     trabajo = ytdl.directorio_trabajo(descarga)
     trabajo.mkdir(parents=True, exist_ok=True)
+    # Cierra lo que dejó abierto el intento anterior: si un fragmento falla con `DownloadError`,
+    # yt-dlp no cierra el `.part` y queda en un ciclo de referencias de la traza. En Windows,
+    # mientras siga abierto, este intento no podría renombrarlo al terminar (R24).
+    gc.collect()
     seguimiento.empezar_intento(trabajo)
     formatos = []  # los terminados en este intento, con su tamaño en disco al terminar (R8)
 

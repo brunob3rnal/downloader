@@ -167,6 +167,12 @@ tests/
     ambiguo con el tope de FR-026. Es un tercer comportamiento de `urlopen`, sin métodos nuevos
     sobrescritos (R23).
 
+18. El trabajador llama a `gc.collect()` antes de cada intento de descarga: cuando un
+    fragmento falla con `DownloadError`, yt-dlp deja el `.part` abierto en un ciclo de
+    referencias, y en Windows el intento siguiente no podía renombrarlo al terminar
+    (`WinError 32`). `apartar_invalidos` añade `-1`, `-2`… si ya existe la carpeta de esa
+    fecha, porque en Windows el reloj avanza a saltos (R24).
+
 ## Complexity Tracking
 
 Sin violaciones de la constitución que justificar.

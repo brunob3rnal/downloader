@@ -135,6 +135,12 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
 - **Decision**: rechazar como `PERMANENTE` si `info['is_live']` es verdadero, o si yt-dlp
   informa DRM (`_has_drm` o formatos con `has_drm`, que ya provoca
   `ExtractorError(expected=True)` "This video is DRM protected").
+- **Implementación**: `YoutubeDLRegistrado.process_info` lanza `ErrorPermanente` si
+  `is_live`: es el paso por el que yt-dlp entrega cada video resuelto a la descarga, antes de
+  elegir el descargador (FFmpegFD para HLS en directo) y de pedir ningún medio. No se hace en
+  `dl`, que debe seguir anotando la fase y el descargador externo de cualquier info (R4). El
+  DRM no necesita código propio: yt-dlp descarta los formatos con `has_drm` y lanza el error
+  al procesar el video, ya en `extraer_plano`.
 - **Rationale**: Principio V; no se intenta ningún formato con DRM.
 
 ## R6. Selección de calidad
@@ -590,3 +596,32 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   tolerancia de ±100 bytes y el GET completo sin cerrar); copiar las cabeceras en cada
   `Request` sobrescribiendo métodos del descargador HTTP de yt-dlp (mucho más acoplamiento);
   clasificar todo 416 como ambiguo (un `.part` completo agotaría el tope y fallaría).
+
+## R24. Archivos que siguen abiertos en Windows tras un intento fallido
+
+- **Hallazgos** (CI de Windows del PR #8; verificados en yt-dlp 2026.08.19 y CPython 3.12):
+  1. Cuando un fragmento HLS/DASH agota sus reintentos, el error sube como `DownloadError`
+     por `except DownloadError: if fatal: raise` (`yt_dlp/downloader/fragment.py`), que no
+     pasa por el `error_callback` que cierra `ctx['dest_stream']`. El `.part` queda abierto,
+     retenido por los marcos de la traza en un ciclo de referencias, hasta que actúa el
+     recolector de ciclos de Python.
+  2. En Linux eso no impide nada. En Windows, Python abre los archivos sin
+     `FILE_SHARE_DELETE`: el intento siguiente puede seguir escribiendo en el mismo `.part`,
+     pero al terminar no puede renombrarlo (`WinError 32`), yt-dlp lo da por error y la
+     descarga quedaba `failed` (`PERMANENTE`, sin señal de red). Que el recolector actúe
+     entre dos intentos depende de las reservas de memoria anteriores: en `main` el test
+     pasaba, y con los tests de la fase 7, que se ejecutan antes, fallaba en 2 de 2.
+  3. `apartar_invalidos` nombra la carpeta con la fecha en microsegundos, pero en Windows el
+     reloj de Python 3.12 avanza a saltos (0,5 ms en el runner del CI, hasta 16 ms): dos
+     llamadas seguidas daban el mismo nombre y `mkdir` fallaba con `FileExistsError`.
+- **Decision**: el trabajador llama a `gc.collect()` antes de cada intento de descarga, cuando
+  el error del intento anterior ya no está referenciado; cerrar ese archivo no es posible
+  desde fuera de yt-dlp sin recorrer sus marcos. `apartar_invalidos` añade `-1`, `-2`… si la
+  carpeta de esa fecha ya existe. Los tests lo comprueban sin depender del sistema ni del
+  reloj: con el recolector desactivado, ningún archivo del directorio de trabajo sigue
+  abierto al empezar un intento (por `fstat` de los objetos de archivo vivos), y con el reloj
+  fijado, dos llamadas crean dos carpetas.
+- **Alternatives considered**: clasificar `WinError 32` como temporal (el siguiente intento
+  volvería a fallar mientras el archivo siga abierto); vaciar los marcos de la traza con
+  `traceback.clear_frames` (depende de qué variables retiene yt-dlp en cada versión); un
+  contador o un UUID en lugar de la fecha (se pierde el orden legible de los intentos).
