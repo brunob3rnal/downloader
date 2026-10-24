@@ -76,6 +76,8 @@ INTERNOS_YTDLP = {
     # R18: `HttpFD` escribe en el `.part` lo que devuelve `read` antes de volver a leer, y ningún
     # `except KeyboardInterrupt` del camino de descarga descarta Ctrl+C.
     "tests/integration/test_interrupcion.py::test_ctrl_c_a_mitad_de_bloque_no_pierde_lo_recibido",
+    "tests/integration/test_interrupcion.py::"
+    "test_ctrl_c_con_los_ultimos_bytes_y_relanzar_publica_sin_volver_a_descargar",
     # R5 (DASH, ISM y F4M): los extractores, también el genérico (que lee 512 bytes antes que
     # el resto), leen el manifiesto con `urlopen(...).read()` y crean los formatos solo a partir
     # de esos bytes, un formato por `Representation`; la descarga DASH no vuelve a pedir el MPD.
