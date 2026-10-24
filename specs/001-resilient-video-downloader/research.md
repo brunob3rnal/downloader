@@ -3,14 +3,16 @@
 Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento. Desde el 2026-10-24,
 `uv.lock` fija yt-dlp 2026.10.21: `actualizar` la aceptó tras pasar los tests marcados
 `ytdlp_internals` (R14), que cubren lo citado de R1, R3, R4, R19, R21, R23, R24 y R25. El resto
-de citas no se ha vuelto a revisar a mano en esa versión.
+de citas no se ha vuelto a revisar a mano en esa versión, salvo R5 y la lista de caminos que
+esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
 
 ## R1. yt-dlp como librería
 
 - **Decision**: usar `yt_dlp.YoutubeDL` en proceso, con un único adaptador (`ytdl.py`) que
   construye las opciones y traduce progreso y errores. Opciones fijas:
   `continuedl=True`, `nopart=False`, `skip_unavailable_fragments=False`,
-  `retries=3`, `fragment_retries=3`, `socket_timeout=20`, `noplaylist=True` al descargar,
+  `retries=1`, `fragment_retries=1`, `socket_timeout=15` (antes 3, 3 y 20; cambiados por R21),
+  `noplaylist=True` al descargar,
   `quiet=True` con un `logger` propio y `progress_hooks` para el progreso. `crear_ydl` fija
   además `hls_prefer_native=True` (HLS con el descargador nativo, que pasa por `urlopen` y
   deja registro de cada petición, R4, en lugar de ffmpeg). La dependencia es
@@ -115,9 +117,15 @@ de citas no se ha vuelto a revisar a mano en esa versión.
   los manifiestos (`hls.py`, `f4m.py`), las claves AES y la extracción
   (`InfoExtractor._request_webpage`) sí pasan. Lo esquivan:
   - `FFmpegFD`: con `hls_prefer_native=True` y `pycryptodomex` instalado solo se usa para HLS
-    o DASH en directo (rechazados antes, R5), HLS con cifrado distinto de AES-128 o con DRM
-    (que `HlsFD` delega en ffmpeg en tiempo de ejecución, sin que `dl` lo vea), `rtmp_ffmpeg`
-    y descargas por secciones (no se usan). Su fallo sin señal → `TEMPORAL` ambiguo.
+    o DASH en directo (rechazados antes, R5), HLS con un `METHOD` distinto de `NONE` y
+    `AES-128` que yt-dlp no reconoce como DRM, por ejemplo `SAMPLE-AES` con clave `identity`
+    o con un `KEYFORMAT` de Widevine (que `HlsFD` delega en ffmpeg en tiempo de ejecución, sin
+    que `dl` lo vea; R5 decide cuáles se rechazan antes), `rtmp_ffmpeg` y descargas por
+    secciones (no se usan). Su fallo sin señal → `TEMPORAL` ambiguo. El HLS que yt-dlp sí
+    reconoce como DRM (`HlsFD._has_drm`: URI `skd://`, `KEYFORMAT` de FairPlay o PlayReady,
+    `#EXT-X-FAXS-CM`) no se delega: `HlsFD` falla con "This format is DRM protected"
+    (verificado en 2026.10.21, `yt_dlp/downloader/hls.py`; antes este texto decía, por error,
+    que también se delegaba).
   - `RtmpFD` (rtmpdump) y `websocket_frag` (librería `websockets`): RTMP y WebSocket están
     fuera de alcance (spec, Assumptions).
   - `external_downloader`: no se configura.
@@ -135,16 +143,51 @@ de citas no se ha vuelto a revisar a mano en esa versión.
 
 ## R5. DRM y directos
 
-- **Decision**: rechazar como `PERMANENTE` si `info['is_live']` es verdadero, o si yt-dlp
-  informa DRM (`_has_drm` o formatos con `has_drm`, que ya provoca
-  `ExtractorError(expected=True)` "This video is DRM protected").
-- **Implementación**: `YoutubeDLRegistrado.process_info` lanza `ErrorPermanente` si
-  `is_live`: es el paso por el que yt-dlp entrega cada video resuelto a la descarga, antes de
-  elegir el descargador (FFmpegFD para HLS en directo) y de pedir ningún medio. No se hace en
-  `dl`, que debe seguir anotando la fase y el descargador externo de cualquier info (R4). El
-  DRM no necesita código propio: yt-dlp descarta los formatos con `has_drm` y lanza el error
-  al procesar el video, ya en `extraer_plano`.
-- **Rationale**: Principio V; no se intenta ningún formato con DRM.
+- **Decision (directos)**: rechazar como `PERMANENTE` si `info['is_live']` es verdadero.
+  `YoutubeDLRegistrado.process_info` lanza `ErrorPermanente`: es el paso por el que yt-dlp
+  entrega cada video resuelto a la descarga, antes de elegir el descargador (FFmpegFD para HLS
+  en directo) y de pedir ningún medio. No se hace en `dl`, que debe seguir anotando la fase y
+  el descargador externo de cualquier info (R4).
+- **Regla (DRM, constitución v3.0.0, Principio V; FR-015)**: un HLS cifrado se descarga solo si
+  la clave se obtiene por HTTP(S) desde la URI que declara `#EXT-X-KEY`, con
+  `KEYFORMAT="identity"` o sin `KEYFORMAT` (RFC 8216 §4.3.2.4: equivale a `identity`), y con la
+  misma sesión del usuario. Cualquier otra entrega de la clave es DRM y se rechaza sin pedirla.
+- **Hallazgos** (yt-dlp 2026.10.21, verificado con `HlsFD.can_download` y `HlsFD._has_drm`
+  sobre manifiestos de prueba, y leyendo `yt_dlp/downloader/hls.py`, `fragment.py` y
+  `extractor/common.py`):
+
+  | `METHOD` | Entrega de la clave | Qué hace yt-dlp | Regla |
+  |----------|---------------------|-----------------|-------|
+  | `NONE` | — | descargador nativo | se descarga |
+  | `AES-128` | URI http(s), sin `KEYFORMAT` o `identity` | nativo; pide la clave con `ydl.urlopen` (mismas cookies y cabeceras) y descifra con pycryptodomex | se descarga |
+  | `AES-128` | URI `data:` (clave incrustada) | nativo; el manejador `urllib` admite `data:` y descifra con esa clave | **DRM** (yt-dlp no lo rechaza) |
+  | `AES-128` | `KEYFORMAT` Widevine (`urn:uuid:edef8ba9-…`) u otro desconocido | nativo; intenta usar como clave lo que devuelva la URI | **DRM** (yt-dlp no lo rechaza) |
+  | `AES-128` o `SAMPLE-AES` | URI `skd://` o `KEYFORMAT` de FairPlay o PlayReady | `_has_drm`: la extracción marca el formato `has_drm` y lo descarta; si llega a descargarse, `HlsFD` falla con "This format is DRM protected" sin delegar | DRM (ya lo rechaza yt-dlp) |
+  | `SAMPLE-AES` | URI http(s), `identity` | `can_download` falso y sin `_has_drm` → delega en ffmpeg, que descifra | permitido por la regla; ver "Pendiente" |
+  | `SAMPLE-AES`, `SAMPLE-AES-CTR` | `KEYFORMAT` Widevine | delega en ffmpeg, que falla | **DRM** (yt-dlp no lo rechaza) |
+  | `SAMPLE-AES` | atributos con `URI` antes que `METHOD` | la expresión `#EXT-X-KEY:METHOD=(?!NONE\|AES-128)` no casa: descargador nativo, que solo descifra `AES-128` y **guarda los fragmentos cifrados** | DRM si su `KEYFORMAT` no es `identity`; si lo es, archivo cifrado que ffprobe puede dar por bueno |
+
+  Además: `#EXT-X-SESSION-KEY` del manifiesto maestro solo cuenta para `_has_drm`; la clave
+  que el extractor pone en `info['hls_aes']` (o los parámetros de `extra_param_to_key_url`)
+  sustituyen o modifican la URI del manifiesto: `hls_aes` es "otra entrega" y se rechaza.
+- **Decision (DRM)**:
+  - Lo que ya rechaza yt-dlp no necesita código propio: descarta los formatos con `has_drm`,
+    lanza `ExtractorError(expected=True)` "This video is DRM protected" si no queda ninguno
+    (ya en `extraer_plano`) y `HlsFD` falla con "This format is DRM protected" si el DRM solo
+    aparece en el manifiesto de medios. Se clasifica `PERMANENTE` (R4, regla 4).
+  - Migración (Fase 10 de tasks.md): antes de pedir ninguna clave ni fragmento, `ytdl.py`
+    comprueba cada `#EXT-X-KEY` y `#EXT-X-SESSION-KEY` de los manifiestos que lee el descargador
+    (pasan por `YoutubeDLRegistrado.urlopen`, R4) y la info del formato: con `METHOD` distinto
+    de `NONE`, se exige URI `http`/`https` y `KEYFORMAT` ausente o `identity`, y que no haya
+    `hls_aes`; si no, `ErrorPermanente` "contenido con DRM: …" con el motivo. Cubre las filas
+    marcadas **DRM** de la tabla, incluido el orden de atributos.
+  - **Pendiente** (decisión del usuario): `SAMPLE-AES` con clave `identity` cumple la regla,
+    pero yt-dlp lo delega en ffmpeg, cuyas peticiones no ve el registro de R4. Hasta decidirlo,
+    se acepta tal como lo hace yt-dlp y no hay test que lo cubra.
+- **Rationale**: Principio V; ninguna clave que no sea `identity` se llega a pedir.
+- **Alternatives considered**: confiar solo en `_has_drm` (deja pasar Widevine con `AES-128`,
+  las claves `data:` y el `SAMPLE-AES` mal ordenado); rechazar todo HLS cifrado (también el
+  cifrado de transporte, que el Principio V v3.0.0 permite).
 
 ## R6. Selección de calidad
 
@@ -332,7 +375,7 @@ de citas no se ha vuelto a revisar a mano en esa versión.
   - Marcador `ffmpeg`: `conftest.py` omite esos tests si `shutil.which("ffmpeg")` o
     `shutil.which("ffprobe")` es `None`.
   - Sin acceso a internet en ningún test.
-  - yt-dlp reintenta por su cuenta cortes y errores 5xx hasta `retries` (3). Para que un test
+  - yt-dlp reintenta por su cuenta cortes y errores 5xx hasta `retries` (1 desde R21; antes 3). Para que un test
     pruebe nuestros reintentos, el servidor debe fallar más veces seguidas que `retries` y el
     test debe comprobar que la fila pasó por `waiting_network`.
   - Los archivos que sirve el servidor en tests de descarga son medios válidos (MP4 y HLS
@@ -340,6 +383,31 @@ de citas no se ha vuelto a revisar a mano en esa versión.
     rechazaría bytes aleatorios. Por eso los tests que descargan llevan el marcador `ffmpeg`.
 - **Rationale**: Principio II; los cortes de red se prueban contra yt-dlp real, no contra un
   doble.
+- **Tiempos comprimidos frente a 24 horas sin red (SC-001)**: el trabajador no tiene ningún
+  límite de tiempo total ni de número de intentos para los errores temporales: solo
+  `intentos_sin_avance`, que fija la espera con un tope (R10), y `proximo_intento`. Un corte de
+  24 horas es la misma rama del bucle (`waiting_network` → espera → nuevo intento) repetida unas
+  290 veces con la espera en su tope de 300 s; con `tiempos_rapidos` (tope 0,5 s) se recorre la
+  misma rama, solo que más deprisa. Lo que cambia con el tiempo real fuera del programa (la URL
+  de medios caduca) lo cubre la re-extracción de cada intento (R2) y T051. No se prueba la
+  duración en sí: un `ejecutar` de 24 horas no aporta más casos.
+- **`Popen.kill()` frente a un corte de luz o un reinicio (SC-003)**: `SIGKILL` en Linux y
+  `TerminateProcess` en Windows no dejan ejecutar nada al proceso, como un corte de luz: ni
+  manejadores de señales, ni `finally`, ni el guardado de progreso de Ctrl+C. Lo que queda es lo
+  que el proceso ya había entregado al sistema operativo: las transacciones de SQLite
+  confirmadas y lo escrito en el `.part`. Para la cola, la equivalencia es completa porque
+  `synchronous=FULL` (R11) hace `fsync` en cada commit: lo confirmado sobrevive también a un
+  corte de luz, y al relanzar se recupera igual (filas en `downloading` → `queued`). Un
+  reinicio ordenado del equipo es un caso más suave: el sistema vacía su caché al apagarse.
+- **Límite de esa equivalencia**: `Popen.kill()` no simula la pérdida de la caché de páginas
+  del sistema. Tras un corte de luz, lo escrito en el `.part` y aún no volcado a disco se
+  pierde (en Linux, por defecto, hasta unos 30 s de escrituras). Con `ext4` en modo
+  `data=ordered` eso solo acorta el `.part`: se vuelve a descargar (no se pierde progreso
+  confirmado ni se corrompe el archivo), pero el exceso puede superar con mucho los 128 KiB de
+  SC-002. En sistemas de archivos que no ordenan datos y metadatos, el `.part` podría conservar
+  un tamaño cuyos últimos bloques no contengan los bytes recibidos; la verificación de R8 lo
+  detectaría solo si ffprobe encuentra el daño. No se ha comprobado en NTFS ni hay test que lo
+  cubra.
 - **Riesgo**: si el entorno de CI no tiene ffmpeg, las pruebas de unión y verificación se
   omitirían en silencio. El CI MUST instalar ffmpeg.
 
@@ -396,7 +464,7 @@ de citas no se ha vuelto a revisar a mano en esa versión.
     el hilo principal: `signal.signal` lanza `ValueError` en otro hilo (los tests llaman a
     `ejecutar` desde hilos), y las señales solo llegan al principal.
   - Una llamada bloqueante (`recv` sobre un socket) no se interrumpe: la señal se atiende
-    cuando vuelve, como mucho tras `socket_timeout` (20 s). En Linux, `EINTR` la corta al
+    cuando vuelve, como mucho tras `socket_timeout` (15 s desde R21). En Linux, `EINTR` la corta al
     instante.
   - Tras Ctrl+C, `ejecutar` guarda el último progreso, devuelve la fila a `queued`, muestra
     "interrumpido; progreso guardado" y sale con 130 (Fase 5, T042, T044).

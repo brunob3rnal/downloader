@@ -39,8 +39,8 @@ objetivo: nada lo excluye, pero no se verifica.
 
 **Project Type**: CLI de un solo paquete
 
-**Performance Goals**: progreso actualizado ≥ 1 vez/s (SC-007); retransmisión ≤ 1 % tras un
-corte (SC-002); error permanente notificado en < 30 s (SC-005)
+**Performance Goals**: progreso actualizado ≥ 1 vez/s (SC-007); total servido ≤ 1 % por encima
+del tamaño del archivo, acumulado en todas las reanudaciones (SC-002); error permanente notificado en < 30 s (SC-005)
 
 **Constraints**: sin servicio en segundo plano; un solo `ejecutar` a la vez; una descarga
 simultánea; ningún secreto en disco ni en logs
@@ -53,15 +53,15 @@ simultánea; ningún secreto en disco ni en logs
 
 | Principio | Cumplimiento en el diseño | Estado |
 |-----------|---------------------------|--------|
-| I. Código simple | un paquete, ~10 módulos, 2 dependencias Python directas (yt-dlp con sus extras por defecto y Typer), sin daemon ni concurrencia de descargas | Pasa |
+| I. Código simple | un paquete, 13 módulos, 2 dependencias Python directas (yt-dlp con sus extras por defecto y Typer), sin daemon ni concurrencia de descargas | Pasa |
 | II. Tests con cortes de red | servidor local con respuestas truncadas, timeouts, 5xx, apagado/rearranque, tokens caducados y `SIGKILL`; sin internet (R15) | Pasa; CI MUST instalar ffmpeg para no omitir en silencio |
 | III. Errores claros | clasificación TEMPORAL/PERMANENTE/FATAL con una tabla única por fase y tope de 3 intentos sin avance para 403/410 y ffmpeg (R4, FR-026); códigos de salida en [contracts/cli.md](contracts/cli.md) | Pasa |
 | IV. No perder progreso reanudable (v2.0.0) | `.part` en directorio de trabajo, `skip_unavailable_fragments=False`, recuperación al arrancar, Ctrl+C conserva todo; si el servidor no permite reanudar, reinicio con aviso detectado por retroceso de bytes (R3, FR-024) | Pasa |
-| V. Sin DRM | rechazo de `has_drm` e `is_live` antes de descargar (R5) | Pasa |
+| V. Sin DRM ni sistemas de licencias (v3.0.0) | `is_live` rechazado en `process_info`; lo que yt-dlp reconoce como DRM (`has_drm`, `HlsFD._has_drm`: `skd://`, FairPlay, PlayReady) falla como `PERMANENTE`; HLS `AES-128` con clave `identity` por HTTP(S) desde la URI del manifiesto y con la misma sesión se descarga y descifra (cifrado de transporte, permitido por la enmienda); las entregas de clave que yt-dlp no reconoce como DRM (`KEYFORMAT` Widevine u otro, URI `data:`, `hls_aes` del extractor, `SAMPLE-AES` con los atributos en otro orden) se rechazan con código propio (R5, decisión 30) | Pasa tras la Fase 10 (T089–T091); hasta entonces, esas entregas de clave no se rechazan. `SAMPLE-AES` con clave `identity`, pendiente de decisión (R5) |
 | VI. Sin credenciales | `cookiesfrombrowser` en memoria, sin `cookiefile`; la base de datos solo guarda el nombre del navegador; `config.toml` rechaza claves de credenciales o cookies; logger que filtra secretos (R12, R25) | Pasa |
 | Plataformas (v2.1.0) | sin dependencias nuevas: `msvcrt`/`fcntl` con import condicional (R17); publicación con `os.link` también en NTFS y copia exclusiva en FAT32/exFAT (R7); nombres válidos en Windows; `tests/unit/test_plataforma.py` falla ante un `import fcntl` o un `signal.SIGKILL` sin proteger; CI en Linux y Windows | Pasa; la verificación real en Windows es el job `windows-latest` |
 
-**Re-check post-diseño**: pasa. La excepción de R3 quedó resuelta al enmendar el Principio IV (constitución v2.0.0). La sección Plataformas (v2.1.0) se cumple con R7 y R17.
+**Re-check post-diseño**: pasa. La excepción de R3 quedó resuelta al enmendar el Principio IV (constitución v2.0.0). La sección Plataformas (v2.1.0) se cumple con R7 y R17. El descifrado de HLS AES-128, que la redacción anterior del Principio V prohibía (hallazgo C1 de `/speckit-analyze`), quedó resuelto al enmendarlo (constitución v3.0.0); su plan de migración es la Fase 10 de tasks.md.
 
 ## Project Structure
 
@@ -86,7 +86,7 @@ uv.lock
 src/downloader/
 ├── __init__.py
 ├── __main__.py          # `python -m downloader` (los tests lanzan así los subprocesos)
-├── cli.py               # Typer: agregar, ejecutar, actualizar; códigos de salida
+├── cli.py               # Typer: agregar, ejecutar, estado, actualizar; códigos de salida
 ├── actualizacion.py     # actualizar yt-dlp con uv y verificarlo con los tests de sus internos
 ├── config.py            # config.toml, rutas de la app, valores por defecto
 ├── models.py            # Estado, Calidad, Descarga, transiciones permitidas
@@ -103,7 +103,8 @@ tests/
 ├── conftest.py          # marcador ffmpeg, fixtures de servidor y base de datos temporal
 ├── support/
 │   ├── flaky_server.py  # HTTP con Range, cortes, 403 por token, apagado/rearranque
-│   └── fake_extractor.py   # InfoExtractor de prueba (no empieza por test_)
+│   ├── fake_extractor.py   # InfoExtractor de prueba (no empieza por test_)
+│   └── navegador_falso.py  # lectura de cookies del navegador simulada, con una cookie ficticia (R25)
 ├── unit/                # models, store, errors, retry, publish, ytdl (formatos)
 └── integration/         # cortes, caída de red, cierre abrupto, Ctrl+C, URL caducada, permanentes, listas, CLI
 ```
@@ -215,6 +216,16 @@ tests/
     R25), registrados en `pyproject.toml`. Los de `test_network_cuts.py` y
     `test_crash_recovery.py` (T016 y T017, que no se modifican) se aplican desde
     `tests/integration/conftest.py`; `tests/unit/test_marcadores.py` comprueba la lista exacta.
+
+29. `estado` (FR-032, hallazgo A1) lee la cola sin tomar `ejecutar.lock` ni hacer transiciones,
+    para poder usarse mientras `ejecutar` corre (WAL, R11). Vive en `cli.py` con una consulta de
+    solo lectura en `store.py` y el formato de línea en `progress.py`; no crea `cola.db` si no
+    existe. Con la base corrupta sale con 3, como `agregar`.
+30. Principio V enmendado (constitución v3.0.0): el HLS `AES-128` con clave `identity` por
+    HTTP(S) se descifra, y las entregas de clave que yt-dlp no reconoce como DRM se rechazan con
+    una comprobación propia de los `#EXT-X-KEY`/`#EXT-X-SESSION-KEY` en `ytdl.py`, antes de pedir
+    la clave (R5). Es código nuevo frente a "confiar en `has_drm`" porque yt-dlp descarga el
+    `AES-128` con `KEYFORMAT` de Widevine y las claves `data:`.
 
 ## Complexity Tracking
 
