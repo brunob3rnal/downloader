@@ -210,17 +210,37 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
     tabla), `test_directo_drm.py` (rechazos, sin peticiones de clave ni de fragmentos y sin
     lanzar ffmpeg) y `test_hls_aes.py` (aceptados y descifrados). DASH, ISM y F4M: T095 y T096
     (Fase 11).
-- **Regla (DASH, ISM y F4M; FR-015, hallazgo G1 de `/speckit-analyze`)**: cualquier indicador de
-  protección rechaza la descarga como DRM permanente (`ErrorPermanente`, sin reintentos), antes
-  de pedir ningún segmento y aunque el manifiesto tenga también representaciones sin protección.
-  Indicadores: un `ContentProtection` hijo de un `AdaptationSet` o de una `Representation` del
-  MPD, sea cual sea su `schemeIdUri` (también `urn:mpeg:dash:mp4protection:2011` solo, que no
-  nombra ningún sistema de licencias); un `Protection` hijo de `SmoothStreamingMedia` en ISM; y
-  en F4M, un `drmAdditionalHeader` o `drmAdditionalHeaderSet`, o un `media` con
-  `drmAdditionalHeaderId` o `drmAdditionalHeaderSetId`. Mensaje: "contenido con DRM
-  (DASH|ISM|F4M): no se puede descargar". Es el mismo criterio que en HLS, donde un DRM en el
-  manifiesto maestro rechaza todas sus variantes. Sin esta regla, yt-dlp elige en silencio lo
-  que queda sin proteger: otra calidad, o solo el audio.
+- **Regla (DASH, ISM y F4M; FR-015, hallazgo G1 de `/speckit-analyze`)**: detección propia
+  sobre el manifiesto, no lo que yt-dlp marque como DRM (`has_drm`), que no basta (ver
+  "Hallazgos" abajo).
+  - Indicadores, buscados por su nombre local, con cualquier espacio de nombres:
+    - MPD: un `ContentProtection` en cualquier nivel, sea cual sea su `schemeIdUri` (también
+      `urn:mpeg:dash:mp4protection:2011` solo, que no nombra ningún sistema de licencias).
+    - ISM: `Protection` o `ProtectionHeader`.
+    - F4M: un elemento `drmAdditionalHeader` o `drmAdditionalHeaderSet`, o un `media` con el
+      atributo `drmAdditionalHeaderId` o `drmAdditionalHeaderSetId`.
+  - ISM y F4M: con cualquier indicador, se rechaza el manifiesto entero.
+  - MPD, alcance de cada `ContentProtection` según dónde esté: en el `MPD` o en un `Period`
+    (fuera de sus `AdaptationSet`), todo el contenido, y se rechaza todo; dentro de un
+    `AdaptationSet` pero fuera de sus `Representation`, todas las de ese `AdaptationSet`;
+    dentro de una `Representation` (también en una `SubRepresentation`), esa representación.
+  - MPD con representaciones mixtas: una representación protegida se excluye y nunca se
+    descarga. Lo que queda se evalúa contra lo pedido: con `audio`, basta un audio sin
+    proteger; con `mejor`, `1080p` y `720p`, hace falta un video sin proteger y, si el
+    contenido tiene audio (alguna representación del MPD, protegida o no, lo lleva), un audio
+    sin proteger. Si se cumple, se descarga la mejor calidad sin proteger según la selección de
+    R6 y se añade a `ultimo_aviso` "N representaciones protegidas omitidas", junto a los demás
+    avisos (separados por "; "). Si no se cumple, se rechaza.
+  - Todo rechazo es `ErrorPermanente`, sin reintentos y sin pedir ningún medio (ni segmentos ni
+    representaciones), con el mensaje "contenido con DRM (DASH|ISM|F4M): no se puede
+    descargar".
+  - Dónde se aplica (plan, decisión 30): sobre cada manifiesto MPD, ISM o F4M leído por
+    `YoutubeDLRegistrado.urlopen`, como con HLS, y antes de que yt-dlp elija el formato.
+    Implementación pendiente: T095 y T096 (Fase 11).
+- **Defecto observado con la regla anterior** (rechazar solo lo que yt-dlp marca): con el video
+  protegido y el audio sin proteger, yt-dlp descarta el video y descarga solo el audio, sin
+  ningún aviso, con las cuatro calidades; es lo que hace el programa hasta T096. Con la regla
+  nueva se rechaza como DRM y no se descarga el audio, salvo que se pida `audio`.
 - **Hallazgos (DASH, ISM y F4M)**: verificados el 2026-10-24 con el yt-dlp instalado
   (2026.10.21), con manifiestos servidos por un servidor HTTP local y el extractor genérico; la
   elección de formato, con `ytdl.crear_ydl` y los cuatro selectores de R6 (`download=False`); las
@@ -228,7 +248,9 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
   También leyendo `_parse_mpd_formats_and_subtitles`, `_parse_ism_formats_and_subtitles` y
   `_parse_f4m_formats` (`extractor/common.py`), `remove_encrypted_media` y `F4mFD`
   (`downloader/f4m.py`) y `process_video_result` (`YoutubeDL.py`). El script no está en el
-  repositorio.
+  repositorio. yt-dlp **no detecta** un `ContentProtection` hijo de `Period` o de `MPD` (lo
+  descarga como si no estuviera protegido) y **no marca** F4M: descarta en silencio los `media`
+  cifrados. Es el motivo de la detección propia.
 
   | Manifiesto | Qué hace yt-dlp | Peticiones de medios |
   |------------|-----------------|----------------------|
@@ -236,29 +258,43 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
   | MPD con solo `urn:mpeg:dash:mp4protection:2011` (con y sin `cenc:default_KID`), en el `AdaptationSet` o en la `Representation` | igual: cuenta cualquier `ContentProtection` hijo directo, sin mirar `schemeIdUri` (elección verificada solo con `mejor`) | las del audio |
   | MPD mixto: 1080p con `ContentProtection` y 720p sin él, en `AdaptationSet` distintos o en el mismo | descarta la 1080p y elige `720p+audio`, sin aviso, con `mejor`, `1080p` y `720p` | las de la 720p y el audio |
   | MPD con video y audio protegidos | descarta todo y falla al extraer con "This video is DRM protected" (`ExtractorError`, `expected=True`), antes de `process_info` | ninguna |
-  | MPD con `ContentProtection` solo como hijo de `Period` o de `MPD` | no lo marca: lo descarga como si no estuviera protegido | todas |
-  | ISM con `<Protection>` (PlayReady) | marca `has_drm=True` todos los formatos (el elemento vale para todo el manifiesto) y falla al extraer con "This video is DRM protected" | ninguna |
+  | MPD con `ContentProtection` solo como hijo de `Period` o de `MPD` | **no lo detecta**: lo descarga como si no estuviera protegido | todas |
+  | ISM con `<Protection>` (PlayReady) | marca `has_drm=True` todos los formatos (busca `Protection` como hijo directo de la raíz) y falla al extraer con "This video is DRM protected" | ninguna |
   | F4M con un `media` con `drmAdditionalHeaderId` | **no marca `has_drm`**: descarta el `media` al extraer; sin ninguno más, falla con "No video formats found!" (`expected=False`), sin nombrar el DRM | ninguna |
   | F4M con un `media` cifrado y otro sin cifrar | descarta el cifrado en silencio y elige el otro; `_has_drm` vacío | no comprobado (el `bootstrapInfo` de prueba no era válido y la descarga falló antes de pedir fragmentos) |
   | F4M con un `drmAdditionalHeader` sin `id` | la extracción lo acepta; al descargar, `F4mFD` falla con "Missing ID in f4m DRM" | ninguna |
 
-  - En DASH e ISM, cuando quedan formatos sin proteger, `info['_has_drm']` sigue en `True` al
-    llegar a `process_info`; cuando no queda ninguno, yt-dlp falla antes, con su mensaje. En F4M
-    yt-dlp no marca nada, así que, como en HLS, el indicador hay que leerlo en el manifiesto.
   - `has_drm='maybe'` solo lo usa el extractor de YouTube, para formatos HLS: yt-dlp los
     conserva, no los cuenta en `_has_drm` y los prueba descargando un fragmento antes de
     elegirlos (`_check_formats`). Quedan fuera de esta regla porque son HLS y pasan por el
-    analizador de `drm.py`.
-  - Límite conocido: un `ContentProtection` hijo de `Period` o de `MPD` no lo marca yt-dlp y
-    queda fuera de la regla.
-  - No comprobado: manifiestos reales de sitios (los tests no usan internet); si el esquema de
-    DASH admite `ContentProtection` como hijo de `Period` o de `MPD`, y si aparece así en sitios
-    reales; un `ContentProtection` en `SubRepresentation` o `ContentComponent`; un
-    `ContentProtection` con `ref` a uno del nivel `MPD` (por lectura del código, yt-dlp lo
-    contaría si está en el `AdaptationSet` o la `Representation`; no lo ejecuté); el error
-    "Unsupported DRM" de `F4mFD`, porque con todos los `media` cifrados la extracción falla antes;
-    y los formatos `maybe` de YouTube. El ISM de prueba sin protección se extrajo sin `has_drm`
-    (control); su descarga no terminó, porque los fragmentos de prueba no eran válidos.
+    analizador de `drm.py`; no comprobado contra YouTube.
+- **Diferencia conocida con HLS (variantes mixtas)**: `drm.py` no aplica a HLS el criterio de
+  las representaciones mixtas de MPD, y no se cambia. Analiza cada manifiesto que se lee y, si
+  uno tiene DRM, rechaza la descarga entera; en un maestro sin `#EXT-X-SESSION-KEY`, la
+  protección de cada variante solo está en su lista de medios, y solo se leen la de la variante
+  elegida (al descargar) y las que lea el extractor (el genérico lee la de la primera variante
+  del maestro, para saber si es un directo). Verificado el 2026-10-24 con `ytdl.crear_ydl`, el
+  extractor genérico y un maestro con una 1080p y una 720p, una de ellas con Widevine en el
+  `#EXT-X-KEY` de su lista de medios:
+
+  | Variante protegida | Primera en el maestro | Calidad | Resultado |
+  |--------------------|-----------------------|---------|-----------|
+  | 1080p | 1080p | `mejor` o `720p` | rechazo DRM: la 1080p se lee al extraer |
+  | 1080p | 720p | `mejor` | rechazo DRM al leer la 1080p elegida; no recurre a la 720p sin proteger |
+  | 1080p | 720p | `720p` | se descarga la 720p, sin aviso |
+  | 720p | 1080p | `mejor` | se descarga la 1080p, sin aviso |
+  | 720p | 1080p | `720p` | rechazo DRM al leer la 720p elegida |
+  | 720p | 720p | `mejor` o `720p` | rechazo DRM: la 720p se lee al extraer |
+  | `#EXT-X-SESSION-KEY` Widevine en el maestro | — | `mejor` o `720p` | rechazo DRM sin leer ninguna lista de medios |
+
+  En ningún rechazo se pidió la clave ni un fragmento. Diferencias con MPD: una variante
+  protegida elegida o leída rechaza todo en lugar de excluirse; una protegida que no se lee no
+  se detecta ni se avisa; y el resultado depende del orden del maestro y del extractor.
+- **Límites conocidos (DRM)**: la detección solo se ha comprobado con manifiestos de prueba,
+  no con manifiestos reales de sitios (los tests no usan internet), tampoco en HLS; y la
+  descarga completa de un ISM sin protección no tiene test: el ISM de prueba sin protección se
+  extrajo sin `has_drm` (control), pero su descarga no terminó, porque los fragmentos de prueba
+  no eran válidos.
 - **Rationale**: Principio V; ninguna clave de un sistema de licencias se llega a pedir. El
   cifrado que solo ffmpeg sabe descargar se rechaza por FR-008, no por el Principio V.
 - **Alternatives considered**: confiar solo en `_has_drm` (deja pasar Widevine y el PSSH, y

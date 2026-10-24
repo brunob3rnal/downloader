@@ -59,7 +59,7 @@ simultánea; ningún secreto en disco ni en logs
 | II. Tests con cortes de red | servidor local con respuestas truncadas, timeouts, 5xx, apagado/rearranque, tokens caducados y `SIGKILL`; sin internet (R15) | Pasa; CI MUST instalar ffmpeg para no omitir en silencio |
 | III. Errores claros | clasificación TEMPORAL/PERMANENTE/FATAL con una tabla única por fase y tope de 3 intentos sin avance para 403/410 y ffmpeg (R4, FR-026); códigos de salida en [contracts/cli.md](contracts/cli.md) | Pasa |
 | IV. No perder progreso reanudable (v2.0.0) | `.part` en directorio de trabajo, `skip_unavailable_fragments=False`, recuperación al arrancar, Ctrl+C conserva todo; si el servidor no permite reanudar, reinicio con aviso detectado por retroceso de bytes (R3, FR-024) | Pasa |
-| V. Sin DRM ni sistemas de licencias (v3.0.0) | el criterio es el sistema de licencias: `skd://`, FairPlay, PlayReady, Widevine, PSSH y cualquier `KEYFORMAT` distinto de `identity` se rechazan como DRM con un analizador propio de los atributos de `#EXT-X-KEY`/`#EXT-X-SESSION-KEY`, en cualquier orden y antes de pedir la clave; `AES-128` con `KEYFORMAT` ausente o `identity` se descarga y descifra, con la clave por HTTP(S) (misma sesión), `data:` o `hls_aes`; `SAMPLE-AES` y otros métodos con clave `identity`, error permanente "no soportado" (FR-008, no Principio V); `is_live` rechazado en `process_info` (R5, decisión 30); en DASH, ISM y F4M, cualquier indicador de protección rechaza la descarga como DRM antes de pedir ningún segmento, aunque haya representaciones sin protección (R5, hallazgo G1) | Pasa en HLS (Fase 10, T089–T091); DASH, ISM y F4M pendientes de la Fase 11 (T095–T096) |
+| V. Sin DRM ni sistemas de licencias (v3.0.0) | el criterio es el sistema de licencias: `skd://`, FairPlay, PlayReady, Widevine, PSSH y cualquier `KEYFORMAT` distinto de `identity` se rechazan como DRM con un analizador propio de los atributos de `#EXT-X-KEY`/`#EXT-X-SESSION-KEY`, en cualquier orden y antes de pedir la clave; `AES-128` con `KEYFORMAT` ausente o `identity` se descarga y descifra, con la clave por HTTP(S) (misma sesión), `data:` o `hls_aes`; `SAMPLE-AES` y otros métodos con clave `identity`, error permanente "no soportado" (FR-008, no Principio V); `is_live` rechazado en `process_info` (R5, decisión 30); en DASH, ISM y F4M, detección propia de los indicadores de protección en el manifiesto, sin `has_drm`: ISM y F4M con cualquiera, rechazo entero; en MPD, las representaciones protegidas se excluyen y se descarga la mejor calidad sin proteger, con aviso, si cubre lo pedido, y si no, o con la protección en `Period` o `MPD`, rechazo como DRM sin pedir ningún medio (R5, hallazgo G1) | Pasa en HLS (Fase 10, T089–T091); DASH, ISM y F4M pendientes de la Fase 11 (T095–T096) |
 | VI. Sin credenciales | `cookiesfrombrowser` en memoria, sin `cookiefile`; la base de datos solo guarda el nombre del navegador; `config.toml` rechaza claves de credenciales o cookies; logger que filtra secretos (R12, R25) | Pasa |
 | Plataformas (v2.1.0) | sin dependencias nuevas: `msvcrt`/`fcntl` con import condicional (R17); publicación con `os.link` también en NTFS y copia exclusiva en FAT32/exFAT (R7); nombres válidos en Windows; `tests/unit/test_plataforma.py` falla ante un `import fcntl` o un `signal.SIGKILL` sin proteger; CI en Linux y Windows | Pasa; la verificación real en Windows es el job `windows-latest` |
 
@@ -236,6 +236,17 @@ tests/
     código nuevo frente a "confiar en
     `has_drm`" porque yt-dlp descarga el `AES-128` con `KEYFORMAT` de Widevine o con un PSSH, y
     pasa a ffmpeg el `SAMPLE-AES`, que no permite reanudar (FR-008).
+    Desde el hallazgo G1 (Fase 11, T095–T096), `drm.py` analiza también los manifiestos MPD, ISM
+    y F4M, con `xml.etree` (el mismo analizador con el que yt-dlp lee esos bytes: ni
+    dependencias nuevas ni más exposición). Busca los indicadores de R5 por su nombre local y,
+    en MPD, devuelve qué representaciones están protegidas y si la protección alcanza a todo
+    (`Period` o `MPD`). `ytdl.py` lo aplica a cada manifiesto leído, como con HLS: rechaza ISM y
+    F4M con indicadores; en MPD excluye de la selección los formatos de las representaciones
+    protegidas, evalúa lo que queda contra la calidad pedida y, si no la cubre, rechaza antes de
+    pedir ningún medio; si la cubre, el trabajador añade el aviso de las omitidas. Tampoco aquí
+    basta `has_drm`: yt-dlp no detecta un `ContentProtection` en `Period` o `MPD`, no marca F4M
+    y, entre lo no protegido, puede quedarse solo con el audio sin avisar. Las variantes HLS
+    mixtas siguen con el criterio de `drm.py` para HLS (diferencia conocida, R5).
 
 ## Complexity Tracking
 
