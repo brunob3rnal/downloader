@@ -74,6 +74,7 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
      | HTTP 429 o 5xx | `TEMPORAL` | `TEMPORAL` |
      | HTTP 404 | `PERMANENTE` | `PERMANENTE` |
      | HTTP 403 o 410 | `PERMANENTE` | `TEMPORAL` ambiguo (URL caducada: se vuelve a extraer, FR-012) |
+     | HTTP 416 que llega como error (sin `Content-Range */TOTAL` utilizable, R23) | `PERMANENTE` | `TEMPORAL` ambiguo |
      | otro 4xx | `PERMANENTE` | `PERMANENTE` |
 
      La fase es extracción si la cadena contiene un `ExtractorError` (yt-dlp envuelve en él
@@ -205,6 +206,7 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   3. Si la verificación falla, la descarga pasa a `failed` y los archivos del intento se
      mueven a `<directorio de trabajo>/invalidos/<fecha>/` (no se borran). Así, si el
      usuario la vuelve a encolar, yt-dlp no da por buenos esos archivos y descarga de nuevo.
+  4. Alcance real de estas comprobaciones y límites conocidos: R22.
 - **Rationale**: el tamaño del archivo unido no coincide con la suma de los formatos, por lo
   que el tamaño se comprueba antes de unir. `-count_packets` lee todo el contenedor sin
   decodificar: detecta truncamientos y es rápido.
@@ -504,3 +506,87 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   con un `recv` bloqueado en otro hilo no lo despierta de forma fiable en todas las
   plataformas, y exige atributos privados de urllib3); bajar `socket_timeout` (no detecta el
   goteo). La opción `throttledratelimit` de yt-dlp no se evaluó.
+
+## R22. Qué puede detectar la verificación (enmienda de R8 y de T046)
+
+- **Hallazgos** (verificados con yt-dlp 2026.08.19 contra `flaky_server`):
+  1. Un servidor que anuncia un `Content-Length` mayor del que sirve no llega a la
+     verificación: el descargador HTTP de yt-dlp lanza `ContentTooShortError` ("0 bytes read,
+     5000 more expected") y nunca da el archivo por terminado. Cada reanudación pide
+     `Range: bytes=N-`, recibe un 206 sin cuerpo y se cierra: desde el cliente es idéntico a
+     un corte repetido en el mismo byte, como los de T016 (`cortar_tras_bytes=0`). Por FR-010
+     y FR-026 (los cortes no cuentan para el tope) se reintenta indefinidamente y no se publica
+     nada; el `.part` se conserva.
+  2. En HTTP, `total_bytes` del evento `finished` es el número de bytes recibidos, que yt-dlp
+     ya obliga a coincidir con `Content-Length`; la comparación de tamaño de R8 es una
+     comprobación redundante del lado de la escritura en disco. En HLS, el evento `finished`
+     se refiere al TS concatenado, que después `FixupM3u8` remuxa a MP4 con otro tamaño: el
+     tamaño solo se puede medir en el momento del hook (`publish.formato_terminado`), no
+     después sobre el archivo final.
+  3. Un fragmento HLS cortado en tránsito tampoco llega a unirse: yt-dlp lo reanuda con
+     `Range` o lo reintenta, y si se agotan sus reintentos el error sube como corte.
+  4. Un fragmento HLS truncado **en el origen** (servido completo según su `Content-Length`)
+     no lo detecta `ffprobe -v error -count_packets`, ni sobre el MP4 remuxado ni sobre el TS:
+     termina sin errores, con paquetes en todos los flujos y duración positiva. Con
+     `-v warning` sobre el TS aparecen "Packet corrupt" y "PES packet size mismatch" en un
+     truncamiento intermedio, pero no si se trunca el último fragmento.
+  5. Lo que sí detecta: un archivo que el servidor sirve truncado con un `Content-Length`
+     coherente (anuncia menos de lo que mide el archivo). yt-dlp lo da por terminado y
+     `ffprobe -v error` sobre el MP4 informa errores ("Invalid NAL unit size", "partial
+     file") o no encuentra el `moov`.
+- **Decision** (aprobada por el usuario):
+  - T046(a) pasa a comprobar que, con `Content-Length` mayor que lo servido, la descarga
+    sigue pendiente reintentando, sin pasar a `failed` ni publicar nada. El caso de
+    verificación fallida es (a′): `Content-Length` menor que el archivo, que ffprobe rechaza.
+  - T046(b) pasa a ser un fragmento HLS cortado en tránsito, que se reintenta y termina
+    íntegro. El fragmento truncado en origen queda como límite conocido (spec, Edge Cases):
+    no se añade `-v warning` porque no cubre el último fragmento y los avisos de ffmpeg en
+    flujos reales darían falsos positivos.
+  - La verificación se mantiene como en R8: tamaño medido en el hook `finished` contra
+    `total_bytes` exacto y `ffprobe -v error` sobre el archivo final. Si falla, los archivos
+    del intento se mueven a `invalidos/<fecha>/` (fecha sin `:`, válida en Windows) y la
+    descarga pasa a `failed` (`VerificacionFallida`, un `ErrorPermanente`). Tras una
+    publicación correcta se borra el directorio de trabajo salvo `invalidos/`.
+- **Alternatives considered**: tratar como error ambiguo, con el tope de 3 de FR-026, una
+  respuesta 2xx que se cierra sin ningún byte (exigía enmendar FR-026 y contradice la
+  semántica de corte de T016); `ffprobe -v warning` sobre el TS antes del remux (incompleto y
+  con falsos positivos).
+
+## R23. HTTP 416 al reanudar un parcial completo o que no encaja
+
+- **Hallazgos** (verificados en yt-dlp 2026.08.19, `yt_dlp/downloader/http.py`):
+  1. Al reanudar, yt-dlp pide `Range: bytes=N-` con N = tamaño del `.part`. Si el `.part` ya
+     tiene todo el archivo (cierre abrupto justo tras el último byte, o un servidor que
+     anunciaba de más y se corrige, R22), el servidor responde 416 con
+     `Content-Range: bytes */TOTAL`.
+  2. Ante un 416, yt-dlp repite la petición "sin la cabecera Range" para comparar el
+     `Content-Length` del archivo entero con el `.part`, pero la repite **con** `Range`: el
+     setter de `Request.headers` guarda el mismo `HTTPHeaderDict` que recibe, así que
+     `request.headers['Range'] = …` modifica también el `headers` compartido con la petición
+     repetida. Recibe otro 416 y lo lanza: `HTTP Error 416`, que R4 clasificaba como "otro 4xx"
+     → `PERMANENTE`. La descarga fallaba con el archivo entero en disco.
+  3. Aunque la petición repetida saliera sin `Range`, la comparación de yt-dlp no sirve aquí:
+     acepta como completo un `.part` que difiera menos de 100 bytes (issue #175 de
+     youtube-dl), no cierra la respuesta de ese GET completo (el servidor empieza a enviar el
+     archivo aunque nadie lo lea) y emite `finished` con `total_bytes` = tamaño del `.part`.
+- **Decision**: `YoutubeDLRegistrado.urlopen` resuelve el 416 de la fase de descarga con
+  comparación exacta, sin depender de que yt-dlp corrija su error:
+  - `Content-Range: bytes */TOTAL` con TOTAL == N: el `.part` está completo. Se relanza el
+    416 y la petición repetida de yt-dlp recibe, sin red, una respuesta vacía con
+    `Content-Length: TOTAL`; yt-dlp lo da por terminado (`finished` con `total_bytes` = N =
+    TOTAL). Después la verificación de R8 (tamaño y ffprobe) es la misma de siempre: un
+    `.part` del tamaño correcto pero dañado no se publica.
+  - TOTAL < N: el `.part` no encaja con el archivo del servidor. En lugar del 416 se devuelve
+    el GET del archivo entero sin `Range`; yt-dlp ve un 200 sin `Content-Range`, borra el
+    `.part` y descarga desde cero (FR-024, R3) aunque la diferencia sea menor de 100 bytes. El
+    aviso dice el motivo: "reiniciada desde cero: el parcial (N bytes) es mayor que el archivo
+    del servidor (TOTAL bytes)". El motivo llega al trabajador en `Progreso.motivo_reinicio`
+    a través del parámetro `downloader_reinicios`.
+  - Sin `Content-Range` (o TOTAL > N, una respuesta incoherente): la petición repetida recibe
+    el mismo 416 sin red, y en la fase de descarga el 416 es `TEMPORAL` ambiguo
+    (`motivo="HTTP 416"`): se reintenta con el tope de 3 intentos sin avance de FR-026, nunca
+    `PERMANENTE` de entrada. Al extraer sigue siendo `PERMANENTE` (otro 4xx).
+- **Alternatives considered**: quitar solo `Range` de la petición repetida (conserva la
+  tolerancia de ±100 bytes y el GET completo sin cerrar); copiar las cabeceras en cada
+  `Request` sobrescribiendo métodos del descargador HTTP de yt-dlp (mucho más acoplamiento);
+  clasificar todo 416 como ambiguo (un `.part` completo agotaría el tope y fallaría).

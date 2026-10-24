@@ -39,6 +39,8 @@ def test_ejecutar_pasa_los_umbrales_al_trabajador(app_home, monkeypatch):
     recibidos = []
     monkeypatch.setattr(worker, "ejecutar", lambda *args: recibidos.append(args[3]))
     monkeypatch.setattr(cli.MonitorRed, "iniciar", lambda self: None)
+    # El trabajador está sustituido: no hace falta ffmpeg (su comprobación: test_ffmpeg_ausente).
+    monkeypatch.setattr(cli, "_comprobar_ffmpeg", lambda: None)
     resultado = CliRunner().invoke(cli.app, ["ejecutar"])
     assert resultado.exit_code == 0, resultado.output
     (tiempos,) = recibidos

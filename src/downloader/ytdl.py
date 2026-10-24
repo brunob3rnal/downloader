@@ -1,6 +1,8 @@
 """Adaptador de yt-dlp: opciones, formatos, extracción y progreso (research R1, R2, R6, R12, R13)."""
 
+import io
 import logging
+import re
 import threading
 import time
 import weakref
@@ -13,6 +15,7 @@ from typing import NamedTuple
 from yt_dlp import YoutubeDL
 from yt_dlp.downloader import get_suitable_downloader
 from yt_dlp.downloader.external import ExternalFD
+from yt_dlp.networking.common import Response
 from yt_dlp.networking.exceptions import HTTPError, IncompleteRead, TransportError
 from yt_dlp.utils import DownloadError
 
@@ -31,6 +34,9 @@ PASO_MUESTRAS = 0.25  # s entre muestras de la ventana de velocidad del vigilant
 # podría ser largo o un nombre reservado de Windows (`CON`, `NUL`…), que `windowsfilenames` no
 # sanea. Cada intento usa el mismo nombre, así que yt-dlp continúa el mismo `.part` (R2, R7).
 PLANTILLA = "descarga.%(ext)s"
+
+_RANGO_PEDIDO = re.compile(r"bytes=(\d+)-$")  # reanudación: desde el tamaño del `.part`
+_RANGO_416 = re.compile(r"bytes \*/(\d+)$")  # `Content-Range` de un 416: tamaño real
 
 FORMATOS = {
     Calidad.MEJOR: "bv*+ba/b",
@@ -59,6 +65,11 @@ class Progreso(NamedTuple):
     eta: float | None
     archivo: str | None
     estado: str  # "downloading" | "finished" | "error"
+    # `total_bytes` de yt-dlp: el tamaño exacto anunciado; `None` si solo hay una estimación
+    # (`total`, entonces, es `total_bytes_estimate`). La verificación solo compara con este (R8).
+    total_exacto: int | None = None
+    # Por qué yt-dlp vuelve a empezar este archivo desde cero, si lo sabemos (R23).
+    motivo_reinicio: str | None = None
 
 
 class Logger:
@@ -80,6 +91,20 @@ class Logger:
         self._logger.error(ocultar_secretos(mensaje))
 
 
+@dataclass
+class _Tras416:
+    """Qué responder a la petición que yt-dlp repite tras un 416 (research R23)."""
+
+    url: str
+    total: int | None = None  # el `.part` está completo: respuesta sin red de este tamaño
+    error: HTTPError | None = None  # si no: el mismo 416 otra vez, sin red
+
+    def responder(self):
+        if self.error is not None:
+            raise self.error
+        return Response(io.BytesIO(), self.url, {"Content-Length": str(self.total)}, 200, "OK")
+
+
 class YoutubeDLRegistrado(YoutubeDL):
     """`YoutubeDL` que lleva un `RegistroRed` del intento (research R4).
 
@@ -95,6 +120,9 @@ class YoutubeDLRegistrado(YoutubeDL):
 
     Con el parámetro `downloader_vigilancia` (una `Vigilancia`), vigila durante la descarga los
     bytes recibidos y aborta el intento con `SinDatos` si la conexión se estanca (R21).
+
+    Resuelve el 416 al reanudar con comparación exacta en lugar de la de yt-dlp (R23); el motivo
+    de un reinicio se añade a la lista del parámetro `downloader_reinicios`.
     """
 
     def __init__(self, params=None, *args, **kwargs):
@@ -108,6 +136,8 @@ class YoutubeDLRegistrado(YoutubeDL):
         self._recibidos = 0
         self._muestras: deque[tuple[float, int]] = deque()  # (instante, bytes recibidos)
         self._estancado: SinDatos | None = None
+        self._tras_416: _Tras416 | None = None
+        self._reinicios: list[str] | None = self.params.get("downloader_reinicios")
 
     # --- vigilante de estancamiento (R21) ---------------------------------------------
 
@@ -196,10 +226,17 @@ class YoutubeDLRegistrado(YoutubeDL):
         if self._estancado is not None:
             # Intento abortado: sin esto, el reintento interno de yt-dlp volvería a esperar.
             raise self._estancado
+        tras_416, self._tras_416 = self._tras_416, None
+        if tras_416 is not None and getattr(req, "url", req) == tras_416.url:
+            return tras_416.responder()
         try:
             respuesta = super().urlopen(req)
         except HTTPError as error:
             self._registrar(UltimaPeticion(estado=error.status))
+            if error.status == 416 and self.registro.fase is Fase.DESCARGA:
+                sustituta = self._rango_no_satisfacible(req, error)
+                if sustituta is not None:
+                    return sustituta
             raise
         except Exception as error:
             self._registrar(UltimaPeticion(error=error))
@@ -211,6 +248,38 @@ class YoutubeDLRegistrado(YoutubeDL):
             self._respuestas_extraccion.append(weakref.ref(respuesta))
         self._vigilar_cuerpo(respuesta)
         return respuesta
+
+    def _rango_no_satisfacible(self, req, error: HTTPError):
+        """Un 416 al reanudar desde el byte N del `.part` (research R23).
+
+        Tras un 416, yt-dlp repite la petición para pedir el archivo entero (aunque, por un
+        error suyo, con el mismo `Range`) y lo da por completo si su tamaño difiere menos de
+        100 bytes del `.part`. Aquí se decide con el tamaño exacto, `Content-Range: bytes */TOTAL`:
+
+        - TOTAL == N: el `.part` está completo. La petición repetida recibe, sin red, una
+          respuesta vacía con `Content-Length: TOTAL`, y yt-dlp lo da por terminado.
+        - TOTAL < N: el `.part` no encaja con el archivo. En lugar del 416 se devuelve el
+          archivo entero sin `Range`, y yt-dlp lo descarga desde cero (FR-024).
+        - Sin `Content-Range`, o TOTAL > N: la petición repetida recibe otra vez el 416, sin
+          red, y el error sube como ambiguo (`errors.clasificar_detalle`).
+        """
+        url = getattr(req, "url", req)
+        pedido = _RANGO_PEDIDO.match(getattr(req, "headers", {}).get("Range", ""))
+        real = _RANGO_416.match(error.response.headers.get("Content-Range") or "")
+        if pedido and real and int(real[1]) == int(pedido[1]):
+            self._tras_416 = _Tras416(url, total=int(real[1]))
+            return None
+        if pedido and real and int(real[1]) < int(pedido[1]):
+            if self._reinicios is not None:
+                self._reinicios.append(
+                    f"el parcial ({pedido[1]} bytes) es mayor que el archivo del servidor "
+                    f"({real[1]} bytes)"
+                )
+            completo = req.copy()
+            del completo.headers["Range"]
+            return self.urlopen(completo)
+        self._tras_416 = _Tras416(url, error=error)
+        return None
 
     def _vigilar_cuerpo(self, respuesta) -> None:
         """Envuelve `respuesta.read` para registrar sus errores y no perder bytes en un corte.
@@ -367,6 +436,7 @@ def descargar(
     vigilancia: Vigilancia | None = None,
 ) -> dict:
     """Vuelve a extraer y descarga (o continúa) en el directorio de trabajo (R2)."""
+    reinicios: list[str] = []  # los anota `YoutubeDLRegistrado` (R23)
 
     def hook(evento: dict) -> None:
         al_progresar(
@@ -377,11 +447,15 @@ def descargar(
                 eta=evento.get("eta"),
                 archivo=evento.get("filename"),
                 estado=evento["status"],
+                total_exacto=evento.get("total_bytes"),
+                # El primer evento tras anotarse un reinicio es el del archivo que vuelve a 0.
+                motivo_reinicio=reinicios.pop(0) if reinicios else None,
             )
         )
 
     return _ejecutar(
-        opciones(descarga, directorio_trabajo, navegador, hook, socket_timeout, vigilancia),
+        opciones(descarga, directorio_trabajo, navegador, hook, socket_timeout, vigilancia)
+        | {"downloader_reinicios": reinicios},
         descarga.url,
         download=True,
     )

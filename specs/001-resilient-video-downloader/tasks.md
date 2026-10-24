@@ -191,17 +191,22 @@ y `tests/integration/test_interrupcion.py` en verde.
 
 ### Tests for User Story 5 ⚠️
 
-- [ ] T045 [P] [US5] Escribir `tests/unit/test_verificacion.py` (FR-023, research R8): tamaño en disco distinto de `total_bytes` exacto → falla; con solo `total_bytes_estimate` no se compara tamaño; `@pytest.mark.ffmpeg`: un MP4 válido generado con `ffmpeg -f lavfi` pasa `ffprobe -count_packets`, el mismo truncado a la mitad falla, y un archivo sin paquetes o con duración 0 falla
-- [ ] T046 [P] [US5] Escribir `tests/integration/test_integridad.py` (escenario 7 de quickstart, US5, SC-004): (a) el servidor anuncia un tamaño mayor que el servido → la descarga queda `failed` con mensaje claro, el nombre final no aparece en `destino` y los archivos del intento están en `.downloader-tmp/<id>/invalidos/<fecha>/`; (b) `@pytest.mark.ffmpeg` HLS con un fragmento truncado → igual resultado; (c) reencolar con `agregar` la descarga fallida descarga de nuevo y no da por buenos los archivos de `invalidos/`; (d) durante una descarga interrumpida, en `destino` solo existe `.downloader-tmp/`; (e) HLS con `fragmento_ausente=2` → yt-dlp no se salta el fragmento (`skip_unavailable_fragments=False`), la descarga queda `failed` con la causa y el nombre final no aparece en `destino`
-- [ ] T047 [P] [US5] Escribir `tests/integration/test_ffmpeg_ausente.py`: con `PATH` sin ffmpeg ni ffprobe, `ejecutar` sale con 3, mensaje claro, sin tocar la cola
+- [X] T045 [P] [US5] Escribir `tests/unit/test_verificacion.py` (FR-023, research R8): tamaño en disco distinto de `total_bytes` exacto → falla; con solo `total_bytes_estimate` no se compara tamaño; `@pytest.mark.ffmpeg`: un MP4 válido generado con `ffmpeg -f lavfi` pasa `ffprobe -count_packets`, el mismo truncado a la mitad falla, y un archivo sin paquetes o con duración 0 falla
+- [X] T046 [P] [US5] Escribir `tests/integration/test_integridad.py` (escenario 7 de quickstart, US5, SC-004; enmendada según research R22): (a) el servidor anuncia un tamaño mayor que el servido → indistinguible de un corte repetido: la descarga sigue reintentando en `waiting_network`, nunca pasa a `failed` ni publica nada y conserva el `.part`; (a′) el servidor sirve el archivo truncado con su tamaño truncado anunciado → la descarga queda `failed` con mensaje claro, sin reintentos, el nombre final no aparece en `destino` y los archivos del intento están en `.downloader-tmp/<id>/invalidos/<fecha>/`; (b) `@pytest.mark.ffmpeg` HLS con un fragmento cortado en tránsito más veces que los reintentos de yt-dlp → pasa por `waiting_network` y termina con los mismos paquetes que el original (el fragmento truncado en origen es un límite conocido: spec, Edge Cases); (c) reencolar con `agregar` la descarga fallida de (a′) descarga de nuevo, no da por buenos los archivos de `invalidos/` y no los borra al publicar; (d) durante una descarga interrumpida, en `destino` solo existe `.downloader-tmp/`; (e) HLS con `fragmento_ausente=2` → yt-dlp no se salta el fragmento (`skip_unavailable_fragments=False`), la descarga queda `failed` con la causa y el nombre final no aparece en `destino`
+- [X] T047 [P] [US5] Escribir `tests/integration/test_ffmpeg_ausente.py`: con `PATH` sin ffmpeg ni ffprobe, `ejecutar` sale con 3, mensaje claro, sin tocar la cola
 
 ### Implementation for User Story 5
 
-- [ ] T048 [US5] Implementar en `src/downloader/publish.py` la función `verificar(formatos_terminados, archivo_final)`: comparación de tamaño por formato con `total_bytes` exacto y `ffprobe -v error -count_packets -show_entries format=duration:stream=nb_read_packets` sobre el archivo final (sin errores, paquetes en todos los flujos, duración > 0); y `apartar_invalidos(directorio_trabajo)` que mueve los archivos a `invalidos/<fecha>/` sin borrar nada. Hace pasar T045
-- [ ] T049 [US5] En `src/downloader/worker.py`, verificar antes de publicar; si falla, `apartar_invalidos`, pasar a `failed` con la causa y seguir con la siguiente descarga. Hace pasar T046
-- [ ] T050 [US5] En `src/downloader/cli.py`, comprobar `shutil.which("ffmpeg")` y `shutil.which("ffprobe")` al iniciar `ejecutar` y salir con 3 si faltan. Hace pasar T047
+- [X] T048 [US5] Implementar en `src/downloader/publish.py` la función `verificar(formatos_terminados, archivo_final)`: comparación de tamaño por formato con `total_bytes` exacto y `ffprobe -v error -count_packets -show_entries format=duration:stream=nb_read_packets` sobre el archivo final (sin errores, paquetes en todos los flujos, duración > 0); y `apartar_invalidos(directorio_trabajo)` que mueve los archivos a `invalidos/<fecha>/` sin borrar nada. Hace pasar T045
+- [X] T049 [US5] En `src/downloader/worker.py`, anotar cada formato terminado con `publish.formato_terminado` en el hook, verificar antes de publicar; si falla, `apartar_invalidos`, pasar a `failed` con la causa y seguir con la siguiente descarga; tras publicar, borrar el directorio de trabajo salvo `invalidos/`. En `tests/unit/test_worker_espera.py`, la fixture sustituye `publish.verificar` (su yt-dlp falso no escribe un video) y dos tests comprueban que se verifica antes de publicar y que un fallo de verificación no publica y aparta los archivos. Hace pasar T046
+- [X] T050 [US5] En `src/downloader/cli.py`, comprobar `shutil.which("ffmpeg")` y `shutil.which("ffprobe")` al iniciar `ejecutar` y salir con 3 si faltan. Hace pasar T047
 
 **Checkpoint**: escenario 7 en verde; US1–US3 siguen en verde.
+
+### Corrección: HTTP 416 al reanudar (añadida tras la Fase 6)
+
+- [X] T050a Tests del 416 al reanudar (research R23), escritos y en rojo antes de T050b: `tests/integration/test_rango_no_satisfacible.py` con un `.part` dejado en el directorio de trabajo antes de `ejecutar`: (a) `.part` completo y servidor que responde 416 con `Content-Range: bytes */TOTAL` → publicado e íntegro, una sola petición de medios y `bytes_servidos` ≤ 1 %; el mismo `.part` del tamaño correcto pero dañado → `failed` por la verificación y archivos en `invalidos/`; (b) `.part` mayor que el archivo, por 50 bytes (dentro de la tolerancia de yt-dlp) y por 5000 → reinicio desde cero con aviso "el parcial … es mayor que el archivo del servidor", publicado íntegro; (c) 416 sin `Content-Range` dos veces → se reintenta como ambiguo y termina, y persistente → `failed` tras 3 intentos sin avance con "HTTP 416", conservando el `.part`. En `tests/unit/test_errors.py`, el 416 en la tabla de R4 (extracción `PERMANENTE`, descarga `TEMPORAL` ambiguo). `tests/integration/test_integridad.py` (T046 a) vuelve a terminar con el servidor corregido: la descarga se completa íntegra con `bytes_servidos` ≤ 101 %. En `tests/integration/test_ffmpeg_ausente.py`, el mensaje del código 3 indica cómo instalar ffmpeg en Windows, macOS y Linux; `tests/unit/test_config.py::test_ejecutar_pasa_los_umbrales_al_trabajador` aísla la comprobación de ffmpeg (la suite sin ffmpeg en el `PATH` da 0 fallos)
+- [X] T050b En `src/downloader/ytdl.py`, `YoutubeDLRegistrado.urlopen` resuelve el 416 de la fase de descarga según R23 (`_Tras416`, `_rango_no_satisfacible`) y `Progreso.motivo_reinicio`; en `src/downloader/errors.py`, el 416 al descargar es `TEMPORAL` ambiguo; en `src/downloader/worker.py`, el aviso de reinicio con su motivo; en `src/downloader/cli.py`, instrucciones de instalación de ffmpeg por sistema en el error del código 3. Hace pasar T050a
 
 ---
 
@@ -290,9 +295,9 @@ perder progreso; directos y DRM rechazados.
 | FR-021 (salida de `ejecutar`) | T030, T034, T035, T042, T044, T052, T055, T062, T063 |
 | FR-022 (sin sobrescribir) | T027, T032 |
 | FR-023 (verificación) | T045, T046, T048, T049 |
-| FR-024 (reinicio con aviso) | T036, T039 |
+| FR-024 (reinicio con aviso) | T036, T039, T050a, T050b |
 | FR-025 (`actualizar`) | T060, T061 |
-| FR-026 (tope de errores ambiguos) | T037b, T038, T052, T054 |
+| FR-026 (tope de errores ambiguos) | T037b, T038, T050a, T050b, T052, T054 |
 | Plataformas: Windows 10/11 y Linux (constitución v2.1.0) | T035a, T065 |
 | Escenario 1 | T028, T034, T035 |
 | Escenario 2 y 2b | T016, T037a, T037b, T038 |

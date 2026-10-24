@@ -143,6 +143,8 @@ El usuario puede configurar la carpeta de destino. Opcionalmente, puede indicar 
 - Cierre ordenado del programa (Ctrl+C) durante una descarga: el progreso se guarda antes de salir.
 - El servidor deniega el acceso (403 o 410) durante la transferencia de forma persistente, por ejemplo porque el video exige una sesión iniciada: se reintenta obteniendo una URL nueva; tras 3 intentos seguidos sin ningún byte nuevo, la descarga falla con un mensaje que lo explica y sugiere `--cookies-de NAVEGADOR`. Los cortes de red, los timeouts y los errores 429 y 5xx no cuentan para ese tope.
 - Una descarga que hace un programa externo (ffmpeg) falla sin causa conocida: se reintenta como temporal con el mismo tope de 3 intentos seguidos sin avanzar.
+- El servidor anuncia un tamaño mayor del que llega a enviar: es indistinguible de un corte repetido en el mismo punto, así que se reintenta como cualquier corte (FR-010) y no se publica nada. Si el servidor envía un archivo truncado anunciando su tamaño truncado, la verificación lo rechaza: la descarga falla y sus archivos se apartan sin borrarse (FR-023).
+- Límite conocido: un fragmento HLS truncado en el servidor de origen (servido completo según su tamaño anunciado) no lo detecta la verificación, y el video puede publicarse con un salto en la imagen o el sonido. Un fragmento cortado durante la transferencia sí se detecta y se vuelve a pedir (research R22).
 
 ## Requirements *(mandatory)*
 
