@@ -171,6 +171,9 @@ crea en Linux y en Windows).
 - Un HLS cifrado con `SAMPLE-AES`, `SAMPLE-AES-CTR` u otro método distinto de `AES-128` falla
   como no soportado: solo ffmpeg sabe descargarlo, y ffmpeg no permite reanudar de forma
   fiable. RTMP y WebSocket quedan fuera de alcance.
+- La detección de DRM (HLS, DASH, ISM y F4M) solo se ha comprobado con manifiestos de prueba,
+  no con manifiestos reales de sitios. La descarga completa de un ISM (Smooth Streaming) sin
+  protección no tiene test.
 - Una sola descarga a la vez.
 - El vigilante de estancamiento solo actúa durante la descarga de los medios, no durante la
   extracción de la información del video: ahí una conexión colgada solo se corta por el

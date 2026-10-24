@@ -20,7 +20,7 @@ Almacenamiento: SQLite en `typer.get_app_dir("downloader")/cola.db` (ver researc
 | `intentos_sin_avance` | INTEGER | contador `n` del backoff (R10) |
 | `proximo_intento` | TEXT NULL | ISO 8601; solo en `waiting_network` |
 | `ultimo_error` | TEXT NULL | mensaje ya filtrado de secretos |
-| `ultimo_aviso` | TEXT NULL | aviso no fatal, p. ej. reinicio desde cero (FR-024) o calidad inferior a la pedida |
+| `ultimo_aviso` | TEXT NULL | aviso no fatal, p. ej. reinicio desde cero (FR-024), calidad inferior a la pedida o representaciones protegidas omitidas de un MPD (FR-015); varios, separados por "; " |
 | `archivo_final` | TEXT NULL | ruta publicada; solo en `completed` |
 | `creada`, `actualizada` | TEXT | ISO 8601 UTC |
 

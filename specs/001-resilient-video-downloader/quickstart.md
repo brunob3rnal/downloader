@@ -40,13 +40,17 @@ Ningún test usa internet: todos van contra el servidor local de `tests/`.
 | 7 | Integridad | test: archivo servido truncado con su tamaño truncado anunciado; tamaño anunciado mayor que el servido; fragmento HLS cortado (marcado `ffmpeg`) | el truncado no aparece con su nombre final y sus archivos quedan en `invalidos/`; el anunciado mayor sigue reintentando sin publicar; el HLS cortado termina íntegro | US5, SC-004, R22 |
 | 8 | Nombre repetido | test: archivo con el mismo nombre ya existente | se publica `nombre (1).ext`, el original intacto | FR-022 |
 | 9 | Cookies | test: sin `--cookies-de` no se leen; con él, opción pasada a yt-dlp y nada escrito en disco; cookies ilegibles | el video que exige sesión se descarga; sin cookies en la base de datos ni en el directorio de trabajo; el error de lectura nombra el navegador y la causa | US6, FR-016, FR-017, R25 |
-| 10 | Directo o DRM | test: extractor con `is_live` o `has_drm` | `failed` con mensaje claro, sin intento de descarga | FR-015 |
+| 10 | Directo, DRM o cifrado no soportado | test: extractor con `is_live` o `has_drm`; HLS con `skd://`, FairPlay, PlayReady, Widevine o un PSSH (en `#EXT-X-KEY` o `#EXT-X-SESSION-KEY`, con los atributos en cualquier orden); HLS `SAMPLE-AES` con clave `identity`; HLS `AES-128` `identity` con la clave por HTTP(S), `data:` o `hls_aes`; DASH, ISM y F4M con protección, y MPD con representaciones protegidas y sin proteger | directo, DRM y `SAMPLE-AES`: `failed` permanente con mensaje claro ("contenido con DRM" o "no soportado"), sin pedir la clave ni ningún segmento; `AES-128` `identity`: se descarga y descifra; MPD mixto: las protegidas se omiten y, si lo sin proteger cubre lo pedido, se descarga con el aviso "N representaciones protegidas omitidas" | FR-015, Principio V |
 | 11 | Servidor sin reanudación | test: el servidor ignora `Range` tras un corte | la descarga se reinicia desde cero, se muestra el aviso y termina íntegra | FR-024 |
 | 12 | Actualizar yt-dlp | `uv run downloader actualizar` | muestra versión anterior y nueva tras pasar `pytest -m ytdlp_internals`, o "ya está al día"; código 0. Si esos tests fallan, se restaura la versión anterior y sale con 1 | FR-025 |
+| 13 | Estado de la cola | `uv run downloader estado`, también con `ejecutar` en marcha | una línea por descarga con id, estado, progreso, título y último aviso o error, con los secretos ocultos; la cola no cambia; `cola vacía` sin crear `cola.db`; código 0, o 3 con `cola.db` corrupta | US1 escenario 6, FR-032 |
+| 14 | Solo audio | `uv run downloader agregar URL --calidad audio` y `uv run downloader ejecutar` | el archivo publicado tiene al menos un flujo de audio y ninguno de video; código 0 | US1 escenario 4, FR-002 |
 
-## Validación (T065, 2026-10-24)
+## Validación (T065 y T094, 2026-10-24)
 
-Linux, con ffmpeg, yt-dlp 2026.10.21. Windows, en el job `windows-latest` del CI.
+Linux, con ffmpeg, yt-dlp 2026.10.21. Windows, en el job `windows-latest` del CI. Los
+escenarios 13 y 14, y la parte de HLS del 10, se validaron en la Fase 10 (T094; CI run
+40115747729).
 
 | # | Validado con | Resultado |
 |---|--------------|-----------|
@@ -60,9 +64,11 @@ Linux, con ffmpeg, yt-dlp 2026.10.21. Windows, en el job `windows-latest` del CI
 | 7 | `test_integridad.py`, `test_rango_no_satisfacible.py` | ✓ |
 | 8 | `test_publish_nombres.py`, `test_plantilla_nombre.py` | ✓ |
 | 9 | `test_cookies.py`, `test_secretos.py` | ✓ |
-| 10 | `test_directo_drm.py` | ✓ |
+| 10 | `test_directo_drm.py`, `test_hls_aes.py`, `test_drm.py` | ✓ directos y HLS; DASH, ISM y F4M pendientes de la Fase 11 (T095–T096) |
 | 11 | `test_sin_reanudacion.py` | ✓ |
 | 12 | a mano: `uv run downloader actualizar` dos veces; y `test_actualizar.py` | ✓ `yt-dlp 2026.8.19 → 2026.10.21` (40 tests marcados en verde) y después `yt-dlp ya está al día (2026.10.21)` |
+| 13 | a mano: `uv run downloader estado` durante un `ejecutar` real; y `test_estado.py` | ✓ 0,1 % → 41,0 % → 84,3 %, token oculto; `ejecutar` terminó con 0 |
+| 14 | `test_solo_audio.py` | ✓ |
 
 Contrato de comandos y códigos de salida: [contracts/cli.md](contracts/cli.md).
 Estados y transiciones: [data-model.md](data-model.md).
