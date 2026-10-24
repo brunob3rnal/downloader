@@ -217,9 +217,12 @@ class MsvcrtFalso:
             del self.bloqueos[clave]
 
 
-@pytest.mark.skipif(os.name == "nt", reason="en Windows, los dos tests anteriores usan msvcrt real")
 def test_bloqueo_con_msvcrt_simulado(app_home, monkeypatch):
-    """La rama de Windows de `store` con un `msvcrt` simulado (la real la prueba el CI)."""
+    """La rama de Windows de `store` con un `msvcrt` simulado (la real la prueba el CI).
+
+    También corre en Windows: allí no es imposible, solo redundante con los dos tests
+    anteriores, y omitirlo dejaba un test omitido en el CI (T065).
+    """
     falso = MsvcrtFalso()
     monkeypatch.setitem(sys.modules, "msvcrt", falso)
     monkeypatch.setattr(os, "name", "nt")

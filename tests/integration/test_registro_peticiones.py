@@ -18,6 +18,9 @@ from downloader.models import Calidad, Descarga, Estado
 from downloader.retry import TopeSinAvance
 from tests.support import fake_extractor
 
+# Dependen del registro de peticiones de `YoutubeDLRegistrado` (R4).
+pytestmark = pytest.mark.ytdlp_internals
+
 
 @pytest.fixture
 def descarga(destino, servidor):

@@ -10,6 +10,8 @@ import subprocess
 import sys
 import time
 
+import pytest
+
 from downloader.models import Calidad, Estado
 from downloader.store import Store
 from tests.integration.test_ctrl_c import SALIDA_TRAS_INTERRUPCION, interrumpir
@@ -38,6 +40,7 @@ def estado(app_home, id_):
     return fila[0] if fila else None
 
 
+@pytest.mark.slow
 def test_ctrl_c_guarda_el_progreso_y_relanzar_termina(app_home, destino, servidor, medios):
     datos = medios.datos_mp4
     servidor.registrar("lento.mp4", datos, tipo_contenido="video/mp4", velocidad=200_000)

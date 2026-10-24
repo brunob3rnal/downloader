@@ -37,13 +37,13 @@ def test_dos_urls_con_progreso(cli, app_home, destino, servidor, medios, monkeyp
     assert resultado.exit_code == 0, resultado.output
 
     publicados = sorted(p.name for p in destino.iterdir() if p.is_file())
-    assert publicados == ["Video dos [v2].mp4", "Video uno [v1].mp4"]
+    assert publicados == ["Video dos.mp4", "Video uno.mp4"]
     for nombre in publicados:
         assert (destino / nombre).read_bytes() == datos
 
     store = Store.abrir(app_home)
     try:
-        for id_, nombre in ((1, "Video uno [v1].mp4"), (2, "Video dos [v2].mp4")):
+        for id_, nombre in ((1, "Video uno.mp4"), (2, "Video dos.mp4")):
             descarga = store.obtener(id_)
             assert descarga.estado is Estado.COMPLETED
             assert descarga.archivo_final == str(destino / nombre)

@@ -108,6 +108,7 @@ def test_logger_oculta_secretos(caplog):
         assert secreto not in texto
 
 
+@pytest.mark.ytdlp_internals  # R1
 def test_crear_ydl_prefiere_hls_nativo():
     from yt_dlp.downloader import get_suitable_downloader
     from yt_dlp.downloader.hls import HlsFD
@@ -119,6 +120,7 @@ def test_crear_ydl_prefiere_hls_nativo():
         assert get_suitable_downloader(info, ydl.params) is HlsFD
 
 
+@pytest.mark.ytdlp_internals  # R4
 def test_el_registro_empieza_vacio():
     from downloader.errors import Fase, RegistroRed
 
@@ -127,6 +129,7 @@ def test_el_registro_empieza_vacio():
     assert ydl.registro.fase is Fase.EXTRACCION
 
 
+@pytest.mark.ytdlp_internals  # R4
 @pytest.mark.parametrize(
     "info, externo",
     [
@@ -263,6 +266,7 @@ def ydl_con_respuestas(monkeypatch):
 INFO_HTTP = {"url": "http://127.0.0.1/v.mp4", "protocol": "https", "to_stdout": False}
 
 
+@pytest.mark.ytdlp_internals  # R19
 def test_dl_cierra_las_respuestas_abiertas_al_extraer(ydl_con_respuestas):
     ydl, respuestas = ydl_con_respuestas
     sondeo = RespuestaFalsa()
@@ -273,6 +277,7 @@ def test_dl_cierra_las_respuestas_abiertas_al_extraer(ydl_con_respuestas):
     assert sondeo.cerrada and sondeo.cierres == 1
 
 
+@pytest.mark.ytdlp_internals  # R19
 def test_una_respuesta_ya_cerrada_no_da_error(ydl_con_respuestas):
     ydl, respuestas = ydl_con_respuestas
     respuestas.append(RespuestaFalsa())
@@ -283,6 +288,7 @@ def test_una_respuesta_ya_cerrada_no_da_error(ydl_con_respuestas):
     ydl.close()
 
 
+@pytest.mark.ytdlp_internals  # R19
 def test_no_toca_las_respuestas_abiertas_por_la_descarga(ydl_con_respuestas):
     ydl, respuestas = ydl_con_respuestas
     ydl.dl("destino.mp4", INFO_HTTP)
@@ -294,6 +300,7 @@ def test_no_toca_las_respuestas_abiertas_por_la_descarga(ydl_con_respuestas):
     assert not de_la_descarga.cerrada
 
 
+@pytest.mark.ytdlp_internals  # R19
 def test_close_cierra_las_respuestas_de_una_extraccion_sin_descarga(ydl_con_respuestas):
     ydl, respuestas = ydl_con_respuestas
     sondeo = RespuestaFalsa()
@@ -317,6 +324,7 @@ COOKIES = [
 ]
 
 
+@pytest.mark.ytdlp_internals  # R25
 @pytest.mark.parametrize("fallo, navegador, causa", COOKIES)
 def test_cookies_ilegibles_indican_el_navegador_y_la_causa(monkeypatch, fallo, navegador, causa):
     from downloader import errors
@@ -335,6 +343,7 @@ def test_cookies_ilegibles_indican_el_navegador_y_la_causa(monkeypatch, fallo, n
     assert errors.clasificar_detalle(error.value, en_linea=True).tipo is errors.Tipo.PERMANENTE
 
 
+@pytest.mark.ytdlp_internals  # R25
 def test_los_demas_errores_con_cookies_no_se_confunden(monkeypatch):
     """Con las cookies leídas, un fallo de red sigue siendo un fallo de red."""
     from downloader import errors

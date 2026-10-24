@@ -81,7 +81,7 @@ def test_permanentes_fallan_sin_reintentos_y_la_cola_sigue(
     assert servidor.peticiones["pagina.html"] == 1
 
     assert valida.estado is Estado.COMPLETED  # FR-018
-    assert publicados(destino) == ["Video v1 [v1].mp4"]
+    assert publicados(destino) == ["Video v1.mp4"]
     assert "Resumen: 1 completada, 3 fallidas" in resultado.output
 
 
@@ -105,7 +105,7 @@ def test_carpeta_borrada_tras_agregar_falla_solo_esa_descarga(
     assert servidor.peticiones["v1.mp4"] == 0  # falla antes de pedir los medios
     assert not efimera.exists()  # no se recrea la carpeta
     assert segunda.estado is Estado.COMPLETED
-    assert publicados(destino) == ["Video v2 [v2].mp4"]
+    assert publicados(destino) == ["Video v2.mp4"]
 
 
 def test_403_constante_falla_tras_3_intentos_sin_avance_y_la_cola_sigue(
@@ -127,4 +127,28 @@ def test_403_constante_falla_tras_3_intentos_sin_avance_y_la_cola_sigue(
     # Un intento por cada uno de los 3 sin avance, cada uno con una extracción nueva.
     assert servidor.peticiones["vetado.mp4"] == 3
     assert valida.estado is Estado.COMPLETED
-    assert publicados(destino) == ["Video v1 [v1].mp4"]
+    assert publicados(destino) == ["Video v1.mp4"]
+
+
+def test_403_al_extraer_falla_en_menos_de_30_s_y_sugiere_cookies_de(
+    cli, app_home, destino, servidor, medios, transiciones
+):
+    """Un 403 al obtener la información del video es permanente (research R4) y suele indicar
+    que el video exige una sesión: el mensaje lo explica y sugiere `--cookies-de` (SC-005)."""
+    registrar(servidor, medios, "v1")
+    servidor.exigir_sesion("SID", "valor-ficticio")  # responde 403 a quien no traiga la cookie
+    assert cli("agregar", servidor.url("watch/v1"), "--carpeta", destino).exit_code == 0
+
+    inicio = time.monotonic()
+    resultado = cli("ejecutar")
+    duracion = time.monotonic() - inicio
+
+    assert resultado.exit_code == 1, resultado.output
+    assert duracion < 30  # SC-005
+    (fila,) = filas(app_home)
+    assert fila.estado is Estado.FAILED
+    assert "403" in fila.ultimo_error
+    assert "--cookies-de" in fila.ultimo_error
+    assert (fila.id, Estado.WAITING_NETWORK) not in transiciones  # sin reintentos
+    assert servidor.peticiones["v1.mp4"] == 0  # no llegó a pedir los medios
+    assert f"#{fila.id} fallida  {fila.ultimo_error}" in resultado.output

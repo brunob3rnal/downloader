@@ -95,7 +95,7 @@ def test_agregar_cookies_de_guarda_solo_el_nombre_y_descarga_con_la_sesion(
     assert resultado.exit_code == 1, resultado.output  # la que no lleva cookies falla
     v, w = filas(app_home)
     assert v.estado is Estado.COMPLETED
-    assert (destino / "Video v [v].mp4").read_bytes() == medios.datos_mp4
+    assert (destino / "Video v.mp4").read_bytes() == medios.datos_mp4
     assert w.estado is Estado.FAILED and "403" in w.ultimo_error
     assert servidor.peticiones["w.mp4"] == 0
     con = [o for o in opciones_ydl if "cookiesfrombrowser" in o]
@@ -183,7 +183,7 @@ def test_ninguna_cookie_en_disco(
     resultado = cli("ejecutar")
 
     assert resultado.exit_code == 0, resultado.output
-    assert publicados(destino) == ["Video v [v].mp4"]
+    assert publicados(destino) == ["Video v.mp4"]
     momentos = dict(revisados)
     # La búsqueda vio los archivos del intento: el `.part` mientras se esperaba la red.
     assert any(nombre.endswith(".part") for nombre in momentos["esperando red"])
@@ -230,7 +230,7 @@ def test_reencolar_con_cookies_de_tras_un_acceso_denegado(
 
     resultado = cli("ejecutar")
     assert resultado.exit_code == 0, resultado.output
-    assert (destino / "Video v [v].mp4").read_bytes() == medios.datos_mp4
+    assert (destino / "Video v.mp4").read_bytes() == medios.datos_mp4
 
 
 # --- cookies que no se pueden leer (research R25) ---------------------------------------

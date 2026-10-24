@@ -1,4 +1,4 @@
-"""Línea de comandos: `agregar` y `ejecutar` (contracts/cli.md)."""
+"""Línea de comandos: `agregar`, `ejecutar` y `actualizar` (contracts/cli.md)."""
 
 import logging
 import shutil
@@ -10,7 +10,7 @@ from typing import Annotated
 
 import typer
 
-from downloader import config, publish, worker, ytdl
+from downloader import actualizacion, config, publish, worker, ytdl
 from downloader.errors import ErrorFatal, ocultar_secretos
 from downloader.models import Calidad
 from downloader.network import MonitorRed
@@ -19,6 +19,7 @@ from downloader.store import BaseCorrupta, EjecucionEnCurso, Store
 
 # Códigos de salida (contracts/cli.md).
 CON_FALLIDAS = 1
+ACTUALIZACION_FALLIDA = 1  # `actualizar`
 USO_INVALIDO = 2
 FATAL = 3
 INTERRUMPIDO = 130
@@ -188,7 +189,9 @@ def ejecutar(cookies_de: CookiesDe = None) -> None:
                 estancamiento=ajustes.estancamiento_segundos,
                 velocidad_minima=ajustes.estancamiento_velocidad_minima,
             )
-            resultado = worker.ejecutar(store, monitor, Presentador(), tiempos, navegador)
+            resultado = worker.ejecutar(
+                store, monitor, Presentador(), tiempos, navegador, ajustes.plantilla_nombre
+            )
         except ErrorFatal as error:
             raise _error(f"{error}. El progreso se ha conservado.", FATAL) from None
         except KeyboardInterrupt:
@@ -200,3 +203,28 @@ def ejecutar(cookies_de: CookiesDe = None) -> None:
         store.cerrar()
     if resultado.fallidas:  # la cola se vació, pero no todo se completó (FR-021)
         raise typer.Exit(CON_FALLIDAS)
+
+
+@app.command()
+def actualizar() -> None:
+    """Actualiza yt-dlp a su última versión dentro del proyecto y la verifica.
+
+    Tras `uv lock --upgrade-package yt-dlp` y `uv sync`, ejecuta los tests del comportamiento
+    interno de yt-dlp (`pytest -m ytdlp_internals`); si fallan, vuelve a la versión anterior.
+    """
+    raiz = actualizacion.raiz_proyecto()
+    if raiz is None:
+        raise _error(
+            "downloader no se está ejecutando desde su proyecto (con `uv run` en el directorio "
+            "del repositorio), así que no hay un uv.lock que actualizar. Si lo instaló con "
+            "`uv tool install`, actualícelo con: uv tool upgrade downloader",
+            ACTUALIZACION_FALLIDA,
+        )
+    try:
+        resultado = actualizacion.actualizar(raiz, avisar=typer.echo)
+    except actualizacion.FalloActualizacion as error:
+        raise _error(f"no se pudo actualizar yt-dlp: {error}", ACTUALIZACION_FALLIDA) from None
+    if resultado.nueva == resultado.anterior:
+        typer.echo(f"yt-dlp ya está al día ({resultado.anterior})")
+    else:
+        typer.echo(f"yt-dlp {resultado.anterior} → {resultado.nueva}")

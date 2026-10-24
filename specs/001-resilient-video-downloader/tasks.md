@@ -265,13 +265,36 @@ perder progreso; directos y DRM rechazados.
 
 **Purpose**: comando `actualizar` (FR-025), casos límite transversales y validación final.
 
-- [ ] T060 [P] Escribir `tests/integration/test_actualizar.py` (escenario 12 de quickstart, FR-025): sustituir la ejecución de `uv` por una función falsa; versión distinta tras `uv lock --upgrade-package yt-dlp` + `uv sync` → imprime `yt-dlp <anterior> → <nueva>` y sale con 0; misma versión → `yt-dlp ya está al día (<versión>)` y 0; fallo de uv o uv ausente → motivo claro y 1; fuera del proyecto (sin `pyproject.toml` del paquete) → no modifica nada e indica `uv tool upgrade downloader`
-- [ ] T061 Implementar el comando `actualizar` en `src/downloader/cli.py` según research R14 y contracts/cli.md. Hace pasar T060
-- [ ] T062 [P] Escribir `tests/integration/test_disco_lleno.py` (edge case "Disco lleno"): simular `OSError(ENOSPC)` en la escritura → `ejecutar` sale con 3, mensaje claro, la fila vuelve a `queued` con el `.part` intacto; relanzar sin el fallo completa la descarga
-- [ ] T063 Hacer pasar T062 en `src/downloader/worker.py` tratando `FATAL` como parada ordenada (fila a `queued`, salida 3)
-- [ ] T064 [P] Revisar con `grep` que ningún archivo `src/downloader/*.py` ni `tests/**/*.py` contiene cookies, tokens ni credenciales reales, y que los datos de prueba son ficticios (Principio VI)
-- [ ] T065 Ejecutar `uv run pytest` completo con ffmpeg disponible, en Linux y en Windows (jobs del CI), y confirmar 0 tests omitidos y todos en verde; ejecutar los 12 escenarios de `specs/001-resilient-video-downloader/quickstart.md` y marcar cada uno
-- [ ] T066 [P] Escribir `README.md` con instalación en Windows 10/11 y Linux (`uv sync`), requisito de ffmpeg (y cómo instalarlo en cada sistema), uso de `agregar`, `ejecutar` y `actualizar`, códigos de salida y ubicación de `config.toml`, enlazando a `specs/001-resilient-video-downloader/contracts/cli.md`
+- [X] T060 [P] Escribir `tests/integration/test_actualizar.py` (escenario 12 de quickstart, FR-025): sustituir la ejecución de `uv` por una función falsa; versión distinta tras `uv lock --upgrade-package yt-dlp` + `uv sync` → imprime `yt-dlp <anterior> → <nueva>` y sale con 0; misma versión → `yt-dlp ya está al día (<versión>)` y 0; fallo de uv o uv ausente → motivo claro y 1; fuera del proyecto (sin `pyproject.toml` del paquete) → no modifica nada e indica `uv tool upgrade downloader`
+- [X] T061 Implementar el comando `actualizar` en `src/downloader/cli.py` según research R14 y contracts/cli.md. Hace pasar T060
+- [X] T062 [P] Escribir `tests/integration/test_disco_lleno.py` (edge case "Disco lleno"): simular `OSError(ENOSPC)` en la escritura → `ejecutar` sale con 3, mensaje claro, la fila vuelve a `queued` con el `.part` intacto; relanzar sin el fallo completa la descarga
+- [X] T063 Hacer pasar T062 en `src/downloader/worker.py` tratando `FATAL` como parada ordenada (fila a `queued`, salida 3)
+- [X] T064 [P] Revisar con `grep` que ningún archivo `src/downloader/*.py` ni `tests/**/*.py` contiene cookies, tokens ni credenciales reales, y que los datos de prueba son ficticios (Principio VI)
+- [X] T065 Ejecutar `uv run pytest` completo con ffmpeg disponible, en Linux y en Windows (jobs del CI), y confirmar 0 tests omitidos y todos en verde; ejecutar los 12 escenarios de `specs/001-resilient-video-downloader/quickstart.md` y marcar cada uno
+- [X] T066 [P] Escribir `README.md` con instalación en Windows 10/11 y Linux (`uv sync`), requisito de ffmpeg (y cómo instalarlo en cada sistema), uso de `agregar`, `ejecutar` y `actualizar`, códigos de salida y ubicación de `config.toml`, enlazando a `specs/001-resilient-video-downloader/contracts/cli.md`
+
+### Tareas añadidas en la Fase 9 (2026-10-24)
+
+Tests primero en rojo (80 fallos y 9 errores antes de implementar, anotados en el commit).
+T016 y T017 (`tests/integration/test_network_cuts.py`, `tests/integration/test_crash_recovery.py`)
+no se modifican.
+
+- [X] T067 [P] (A7) Marcadores de pytest `slow` (tests de más de unos 5 s) y `ytdlp_internals` (dependen del comportamiento interno de yt-dlp: R1 HLS nativo, R4 registro de peticiones, R19 cierre de respuestas, R23 el 416, R24 descriptor abierto; y R3, R21 y R25, que también dependen de detalles internos) registrados en `pyproject.toml` y aplicados con decoradores; los de los archivos de T016 y T017, desde `tests/integration/conftest.py`. `tests/unit/test_marcadores.py` fija la lista exacta de cada marcador. Motivos de omisión en Windows con `pytest -rs` (CI de `main`, run 40061875138): uno solo, `tests/unit/test_store.py::test_bloqueo_con_msvcrt_simulado` ("en Windows, los dos tests anteriores usan msvcrt real"); no era imposible allí, solo redundante, así que ahora corre también en Windows. En Linux sin volumen FAT32/exFAT se omite `test_publicar_en_un_volumen_sin_enlaces_duros` (el CI lo crea)
+- [X] T068 [P] (A1) Ampliar `tests/integration/test_actualizar.py` (T060) con FR-025 enmendado: tras `uv lock --upgrade-package yt-dlp` y `uv sync` se ejecuta `uv run pytest -m ytdlp_internals`; si fallan, se restaura el `uv.lock` anterior byte a byte, se vuelve a ejecutar `uv sync`, sale con 1 y el mensaje dice qué test falló y que se conserva la versión anterior; un fallo de `uv sync` también restaura; si la restauración falla, lo dice y pide `uv sync`; sin ffmpeg no modifica nada; `raiz_proyecto` y la versión leída del `uv.lock`
+- [X] T069 (A1) Implementar en `src/downloader/actualizacion.py` (plan, decisión 21) y en el comando `actualizar` de `src/downloader/cli.py`; enmendar FR-025 (spec), R14 (research), contracts/cli.md y el escenario 12 de quickstart. Hace pasar T060 y T068. Ejecutado de verdad: yt-dlp 2026.8.19 → 2026.10.21, con los 40 tests marcados en verde
+- [X] T070 [P] (A2) En `tests/integration/test_listas.py`, una lista con 0 videos falla como permanente con el mensaje "no se encontraron videos; la URL puede no estar soportada o requerir sesión (ver --cookies-de)", sin hijas, sin llamar a `ytdl.descargar` y sin ninguna línea de progreso
+- [X] T071 (A2) En `src/downloader/worker.py`, `_expandir_lista` lanza `ErrorPermanente(LISTA_VACIA)` si no hay entradas. Como toda descarga, pasa por `downloading` mientras se extrae (la máquina de estados solo llega a `failed` desde ahí; plan, decisión 24). Hace pasar T070
+- [X] T072 [P] (A3) En `tests/unit/test_publish_nombres.py`, reintentos al publicar: `PermissionError` con `winerror` 32 o 5 en `os.link`, en la copia y en el borrado del origen se reintenta hasta 3 veces con esperas de 0,2, 0,5 y 1 s, sin publicar dos veces; tras 3 reintentos el error sale; otros errores (sin `winerror`, otro `OSError`, otro `winerror`) no se reintentan; un origen que sigue en uso tras publicar no deshace la publicación. En `tests/unit/test_worker_espera.py`, un archivo de trabajo que no se puede borrar tras publicar no impide completar
+- [X] T073 (A3) En `src/downloader/publish.py`, `_reintentando` por pasos en `publicar`; en `src/downloader/worker.py`, `_limpiar_trabajo` tolera lo que no puede borrar (research R26). `apartar_invalidos` ya creaba la carpeta con `mkdir(exist_ok=False)` en un bucle de sufijos sin `exists()` (T055b): solo se hace explícito `exist_ok=False`. Hace pasar T072
+- [X] T074 [P] (A4) Tests de `plantilla_nombre`: en `tests/unit/test_publish_nombres.py`, por defecto sin el id, plantillas válidas e inválidas, título recortado para que la ruta no pase de 240 caracteres en Windows y el id si no queda sitio (los tests de nombres existentes pasan la plantilla con id de forma explícita); en `tests/unit/test_config.py`, valor por defecto, configurable, inválido y su paso al trabajador; `tests/integration/test_plantilla_nombre.py`, colisión de títulos con sufijo y plantilla de `config.toml`. Los tests que comparaban el nombre exacto con `[id]` esperan ahora el nombre por defecto
+- [X] T075 (A4) En `src/downloader/publish.py`, `PLANTILLA_NOMBRE`, `validar_plantilla`, `nombre_publicado(..., plantilla)` y `LIMITE_RUTA = 240` en Windows; en `src/downloader/config.py`, la clave `plantilla_nombre`; en `src/downloader/cli.py` y `src/downloader/worker.py`, su paso hasta la publicación. Actualizar data-model.md, contracts/cli.md, research R7 y plan (decisiones 11 y 22). Hace pasar T074
+- [X] T076 [P] (A5) En `tests/integration/test_errores_permanentes.py`, de extremo a extremo: un 403 al extraer falla como permanente, sin reintentos ni peticiones de medios, con un mensaje que menciona `--cookies-de`, en menos de 30 s (SC-005); en `tests/unit/test_errors.py`, el consejo para 403 y 410 al extraer y ninguno para los demás
+- [X] T077 (A5) En `src/downloader/errors.py`, `Clasificacion.consejo` y `CONSEJO_SESION` (también en el mensaje del tope de `retry.py`); en `src/downloader/worker.py`, el consejo se añade al mensaje del fallo. Hace pasar T076
+- [X] T078 [P] (A6) `tests/integration/test_secretos.py`: ni los mensajes (`ultimo_error`, `ultimo_aviso`, registro), ni la salida de `agregar` y `ejecutar`, ni `cola.db` (con su WAL) contienen la cookie ni los tokens y firmas de las URLs; en `tests/support/flaky_server.py`, `registrar_video(firma=True)` y `secretos_emitidos`; en `tests/unit/test_errors.py`, parámetros de URLs prefirmadas. Junto con T062 (disco lleno)
+- [X] T079 (A6) En `src/downloader/errors.py`, `ocultar_secretos` decide por las palabras del nombre del parámetro (research R27). Hace pasar T078
+- [X] T080 [P] (B8) Ampliar `README.md` (T066): tests rápidos y lentos, tabla de cookies por navegador (Firefox fiable; Edge solo cerrado; Chrome 127+ no funciona) y límites conocidos (HLS truncado en origen, DRM, directos, RTMP y WebSocket, una descarga a la vez, el vigilante no cubre la extracción)
+- [X] T081 [P] (B9) `LICENSE` MIT para el código propio y `license` en `pyproject.toml`; nota en el README de que `yt-dlp[default]` instala `mutagen` (GPL-2.0-or-later), que no se incluye en el repositorio. Decisión del propietario, sin asesoría legal (plan, decisión 27)
+- [X] T082 [P] (B10) Corregir el campo "Feature Branch" de spec.md y "Branch" de plan.md: no existe la rama `001-resilient-video-downloader`; la feature se integra en `main` mediante PRs desde ramas `claude/*`
 
 ---
 
@@ -302,10 +325,10 @@ perder progreso; directos y DRM rechazados.
 | Requisito / escenario | Tareas |
 |-----------------------|--------|
 | FR-021 (salida de `ejecutar`) | T030, T034, T035, T042, T044, T052, T055, T062, T063 |
-| FR-022 (sin sobrescribir) | T027, T032 |
+| FR-022 (sin sobrescribir) | T027, T032, T072–T075 |
 | FR-023 (verificación) | T045, T046, T048, T049 |
 | FR-024 (reinicio con aviso) | T036, T039, T050a, T050b |
-| FR-025 (`actualizar`) | T060, T061 |
+| FR-025 (`actualizar`, enmendado) | T060, T061, T067, T068, T069 |
 | FR-026 (tope de errores ambiguos) | T037b, T038, T050a, T050b, T052, T054 |
 | Plataformas: Windows 10/11 y Linux (constitución v2.1.0) | T035a, T065 |
 | Escenario 1 | T028, T034, T035 |
@@ -319,7 +342,7 @@ perder progreso; directos y DRM rechazados.
 | Escenario 9 | T057, T057a, T058, T058a |
 | Escenario 10 | T053, T054 |
 | Escenario 11 | T036, T039 |
-| Escenario 12 | T060, T061 |
+| Escenario 12 | T060, T061, T068, T069 |
 
 ### Within Each User Story
 

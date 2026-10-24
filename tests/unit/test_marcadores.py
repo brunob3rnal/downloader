@@ -1,0 +1,88 @@
+"""Marcadores `slow` y `ytdlp_internals` (T067).
+
+`downloader actualizar` ejecuta los tests marcados `ytdlp_internals` antes de aceptar una
+versión nueva de yt-dlp (FR-025): un test que pierda el marcador dejaría sin verificar el
+comportamiento interno que prueba. `slow` separa los tests de más de unos 5 s.
+"""
+
+import subprocess
+import sys
+from pathlib import Path
+
+RAIZ = Path(__file__).resolve().parents[2]
+
+# Los que dependen de cómo funciona yt-dlp por dentro, no solo de su interfaz pública.
+INTERNOS_YTDLP = {
+    # R1: HLS con el descargador nativo (y AES-128 con pycryptodomex), no con ffmpeg.
+    "tests/unit/test_ytdl.py::test_crear_ydl_prefiere_hls_nativo",
+    "tests/integration/test_hls_aes.py::test_hls_aes_128_se_descarga_y_descifra",
+    # R4: registro de la última petición (urlopen, dl, descargador externo).
+    "tests/unit/test_ytdl.py::test_el_registro_empieza_vacio",
+    "tests/unit/test_ytdl.py::test_dl_registra_fase_de_descarga_y_descargador_externo",
+    "tests/integration/test_registro_peticiones.py::test_corte_repetido_es_temporal",
+    "tests/integration/test_registro_peticiones.py::test_503_repetido_es_temporal",
+    "tests/integration/test_registro_peticiones.py::test_fragmento_hls_ausente_es_permanente",
+    "tests/integration/test_registro_peticiones.py::test_429_con_causa_es_temporal",
+    "tests/integration/test_registro_peticiones.py::test_429_sin_causa_es_temporal",
+    "tests/integration/test_registro_peticiones.py::"
+    "test_token_hls_caducado_se_recupera_al_volver_a_extraer",
+    "tests/integration/test_registro_peticiones.py::"
+    "test_403_constante_falla_tras_3_intentos_sin_avance",
+    "tests/integration/test_registro_peticiones.py::test_403_con_avance_no_agota_el_tope",
+    # R19: respuestas de la extracción que quedan abiertas.
+    "tests/unit/test_ytdl.py::test_dl_cierra_las_respuestas_abiertas_al_extraer",
+    "tests/unit/test_ytdl.py::test_una_respuesta_ya_cerrada_no_da_error",
+    "tests/unit/test_ytdl.py::test_no_toca_las_respuestas_abiertas_por_la_descarga",
+    "tests/unit/test_ytdl.py::test_close_cierra_las_respuestas_de_una_extraccion_sin_descarga",
+    "tests/integration/test_crash_recovery.py::test_cierre_abrupto_a_mitad_y_relanzar",
+    # R23: HTTP 416 al reanudar.
+    "tests/integration/test_rango_no_satisfacible.py::"
+    "test_parcial_completo_con_416_se_publica_sin_pedir_mas_bytes",
+    "tests/integration/test_rango_no_satisfacible.py::"
+    "test_parcial_completo_pero_danado_no_pasa_la_verificacion",
+    "tests/integration/test_rango_no_satisfacible.py::"
+    "test_parcial_mayor_que_el_archivo_se_reinicia_con_aviso",
+    "tests/integration/test_rango_no_satisfacible.py::"
+    "test_416_sin_content_range_se_reintenta_como_ambiguo",
+    "tests/integration/test_rango_no_satisfacible.py::"
+    "test_416_sin_content_range_persistente_falla_tras_3_intentos_sin_avance",
+    # R24: el `.part` que deja abierto un fragmento fallido.
+    "tests/integration/test_integridad.py::"
+    "test_cada_intento_empieza_sin_archivos_del_anterior_abiertos",
+    # R3: yt-dlp borra el `.part` si el servidor ignora `Range`.
+    "tests/integration/test_sin_reanudacion.py::test_reinicio_dentro_de_la_misma_llamada",
+    "tests/integration/test_sin_reanudacion.py::test_reinicio_en_un_intento_posterior",
+    "tests/integration/test_sin_reanudacion.py::test_sin_aviso_si_el_servidor_admite_range",
+    # R21: el vigilante lee con `_real_read`/`read1` de la respuesta de yt-dlp.
+    "tests/integration/test_estancamiento.py::test_conexion_abierta_sin_datos",
+    "tests/integration/test_estancamiento.py::test_conexion_a_goteo",
+    # R25: cadena de excepciones de yt-dlp al leer las cookies del navegador.
+    "tests/unit/test_ytdl.py::test_cookies_ilegibles_indican_el_navegador_y_la_causa",
+    "tests/unit/test_ytdl.py::test_los_demas_errores_con_cookies_no_se_confunden",
+}
+
+LENTOS = {
+    "tests/integration/test_interrupcion.py::test_ctrl_c_guarda_el_progreso_y_relanzar_termina",
+    "tests/integration/test_crash_recovery.py::test_cierre_abrupto_a_mitad_y_relanzar",
+    "tests/integration/test_network_cuts.py::test_servidor_colgado_es_temporal",
+    "tests/unit/test_worker_espera.py::test_nunca_falla_por_errores_temporales_no_ambiguos",
+}
+
+
+def recogidos(expresion):
+    """Ids de los tests que selecciona `-m expresion`, sin los parámetros."""
+    resultado = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider",
+         "-m", expresion],
+        cwd=RAIZ, capture_output=True, text=True,
+    )
+    assert resultado.returncode in (0, 5), resultado.stdout + resultado.stderr  # 5: ninguno
+    return {linea.split("[")[0] for linea in resultado.stdout.splitlines() if "::" in linea}
+
+
+def test_marcados_ytdlp_internals():
+    assert recogidos("ytdlp_internals") == INTERNOS_YTDLP
+
+
+def test_marcados_slow():
+    assert recogidos("slow") == LENTOS

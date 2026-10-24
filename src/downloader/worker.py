@@ -19,6 +19,15 @@ from downloader.ytdl import Progreso
 PASO_ESPERA = 0.25  # s entre comprobaciones del monitor durante la espera de un reintento
 AVISO_REINICIO = "reiniciada desde cero: {motivo}"
 SIN_REANUDACION = "el servidor no permite reanudar"  # el motivo si no se conoce otro (R3)
+# Una lista sin entradas suele ser una URL que yt-dlp no sabe leer o que exige sesión.
+LISTA_VACIA = (
+    "no se encontraron videos; la URL puede no estar soportada o requerir sesión "
+    "(ver --cookies-de)"
+)
+DISCO_LLENO = (
+    "No queda espacio en el disco de {carpeta} (disco lleno). Libere espacio y vuelva a "
+    "ejecutar `downloader ejecutar`"
+)
 
 
 @dataclass
@@ -94,11 +103,12 @@ def ejecutar(
     presentador: Presentador,
     tiempos: Tiempos | None = None,
     navegador: str | None = None,
+    plantilla: str = publish.PLANTILLA_NOMBRE,
 ) -> Resultado:
     """Procesa la cola hasta que no queden descargas pendientes.
 
     Recoge las URLs que se agreguen mientras corre. Un error FATAL devuelve la descarga a la
-    cola y se lanza como `ErrorFatal`.
+    cola y se lanza como `ErrorFatal`. `plantilla` da el nombre de los archivos publicados.
     """
     tiempos = tiempos or Tiempos()
     resultado = Resultado()
@@ -109,14 +119,15 @@ def ejecutar(
             if descarga is None:
                 time.sleep(tiempos.espera_cola)
                 continue
-            _procesar(store, monitor, presentador, tiempos, navegador, descarga, resultado)
+            _procesar(store, monitor, presentador, tiempos, navegador, plantilla, descarga,
+                      resultado)
     finally:
         presentador.detener()
     presentador.resumen()
     return resultado
 
 
-def _procesar(store, monitor, presentador, tiempos, navegador, descarga, resultado):
+def _procesar(store, monitor, presentador, tiempos, navegador, plantilla, descarga, resultado):
     descarga = store.transicion(descarga.id, Estado.DOWNLOADING)
     presentador.inicio(descarga)
     de_ejecucion = navegador is not None  # `ejecutar --cookies-de` prevalece sobre la fila
@@ -125,7 +136,7 @@ def _procesar(store, monitor, presentador, tiempos, navegador, descarga, resulta
     try:
         while True:
             try:
-                ruta = _intentar(store, presentador, tiempos, navegador, seguimiento)
+                ruta = _intentar(store, presentador, tiempos, navegador, plantilla, seguimiento)
             except Exception as error:
                 if de_ejecucion and isinstance(error, errors.CookiesIlegibles):
                     # Las cookies de `ejecutar --cookies-de` valen para todas las descargas, que
@@ -156,7 +167,7 @@ def _interrumpida(store, seguimiento) -> None:
         store.transicion(id_, Estado.QUEUED)
 
 
-def _intentar(store, presentador, tiempos, navegador, seguimiento):
+def _intentar(store, presentador, tiempos, navegador, plantilla, seguimiento):
     """Un intento: volver a extraer (R2) y descargar; `None` si la URL era una lista."""
     descarga = seguimiento.descarga
     info = ytdl.extraer_plano(descarga.url, navegador, tiempos.socket_timeout)
@@ -165,12 +176,17 @@ def _intentar(store, presentador, tiempos, navegador, seguimiento):
     if info.get("_type") == "playlist":
         _expandir_lista(store, presentador, descarga, info)
         return None
-    return _descargar(store, presentador, tiempos, navegador, seguimiento)
+    return _descargar(store, presentador, tiempos, navegador, plantilla, seguimiento)
 
 
 def _expandir_lista(store, presentador, descarga, info):
-    """Una descarga hija por entrada, con la misma calidad, carpeta y navegador (R13)."""
+    """Una descarga hija por entrada, con la misma calidad, carpeta y navegador (R13).
+
+    Una lista sin entradas no se da por completada: falla sin intentar descargar nada.
+    """
     entradas = [e for e in info.get("entries") or [] if e and e.get("url")]
+    if not entradas:
+        raise ErrorPermanente(LISTA_VACIA)
     for entrada in entradas:
         store.agregar(entrada["url"], descarga.calidad, descarga.carpeta_destino,
                       descarga.navegador_cookies, padre_id=descarga.id)
@@ -190,7 +206,7 @@ def _comprobar_carpeta(carpeta: str) -> None:
         raise ErrorPermanente(f"Sin permiso de escritura en la carpeta de destino {carpeta}")
 
 
-def _descargar(store, presentador, tiempos, navegador, seguimiento):
+def _descargar(store, presentador, tiempos, navegador, plantilla, seguimiento):
     descarga = seguimiento.descarga
     _comprobar_carpeta(descarga.carpeta_destino)
     trabajo = ytdl.directorio_trabajo(descarga)
@@ -232,7 +248,7 @@ def _descargar(store, presentador, tiempos, navegador, seguimiento):
         ) from error
     nombre = publish.nombre_publicado(
         info.get("title") or info["id"], info["id"], archivo.suffix.lstrip("."),
-        descarga.carpeta_destino,
+        descarga.carpeta_destino, plantilla=plantilla,
     )
     publicacion = publish.publicar(archivo, descarga.carpeta_destino, nombre)
 
@@ -249,14 +265,21 @@ def _descargar(store, presentador, tiempos, navegador, seguimiento):
 
 
 def _limpiar_trabajo(trabajo: Path) -> None:
-    """Solo tras publicar se borra el directorio de trabajo, salvo `invalidos/` (data-model.md)."""
+    """Solo tras publicar se borra el directorio de trabajo, salvo `invalidos/` (data-model.md).
+
+    La descarga ya está publicada: un archivo que no se puede borrar (en Windows, abierto por
+    otro programa) se queda, sin convertir la descarga en un fallo.
+    """
     for entrada in trabajo.iterdir():
         if entrada.name == publish.INVALIDOS:
             continue  # intentos que no pasaron la verificación: nunca se borran solos
         if entrada.is_dir():
             shutil.rmtree(entrada, ignore_errors=True)
         else:
-            entrada.unlink(missing_ok=True)
+            try:
+                entrada.unlink(missing_ok=True)
+            except OSError:
+                pass
     for directorio in (trabajo, trabajo.parent):  # y .downloader-tmp, si ya no queda nada
         try:
             directorio.rmdir()
@@ -280,11 +303,16 @@ def _fallo(store, monitor, presentador, tiempos, seguimiento, error, resultado) 
     clasificacion = errors.clasificar_detalle(error, en_linea)
     mensaje = _mensaje(error)
     if clasificacion.tipo is Tipo.FATAL:
+        if errors.disco_lleno(error):
+            mensaje = DISCO_LLENO.format(carpeta=descarga.carpeta_destino)
         store.transicion(descarga.id, Estado.QUEUED, ultimo_error=mensaje)
         raise ErrorFatal(mensaje) from error
     decision = seguimiento.cerrar_intento(clasificacion, en_linea)
     if decision.tipo is Tipo.PERMANENTE:
-        mensaje = decision.mensaje or mensaje
+        if decision.mensaje:
+            mensaje = decision.mensaje
+        elif clasificacion.consejo:
+            mensaje = f"{mensaje.rstrip('.')}. {clasificacion.consejo}"
         store.transicion(descarga.id, Estado.FAILED, ultimo_error=mensaje, titulo=descarga.titulo)
         resultado.fallidas.append(descarga.id)
         presentador.fallida(descarga, mensaje)

@@ -178,3 +178,39 @@ def test_valor_de_tipo_invalido(tmp_path, linea, clave):
     escribir(tmp_path, linea + "\n")
     with pytest.raises(config.ConfiguracionInvalida, match=clave):
         config.cargar(tmp_path)
+
+
+# --- plantilla del nombre de los archivos publicados (T074) -----------------------------
+
+
+def test_plantilla_nombre_por_defecto_sin_el_id(tmp_path):
+    assert config.cargar(tmp_path).plantilla_nombre == "{titulo}"
+
+
+def test_plantilla_nombre_configurable(tmp_path):
+    escribir(tmp_path, 'plantilla_nombre = "{titulo} [{id}]"\n')
+    assert config.cargar(tmp_path).plantilla_nombre == "{titulo} [{id}]"
+
+
+@pytest.mark.parametrize("valor", ['"{autor}"', '""', "5", '"{titulo}/{id}"', '"sin campos"'])
+def test_plantilla_nombre_invalida(tmp_path, valor):
+    escribir(tmp_path, f"plantilla_nombre = {valor}\n")
+    with pytest.raises(config.ConfiguracionInvalida, match="plantilla_nombre") as error:
+        config.cargar(tmp_path)
+    assert "clave desconocida" not in str(error.value)  # se valida, no se rechaza la clave
+
+
+def test_ejecutar_pasa_la_plantilla_al_trabajador(app_home, monkeypatch):
+    from downloader import cli, worker
+
+    escribir(app_home, 'sondas_red = ["127.0.0.1:9"]\nplantilla_nombre = "{id} {titulo}"\n')
+    recibidos = []
+    monkeypatch.setattr(
+        worker, "ejecutar", lambda *args: recibidos.append(args) or worker.Resultado()
+    )
+    monkeypatch.setattr(cli.MonitorRed, "iniciar", lambda self: None)
+    monkeypatch.setattr(cli, "_comprobar_ffmpeg", lambda: None)
+    resultado = CliRunner().invoke(cli.app, ["ejecutar"])
+    assert resultado.exit_code == 0, resultado.output
+    ((*_, plantilla),) = recibidos
+    assert plantilla == "{id} {titulo}"

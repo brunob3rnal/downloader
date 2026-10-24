@@ -3,7 +3,7 @@
 import random
 from dataclasses import dataclass
 
-from downloader.errors import Clasificacion, Tipo
+from downloader.errors import CONSEJO_SESION, Clasificacion, Tipo
 
 VARIACION = 0.2
 
@@ -68,7 +68,6 @@ def _mensaje(motivo: str | None, intentos: int) -> str:
     if motivo in ("HTTP 403", "HTTP 410"):
         return (
             f"Acceso denegado ({motivo}) en {intentos} intentos seguidos sin avanzar, aun "
-            "volviendo a extraer la URL. Puede que el video exija una sesión iniciada: vuelva a "
-            "agregarlo con --cookies-de NAVEGADOR (por ejemplo, --cookies-de firefox)."
+            f"volviendo a extraer la URL. {CONSEJO_SESION}"
         )
     return f"La descarga falló {intentos} veces seguidas sin avanzar ({motivo})."

@@ -1,6 +1,6 @@
 # Implementation Plan: Gestor de descargas de video resiliente
 
-**Branch**: `001-resilient-video-downloader` | **Date**: 2026-10-20 | **Spec**: [spec.md](spec.md)
+**Branch**: `main`, mediante PRs desde ramas de trabajo `claude/*` (no existe una rama `001-resilient-video-downloader`; el directorio de la feature lo fija `SPECIFY_FEATURE_DIRECTORY`) | **Date**: 2026-10-20 | **Spec**: [spec.md](spec.md)
 
 **Input**: Feature specification from `/specs/001-resilient-video-downloader/spec.md`
 
@@ -87,6 +87,7 @@ src/downloader/
 ├── __init__.py
 ├── __main__.py          # `python -m downloader` (los tests lanzan así los subprocesos)
 ├── cli.py               # Typer: agregar, ejecutar, actualizar; códigos de salida
+├── actualizacion.py     # actualizar yt-dlp con uv y verificarlo con los tests de sus internos
 ├── config.py            # config.toml, rutas de la app, valores por defecto
 ├── models.py            # Estado, Calidad, Descarga, transiciones permitidas
 ├── store.py             # SQLite: esquema, altas, transiciones, recuperación, bloqueo
@@ -136,8 +137,8 @@ tests/
 10. Los archivos del directorio de trabajo se llaman `descarga.<ext>` en lugar de
     `<id_video>.<ext>`: el id podría ser largo o un nombre reservado de Windows (R7).
 11. `nombre_publicado` acorta el título para que el nombre quepa en 255 bytes y, en Windows, la
-    ruta en 259 caracteres, con hueco para el sufijo ` (N)`; antepone `_` si queda un nombre
-    reservado (R7).
+    ruta en 240 caracteres (antes 259; decisión 22), con hueco para el sufijo ` (N)`; antepone
+    `_` si queda un nombre reservado (R7).
 12. En Windows, `ejecutar` trata Ctrl+Break como Ctrl+C y la salida redirigida no se detiene
     por caracteres que no caben en la codificación de la consola (R17).
 13. El envoltorio de lectura de `YoutubeDLRegistrado` lee el cuerpo en trozos de 4 KiB y, si
@@ -180,6 +181,40 @@ tests/
     FATAL (código 3), sin dar ninguna descarga por fallida (R25).
 20. Reencolar con `agregar --cookies-de` una descarga fallida guarda el navegador nuevo, para
     que funcione el consejo del mensaje de FR-026 (R25).
+
+21. `actualizar` (FR-025 enmendado, R14) vive en `actualizacion.py` y no en `cli.py`: orquesta
+    uv, lee versiones del `uv.lock` y restaura el anterior, una responsabilidad distinta de la
+    línea de comandos (Principio I). Tras `uv lock --upgrade-package yt-dlp` y `uv sync`
+    ejecuta `uv run pytest -m ytdlp_internals`; si fallan, restaura el `uv.lock` byte a byte y
+    vuelve a sincronizar. Exige ffmpeg antes de tocar nada, porque sin él los tests marcados que
+    descargan se omitirían y la verificación no valdría. Fuera del proyecto sale con 1 e indica
+    `uv tool upgrade downloader`.
+22. `plantilla_nombre` en `config.toml` (campos `{titulo}` e `{id}`), por defecto `{titulo}`:
+    el id del video sobraba en el nombre porque las colisiones ya se resuelven con sufijo
+    (FR-022). En Windows la ruta completa, con el sufijo más largo, no pasa de 240 caracteres:
+    margen bajo MAX_PATH (259) para programas que añaden algo a la ruta al abrirla. Si no queda
+    sitio para el título, el nombre es el id (R7).
+23. `publish.publicar` reintenta cada paso (enlazar, copiar, borrar el origen) hasta 3 veces,
+    tras 0,2, 0,5 y 1 s, si falla con `PermissionError` de `winerror` 32 o 5 (el antivirus o el
+    indexador de Windows con el archivo abierto); cualquier otro error sale enseguida. Por pasos
+    y no la publicación entera, que tras enlazar crearía una segunda copia. Si el origen no se
+    puede borrar, el archivo ya está publicado: se avisa, y `_limpiar_trabajo` deja lo que no
+    puede borrar sin convertir la descarga completada en un fallo (R26).
+24. Una lista sin entradas falla como `PERMANENTE` ("no se encontraron videos; …"). Como toda
+    descarga, pasa por `downloading` mientras se extrae, porque la máquina de estados solo llega
+    a `failed` desde ahí; no se intenta descargar nada.
+25. Un 403 o 410 al extraer sigue siendo `PERMANENTE` (R4), con `Clasificacion.consejo`: el
+    mensaje sugiere `--cookies-de` (el mismo texto que el tope de FR-026).
+26. `ocultar_secretos` decide por el nombre del parámetro de la URL, dividido en palabras por
+    `-`, `_` y `.`: `X-Amz-Signature`, `X-Amz-Security-Token`, `Key-Pair-Id`, `access_token`,
+    `lsig`… se ocultan; `monkey`, `itag` o `X-Amz-Date`, no (R27).
+27. Licencia MIT para el código propio (`LICENSE`, `license` en `pyproject.toml`). `yt-dlp[default]`
+    instala `mutagen` (GPL-2.0-or-later), que no se incluye en el repositorio; el README lo
+    advierte. Es una decisión del propietario del repositorio, sin asesoría legal.
+28. Marcadores `slow` (más de unos 5 s) y `ytdlp_internals` (R1, R3, R4, R19, R21, R23, R24,
+    R25), registrados en `pyproject.toml`. Los de `test_network_cuts.py` y
+    `test_crash_recovery.py` (T016 y T017, que no se modifican) se aplican desde
+    `tests/integration/conftest.py`; `tests/unit/test_marcadores.py` comprueba la lista exacta.
 
 ## Complexity Tracking
 

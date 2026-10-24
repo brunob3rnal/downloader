@@ -16,6 +16,9 @@ from downloader.models import Estado
 from downloader.store import Store
 from tests.support import fake_extractor
 
+# Dependen de que yt-dlp borre el `.part` si el servidor ignora `Range` (R3).
+pytestmark = pytest.mark.ytdlp_internals
+
 AVISO = "reiniciada desde cero: el servidor no permite reanudar"
 LIMITE = 60  # s; un bucle que no se recupera no debe colgar la suite
 

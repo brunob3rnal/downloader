@@ -6,9 +6,14 @@ la clave ni los fragmentos, que la descarga pide con sus propias peticiones.
 
 import subprocess
 
+import pytest
+
 from downloader import ytdl
 from downloader.models import Calidad, Descarga, Estado
 from tests.support import fake_extractor
+
+# HLS con el descargador nativo y AES-128 con pycryptodomex, no con ffmpeg (R1).
+pytestmark = pytest.mark.ytdlp_internals
 
 CLAVE = bytes(range(16))  # valor ficticio
 

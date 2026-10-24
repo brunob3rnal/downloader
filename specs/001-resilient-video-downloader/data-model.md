@@ -59,7 +59,7 @@ Almacenamiento: SQLite en `typer.get_app_dir("downloader")/cola.db` (ver researc
 | `waiting_network` | `downloading` | llega `proximo_intento` o el monitor pasa a "en línea" |
 | `downloading` | `completed` | verificación correcta y publicación sin sobrescribir |
 | `downloading` | `completed` (`tipo=playlist`) | la URL era una lista y se insertaron sus hijas |
-| `downloading` | `failed` | error `PERMANENTE` o verificación fallida (archivos movidos a `invalidos/`, R8) |
+| `downloading` | `failed` | error `PERMANENTE` (también una lista sin videos) o verificación fallida (archivos movidos a `invalidos/`, R8) |
 | `downloading`, `waiting_network` | `queued` | Ctrl+C, error `FATAL` (disco lleno, ffmpeg ausente, cookies de `ejecutar --cookies-de` ilegibles, R25) o recuperación al iniciar |
 
 Toda transición no listada es un error de programación y se rechaza.
@@ -86,6 +86,7 @@ Toda transición no listada es un error de programación y se rechaza.
 | `sondas_red` | `["1.1.1.1:443", "8.8.8.8:443"]` | monitor de conectividad (R9) |
 | `estancamiento_segundos` | `30` | s sin datos (o por debajo de la velocidad mínima) antes de abortar el intento (R21) |
 | `estancamiento_velocidad_minima` | `1024` | bytes/s sostenidos durante `estancamiento_segundos` (R21) |
+| `plantilla_nombre` | `{titulo}` | nombre de los archivos publicados, sin la extensión; campos `{titulo}` e `{id}` (R7) |
 
 No admite claves de credenciales ni cookies, ni el navegador de las cookies (solo con
 `--cookies-de`): una clave con ese nombre produce un error que lo explica sin repetir su valor,
@@ -97,4 +98,4 @@ y cualquier otra clave desconocida, un error que lista las admitidas.
 |------|-----------|---------------|
 | `<carpeta>/.downloader-tmp/<id>/` | `.part`, `.ytdl`, formatos sueltos, resultado unido | se borra solo tras publicar correctamente; el `.part` solo se reinicia si el servidor no permite reanudar (R3) |
 | `<carpeta>/.downloader-tmp/<id>/invalidos/<fecha>/` | archivos de un intento que no pasó la verificación (R8) | nunca se borra automáticamente |
-| `<carpeta>/<titulo> [<id_video>].<ext>` | archivo publicado | definitivo |
+| `<carpeta>/<plantilla_nombre>.<ext>` (por defecto `<titulo>.<ext>`; ` (N)` si ya existe, FR-022) | archivo publicado | definitivo |

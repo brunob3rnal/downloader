@@ -17,6 +17,9 @@ import pytest
 
 from tests.support import fake_extractor
 
+# Dependen de cómo repite yt-dlp la petición tras un 416 (R23).
+pytestmark = pytest.mark.ytdlp_internals
+
 LIMITE = 60  # s
 
 
@@ -76,7 +79,7 @@ class _Entorno:
         return self.cola.obtener(self.id)
 
     def publicado(self):
-        return self.destino / "Video de prueba [v1].mp4"
+        return self.destino / "Video de prueba.mp4"
 
 
 def test_parcial_completo_con_416_se_publica_sin_pedir_mas_bytes(entorno, servidor, medios):

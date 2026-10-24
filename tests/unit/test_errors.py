@@ -148,6 +148,17 @@ def test_otro_error_es_permanente_con_red():
         ("https://cdn.x/v.mp4?signature=abc123secreto", "abc123secreto"),
         ("https://cdn.x/v.mp4?a=1&key=abc123secreto#t", "abc123secreto"),
         ("https://cdn.x/v.mp4?AUTH=abc123secreto", "abc123secreto"),
+        # URLs prefirmadas (T078): el nombre del parámetro contiene la palabra del secreto.
+        ("https://s3.x/v.mp4?X-Amz-Date=1&X-Amz-Signature=abc123secreto", "abc123secreto"),
+        ("https://s3.x/v.mp4?X-Amz-Security-Token=abc123secreto", "abc123secreto"),
+        ("https://s3.x/v.mp4?X-Amz-Credential=abc123secreto%2F2026", "abc123secreto"),
+        ("https://cf.x/v.mp4?Expires=1&Signature=abc123secreto&Key-Pair-Id=K2", "abc123secreto"),
+        ("https://cf.x/v.mp4?Policy=abc123secreto&Signature=x", "abc123secreto"),
+        ("https://cf.x/v.mp4?Expires=1&Key-Pair-Id=abc123secreto", "abc123secreto"),
+        ("https://gv.x/videoplayback?itag=22&lsig=abc123secreto", "abc123secreto"),
+        ("https://api.x/v.mp4?access_token=abc123secreto", "abc123secreto"),
+        ("https://api.x/v.mp4?api_key=abc123secreto", "abc123secreto"),
+        ("https://ak.x/v.m3u8?hdnts=exp%3D1~hmac%3Dabc123secreto", "abc123secreto"),
     ],
 )
 def test_ocultar_secretos(texto, secreto):
@@ -164,6 +175,10 @@ def test_ocultar_secretos_conserva_el_resto():
     assert "itag=22" in resultado
     assert "mime=video" in resultado
     assert "monkey=1" in ocultar_secretos("https://x/?monkey=1")
+    firmada = ocultar_secretos("https://s3.x/v.mp4?X-Amz-Date=20261024&X-Amz-Expires=300"
+                               "&X-Amz-Signature=abc")
+    assert "X-Amz-Date=20261024" in firmada and "X-Amz-Expires=300" in firmada
+    assert "X-Amz-Signature=***" in firmada
 
 
 # --- Tabla única de R4: código HTTP de la cadena o, si no hay, del registro ---
@@ -321,3 +336,19 @@ def test_sin_datos_en_el_registro_de_un_download_error_sin_causa():
     clasificacion = clasificar_detalle(error, en_linea=True)
     assert clasificacion.estancamiento
     assert clasificacion.motivo == "sin datos hace 31 s"
+
+
+# --- consejo para un acceso denegado al extraer (T076; SC-005, FR-016) ------------------
+
+
+@pytest.mark.parametrize("senal", [403, 410])
+@pytest.mark.parametrize("origen", [desde_la_cadena, desde_el_registro], ids=["cadena", "registro"])
+def test_acceso_denegado_al_extraer_sugiere_cookies_de(origen, senal):
+    resultado = clasificar_detalle(origen(senal, EXTRACCION), en_linea=True)
+    assert resultado.tipo is PERMANENTE
+    assert "--cookies-de" in resultado.consejo
+
+
+@pytest.mark.parametrize("senal", [404, 500, "transporte"])
+def test_los_demas_errores_al_extraer_no_llevan_consejo(senal):
+    assert clasificar_detalle(desde_la_cadena(senal, EXTRACCION), en_linea=True).consejo is None
