@@ -96,6 +96,14 @@ INTERNOS_YTDLP = {
     "test_mpd_sin_proteccion_se_descarga_integro_y_sin_aviso",
     "tests/integration/test_directo_drm.py::test_ism_con_proteccion_se_rechaza",
     "tests/integration/test_directo_drm.py::test_f4m_con_drm_se_rechaza_entero",
+    # R5 (formatos marcados por el extractor, H1): yt-dlp descarta los formatos `has_drm`, lo
+    # resume en `_has_drm` y entrega a `process_info` la selección final (`requested_formats`).
+    "tests/integration/test_directo_drm.py::"
+    "test_video_marcado_has_drm_se_rechaza_sin_descargar_el_audio",
+    "tests/integration/test_directo_drm.py::"
+    "test_video_marcado_has_drm_con_calidad_audio_descarga_el_audio",
+    "tests/integration/test_directo_drm.py::test_solo_audio_sin_has_drm_se_descarga",
+    "tests/integration/test_directo_drm.py::test_vcodec_desconocido_sin_has_drm_se_descarga",
 }
 
 LENTOS = {

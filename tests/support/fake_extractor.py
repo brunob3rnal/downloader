@@ -9,6 +9,9 @@ Escenarios por `<id>`:
 - `privado`, `borrado`: `ExtractorError(expected=True)` con mensaje claro.
 - `directo`: `is_live=True`.
 - `drm`: todos los formatos con `has_drm=True` (yt-dlp lo rechaza como "DRM protected").
+- `drm-video`, `solo-audio`, `sin-vcodec`: formatos entregados ya construidos, sin manifiesto
+  (`PISTAS`): el video con `has_drm=True` y el audio sin proteger; solo un audio, sin `has_drm`;
+  y un formato sin `vcodec` (códec desconocido), sin `has_drm` (R5, hallazgo H1).
 - cualquier otro: lo que el servidor tenga registrado con `registrar_video`; si el archivo es
   un manifiesto `.m3u8`, el formato es HLS. Un manifiesto maestro se analiza como lo haría un
   extractor real (`_extract_m3u8_formats`), y la página puede añadir la clave AES-128 del
@@ -19,6 +22,14 @@ Escenarios por `<id>`:
 
 from yt_dlp.extractor.common import InfoExtractor
 from yt_dlp.utils import ExtractorError
+
+# Formatos que el extractor entrega ya construidos y marcados (R5, hallazgo H1). Se sirven en
+# `medios/<id>/video.mp4`, `medios/<id>/audio.m4a` y `medios/<id>.mp4`.
+PISTAS = {
+    "drm-video": ("video-protegido", "audio"),
+    "solo-audio": ("audio",),
+    "sin-vcodec": ("desconocido",),
+}
 
 MENSAJES = {
     "privado": "Video privado: el propietario restringió el acceso",
@@ -39,6 +50,8 @@ class FalsoIE(InfoExtractor):
             raise ExtractorError(MENSAJES[id_], expected=True, video_id=id_)
         if id_ in ("directo", "drm"):
             return self._especial(base, id_)
+        if id_ in PISTAS:
+            return self._pistas(base, id_)
 
         pagina = self._download_json(url, id_)
         if pagina.get("lista") and not self.get_param("noplaylist"):
@@ -84,6 +97,19 @@ class FalsoIE(InfoExtractor):
             formato["has_drm"] = True
         return {"id": id_, "title": f"Video {id_}", "formats": [formato],
                 "is_live": id_ == "directo"}
+
+    def _pistas(self, base, id_):
+        tipos = {
+            "video-protegido": {"format_id": "video", "url": f"{base}/medios/{id_}/video.mp4",
+                                "ext": "mp4", "height": 360, "vcodec": "avc1.64001e",
+                                "acodec": "none", "has_drm": True},
+            "audio": {"format_id": "audio", "url": f"{base}/medios/{id_}/audio.m4a",
+                      "ext": "m4a", "vcodec": "none", "acodec": "mp4a.40.2"},
+            "desconocido": {"format_id": "desconocido", "url": f"{base}/medios/{id_}.mp4",
+                            "ext": "mp4"},
+        }
+        return {"id": id_, "title": f"Video {id_}",
+                "formats": [tipos[tipo] for tipo in PISTAS[id_]]}
 
 
 def registrar(ydl):
