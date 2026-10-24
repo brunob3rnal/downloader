@@ -12,7 +12,9 @@ Escenarios por `<id>`:
 - cualquier otro: lo que el servidor tenga registrado con `registrar_video`; si el archivo es
   un manifiesto `.m3u8`, el formato es HLS. Un manifiesto maestro se analiza como lo haría un
   extractor real (`_extract_m3u8_formats`), y la página puede añadir la clave AES-128 del
-  extractor (`hls_aes`) o el manifiesto de medios ya leído (`hls_media_playlist_data`).
+  extractor (`hls_aes`) o el manifiesto de medios ya leído (`hls_media_playlist_data`). Los
+  manifiestos `.mpd`, `.ism` y `.f4m` se piden y analizan con los métodos de yt-dlp para DASH,
+  Smooth Streaming y HDS, como en un extractor real.
 """
 
 from yt_dlp.extractor.common import InfoExtractor
@@ -42,9 +44,16 @@ class FalsoIE(InfoExtractor):
         if pagina.get("lista") and not self.get_param("noplaylist"):
             return self._lista(base, pagina["lista"])
 
+        ruta = pagina["url"].split("?")[0]
         if pagina.get("maestro"):
             formatos = self._extract_m3u8_formats(pagina["url"], id_, "mp4", m3u8_id="hls")
-        elif pagina["url"].split("?")[0].endswith(".m3u8"):
+        elif ruta.endswith(".mpd"):
+            formatos = self._extract_mpd_formats(pagina["url"], id_, mpd_id="dash")
+        elif ruta.endswith(".ism"):
+            formatos = self._extract_ism_formats(pagina["url"], id_, ism_id="mss")
+        elif ruta.endswith(".f4m"):
+            formatos = self._extract_f4m_formats(pagina["url"], id_, f4m_id="hds")
+        elif ruta.endswith(".m3u8"):
             formatos = [{"format_id": "hls", "url": pagina["url"], "ext": "mp4",
                          "protocol": "m3u8_native", "height": pagina["alturas"][0]}]
             if pagina.get("incrustado"):

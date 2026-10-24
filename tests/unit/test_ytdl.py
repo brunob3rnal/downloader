@@ -231,6 +231,95 @@ def test_sin_corte_entrega_lo_pedido_en_una_llamada():
     assert respuesta.read(1 << 20) == b""
 
 
+# --- Ctrl+C a mitad de un bloque: entregar lo recibido (research R18) ---
+
+
+class RespuestaInterrumpida:
+    """Cuerpo de `total` bytes cuya lectura recibe Ctrl+C una vez, tras entregar `n` bytes."""
+
+    def __init__(self, n, total=100_000):
+        self.datos = bytes(i % 251 for i in range(total))
+        self.n = n
+        self.posicion = 0
+        self.interrumpida = False
+        self.headers = {"Content-Length": str(total)}
+
+    def read(self, amt=None):
+        if self.posicion == self.n and not self.interrumpida:
+            self.interrumpida = True
+            raise KeyboardInterrupt
+        hasta = len(self.datos) if self.interrumpida else self.n
+        trozo = self.datos[self.posicion : min(hasta, self.posicion + amt)]
+        self.posicion += len(trozo)
+        return trozo
+
+
+def aplazada(ydl, n=10_000):
+    """Lee de una `RespuestaInterrumpida` hasta que el envoltorio aplaza la interrupción."""
+    respuesta = RespuestaInterrumpida(n)
+    ydl._vigilar_cuerpo(respuesta)
+    try:
+        entregado = respuesta.read(1 << 20)
+    except KeyboardInterrupt:  # sin esto, pytest pararía la sesión entera
+        pytest.fail("Ctrl+C se relanzó sin entregar lo recibido")
+    assert entregado == respuesta.datos[:n]
+    return respuesta
+
+
+def test_ctrl_c_tras_n_bytes_entrega_los_n_y_se_relanza_en_la_lectura_siguiente():
+    ydl = ytdl.YoutubeDLRegistrado({"quiet": True})
+    respuesta = aplazada(ydl)
+    with pytest.raises(KeyboardInterrupt):
+        respuesta.read(1 << 20)
+    assert respuesta.read(1 << 20) == respuesta.datos[10_000:]  # se relanza una sola vez
+
+
+def test_ctrl_c_sin_bytes_se_relanza_de_inmediato():
+    respuesta = RespuestaInterrumpida(n=0)
+    vigilada(respuesta)
+    with pytest.raises(KeyboardInterrupt):
+        respuesta.read(1 << 20)
+
+
+def test_ctrl_c_aplazado_se_relanza_al_leer_otra_respuesta():
+    """En HLS y DASH cada fragmento tiene su respuesta: la del fragmento terminado no se
+    vuelve a leer."""
+    ydl = ytdl.YoutubeDLRegistrado({"quiet": True})
+    aplazada(ydl)
+    otra = RespuestaCortada(n=1_000, total=1_000)
+    ydl._vigilar_cuerpo(otra)
+    with pytest.raises(KeyboardInterrupt):
+        otra.read(1 << 20)
+
+
+def test_ctrl_c_aplazado_se_relanza_en_la_peticion_siguiente(ydl_con_respuestas):
+    ydl, respuestas = ydl_con_respuestas
+    aplazada(ydl)
+    respuestas.append(RespuestaFalsa())
+    with pytest.raises(KeyboardInterrupt):
+        ydl.urlopen("http://127.0.0.1/fragmento2.ts")
+
+
+def test_ctrl_c_aplazado_se_relanza_al_terminar_la_descarga(ydl_con_respuestas):
+    """Si lo entregado completa el archivo, yt-dlp no vuelve a leer (`HttpFD`)."""
+    ydl, _ = ydl_con_respuestas
+    aplazada(ydl)
+    with pytest.raises(KeyboardInterrupt):
+        ydl.dl("descarga.mp4", dict(INFO_HTTP))
+
+
+def test_ctrl_c_aplazado_se_relanza_al_terminar_la_extraccion(monkeypatch):
+    from yt_dlp import YoutubeDL
+
+    def extract_info(self, url, download=True):
+        aplazada(self)
+        return {"id": "v", "title": "Video"}
+
+    monkeypatch.setattr(YoutubeDL, "extract_info", extract_info)
+    with pytest.raises(KeyboardInterrupt):
+        ytdl.extraer_plano("http://127.0.0.1:9/v.mp4")
+
+
 # --- Cierre de las respuestas abiertas al extraer (research R19) ---
 
 

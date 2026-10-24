@@ -49,6 +49,8 @@ PLANTILLA = "descarga.%(ext)s"
 _RANGO_PEDIDO = re.compile(r"bytes=(\d+)-$")  # reanudación: desde el tamaño del `.part`
 _RANGO_416 = re.compile(r"bytes \*/(\d+)$")  # `Content-Range` de un 416: tamaño real
 CABECERA_M3U = b"#EXTM3U"  # así empieza todo manifiesto HLS (RFC 8216 §4.3.1.1)
+# Clave del resultado de `descargar`: representaciones protegidas excluidas de un MPD (R5).
+OMITIDAS = "downloader_omitidas"
 
 DIRECTO = (
     "Es una transmisión en directo: no se descargan directos. Vuelva a agregar la URL cuando "
@@ -142,8 +144,12 @@ class YoutubeDLRegistrado(YoutubeDL):
     de un reinicio se añade a la lista del parámetro `downloader_reinicios`.
 
     Rechaza los directos antes de pedir ningún medio, y el HLS con DRM o con un cifrado que
-    solo ffmpeg sabría descargar antes de pedir la clave o un fragmento (R5, `drm`). Los formatos
-    que yt-dlp marca `has_drm` los rechaza él al elegir el formato.
+    solo ffmpeg sabría descargar antes de pedir la clave o un fragmento (R5, `drm`). Con MPD,
+    ISM y F4M, la detección también es propia y no depende de lo que yt-dlp marque `has_drm`:
+    rechaza ISM y F4M con cualquier indicador, y de un MPD entrega al extractor el manifiesto
+    sin las representaciones protegidas, si lo que queda cubre la calidad del parámetro
+    `downloader_calidad`, o lo rechaza; las excluidas se cuentan, por URL del manifiesto, en el
+    diccionario del parámetro `downloader_omitidas`.
     """
 
     def __init__(self, params=None, *args, **kwargs):
@@ -162,6 +168,8 @@ class YoutubeDLRegistrado(YoutubeDL):
         # El primer manifiesto rechazado (R5): `process_info` vuelve a lanzarlo por si el
         # extractor capturó el error de la lectura.
         self._rechazo: ErrorPermanente | None = None
+        # Ctrl+C que llegó a mitad de un bloque y se aplazó para entregar lo ya recibido (R18).
+        self._interrupcion: KeyboardInterrupt | None = None
 
     # --- vigilante de estancamiento (R21) ---------------------------------------------
 
@@ -227,6 +235,23 @@ class YoutubeDLRegistrado(YoutubeDL):
             except Exception:  # ya cerrada o conexión rota: no hay nada que liberar
                 pass
 
+    def _relanzar_interrupcion(self) -> None:
+        """Relanza el Ctrl+C aplazado, si lo hay, una sola vez (research R18).
+
+        Se comprueba en la siguiente lectura de cualquier respuesta, en la siguiente petición y
+        al terminar `dl` y `extract_info`: si lo entregado completa el archivo (o un fragmento
+        HLS o DASH, que tiene su propia respuesta), yt-dlp no vuelve a leer esa respuesta.
+        """
+        interrupcion, self._interrupcion = self._interrupcion, None
+        if interrupcion is not None:
+            raise interrupcion
+
+    def extract_info(self, *args, **kwargs):
+        try:
+            return super().extract_info(*args, **kwargs)
+        finally:
+            self._relanzar_interrupcion()
+
     def close(self):
         self._cerrar_respuestas_extraccion()
         super().close()
@@ -268,9 +293,13 @@ class YoutubeDLRegistrado(YoutubeDL):
             descargador = get_suitable_downloader(info, self.params, to_stdout=(name == "-"))
             self.registro.fase = Fase.DESCARGA
             self.registro.externo = issubclass(descargador, ExternalFD)
-        return super().dl(name, info, subtitle, test)
+        try:
+            return super().dl(name, info, subtitle, test)
+        finally:
+            self._relanzar_interrupcion()
 
     def urlopen(self, req):
+        self._relanzar_interrupcion()
         if self._estancado is not None:
             # Intento abortado: sin esto, el reintento interno de yt-dlp volvería a esperar.
             raise self._estancado
@@ -296,6 +325,7 @@ class YoutubeDLRegistrado(YoutubeDL):
             self._respuestas_extraccion.append(weakref.ref(respuesta))
         self._vigilar_cuerpo(respuesta)
         self._vigilar_manifiesto(respuesta)
+        self._vigilar_xml(respuesta, getattr(req, "url", req))
         return respuesta
 
     def _vigilar_manifiesto(self, respuesta) -> None:
@@ -327,6 +357,70 @@ class YoutubeDLRegistrado(YoutubeDL):
             return datos
 
         respuesta.read = read
+
+    def _vigilar_xml(self, respuesta, url: str) -> None:
+        """Envuelve `respuesta.read` para analizar los manifiestos MPD, ISM y F4M (R5).
+
+        De un cuerpo que empieza por `<` (tras un BOM o espacios) no se entrega nada hasta
+        tenerlo entero, porque el extractor genérico lee 512 bytes antes que el resto. Si es un
+        manifiesto, se lanza el rechazo o se entrega lo que decida `drm.filtrar_xml`, antes de
+        que el extractor lo analice; si no, se entrega tal cual. El resto de los cuerpos no se
+        copia.
+        """
+        leer = respuesta.read
+        leido = bytearray()
+        pendiente: memoryview | None = None  # decidido: lo que falta por entregar
+        directo = False  # tras `pendiente`, el resto se lee sin copiarlo
+
+        def entregar(amt):
+            nonlocal pendiente
+            cantidad = len(pendiente) if amt is None or amt < 0 else amt
+            datos, pendiente = bytes(pendiente[:cantidad]), pendiente[cantidad:]
+            return datos
+
+        def read(amt=None):
+            nonlocal pendiente, directo
+            if amt == 0:
+                return b""
+            if pendiente is not None:
+                if pendiente or not directo:
+                    return entregar(amt)
+                return leer(amt)
+            datos = leer(amt)
+            leido.extend(datos)
+            final = not datos or amt is None or amt < 0
+            while (xml := drm.posible_xml(leido, final)) is None:
+                datos = leer(TROZO_LECTURA)
+                leido.extend(datos)
+                final = not datos
+            if not xml:
+                directo = not final
+                retenido, primera = bytes(leido), len(leido) == len(datos)
+                leido.clear()
+                if primera:  # decidido con la primera lectura: se entrega sin más
+                    pendiente = memoryview(b"")
+                    return datos
+                pendiente = memoryview(retenido)
+                return entregar(amt)
+            while not final:
+                datos = leer(TROZO_LECTURA)
+                leido.extend(datos)
+                final = not datos
+            pendiente = memoryview(self._filtrar_xml(url, bytes(leido)))
+            return entregar(amt)
+
+        respuesta.read = read
+
+    def _filtrar_xml(self, url: str, cuerpo: bytes) -> bytes:
+        """Lo que se entrega de un cuerpo XML; lanza `ErrorPermanente` si es un rechazo (R5)."""
+        filtrado = drm.filtrar_xml(cuerpo, self.params.get("downloader_calidad"))
+        if filtrado is None:
+            return cuerpo
+        self._comprobar_cifrado(filtrado.decision)
+        omitidas = self.params.get("downloader_omitidas")
+        if filtrado.omitidas and omitidas is not None:
+            omitidas[url] = filtrado.omitidas
+        return filtrado.cuerpo
 
     def _rango_no_satisfacible(self, req, error: HTTPError):
         """Un 416 al reanudar desde el byte N del `.part` (research R23).
@@ -367,6 +461,9 @@ class YoutubeDLRegistrado(YoutubeDL):
         la conexión se corta antes de completarlo (research R18). Por eso se lee en trozos de
         `TROZO_LECTURA` bytes: si un trozo falla con un error de transporte tras haber
         acumulado bytes, se entregan esos bytes y el error se relanza en la lectura siguiente.
+        Con Ctrl+C (`KeyboardInterrupt`) igual, para que yt-dlp escriba lo recibido en el
+        `.part`, aunque se relanza también si yt-dlp no vuelve a leer esta respuesta
+        (`_relanzar_interrupcion`).
 
         Con el manejador de `requests` cada trozo se lee con `read1`, que vuelve en cuanto llega
         algún dato: así el vigilante de estancamiento comprueba también un goteo de bytes,
@@ -407,32 +504,40 @@ class YoutubeDLRegistrado(YoutubeDL):
 
         def read(amt=None):
             nonlocal aplazado
+            self._relanzar_interrupcion()
             if aplazado is not None:
                 error, aplazado = aplazado, None
                 raise error
             if amt is None or amt < 0:
                 return leer_registrando(amt)
             acumulado = bytearray()
-            while len(acumulado) < amt:
-                try:
-                    trozo = leer_registrando(min(TROZO_LECTURA, amt - len(acumulado)))
-                except TransportError as error:
-                    # Un timeout de socket puede completar un estancamiento.
+            try:
+                while len(acumulado) < amt:
+                    try:
+                        trozo = leer_registrando(min(TROZO_LECTURA, amt - len(acumulado)))
+                    except TransportError as error:
+                        # Un timeout de socket puede completar un estancamiento.
+                        estancado = self._comprobar_estancamiento()
+                        if estancado is not None:
+                            error = abortar(estancado)
+                        if not acumulado:
+                            raise error
+                        aplazado = error
+                        break
+                    if not trozo:
+                        break
+                    acumulado += trozo
+                    self._anotar_bytes(len(trozo))
                     estancado = self._comprobar_estancamiento()
                     if estancado is not None:
-                        error = abortar(estancado)
-                    if not acumulado:
-                        raise error
-                    aplazado = error
-                    break
-                if not trozo:
-                    break
-                acumulado += trozo
-                self._anotar_bytes(len(trozo))
-                estancado = self._comprobar_estancamiento()
-                if estancado is not None:
-                    aplazado = abortar(estancado)
-                    break
+                        aplazado = abortar(estancado)
+                        break
+            except KeyboardInterrupt as interrupcion:
+                # Ctrl+C a mitad del bloque: lo recibido se entrega para que yt-dlp lo escriba
+                # en el `.part` antes de relanzarlo (`_relanzar_interrupcion`).
+                if not acumulado:
+                    raise
+                self._interrupcion = interrupcion
             return bytes(acumulado)
 
         respuesta.read = read
@@ -499,6 +604,7 @@ def opciones(
         "fragment_retries": REINTENTOS_INTERNOS,
         "progress_hooks": [hook],
         "downloader_vigilancia": vigilancia,
+        "downloader_calidad": descarga.calidad,  # para las representaciones protegidas (R5)
     }
     if descarga.calidad is Calidad.AUDIO:
         opciones["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "best"}]
@@ -521,8 +627,12 @@ def descargar(
     socket_timeout: float = SOCKET_TIMEOUT,
     vigilancia: Vigilancia | None = None,
 ) -> dict:
-    """Vuelve a extraer y descarga (o continúa) en el directorio de trabajo (R2)."""
+    """Vuelve a extraer y descarga (o continúa) en el directorio de trabajo (R2).
+
+    En el resultado, `OMITIDAS` es el número de representaciones protegidas excluidas (R5).
+    """
     reinicios: list[str] = []  # los anota `YoutubeDLRegistrado` (R23)
+    omitidas: dict[str, int] = {}  # también los anota, por URL de cada MPD (R5)
 
     def hook(evento: dict) -> None:
         al_progresar(
@@ -539,12 +649,13 @@ def descargar(
             )
         )
 
-    return _ejecutar(
+    info = _ejecutar(
         opciones(descarga, directorio_trabajo, navegador, hook, socket_timeout, vigilancia)
-        | {"downloader_reinicios": reinicios},
+        | {"downloader_reinicios": reinicios, "downloader_omitidas": omitidas},
         descarga.url,
         download=True,
     )
+    return info | {OMITIDAS: sum(omitidas.values())}
 
 
 _ALTURAS = {Calidad.P1080: 1080, Calidad.P720: 720}

@@ -3,9 +3,12 @@ FR-015, Principio V, research R5)."""
 
 import pytest
 
+from downloader import publish
 from downloader.models import Estado
 from downloader.store import Store
-from tests.support import hls
+from tests.integration.test_hls_aes import descifrado_entero
+from tests.integration.test_solo_audio import tipos_de_flujo
+from tests.support import dash, hls
 
 
 @pytest.mark.parametrize(
@@ -213,3 +216,270 @@ def test_metodo_no_soportado_con_clave_identity(
     assert metodo in descarga.ultimo_error
     assert "DRM" not in descarga.ultimo_error
     assert ffmpeg_lanzado == []
+
+
+# --- DASH, ISM y F4M: detección propia sobre el manifiesto (FR-015, hallazgo G1; R5) ---
+#
+# Los medios de cada representación (el video y el audio de `medios` por separado) existen y
+# se servirían: si no se piden es porque se excluyeron o porque se rechazó antes.
+
+TIPO_MPD = "application/dash+xml"
+
+
+def registrar_manifiesto(servidor, id_video, nombre, cuerpo, tipo_contenido, archivos=None,
+                         pagina=True):
+    """Registra el manifiesto `<id_video>/<nombre>`, sus `archivos` y, con `pagina`, la página
+    del video que apunta a él. Devuelve el nombre del manifiesto."""
+    manifiesto = f"{id_video}/{nombre}"
+    servidor.registrar(manifiesto, cuerpo, tipo_contenido=tipo_contenido)
+    for archivo, datos in (archivos or {}).items():
+        servidor.registrar(f"{id_video}/{archivo}", datos, tipo_contenido="video/mp4")
+    if pagina:
+        servidor.registrar_video(id_video, manifiesto)
+    return manifiesto
+
+
+def registrar_mpd(servidor, pistas, id_video, *periodos, dentro="", pagina=True):
+    archivos = {"video-1440.mp4": pistas.video, "video-1080.mp4": pistas.video,
+                "video-720.mp4": pistas.video, "audio.m4a": pistas.audio}
+    return registrar_manifiesto(servidor, id_video, "manifiesto.mpd",
+                                dash.mpd(*periodos, dentro=dentro), TIPO_MPD, archivos, pagina)
+
+
+def rechazado_como_drm(cli, app_home, destino, servidor, transiciones, url, manifiesto, sistema,
+                       calidad="mejor"):
+    """`ejecutar` la deja `failed` en un solo intento sin pedir nada más que el manifiesto.
+
+    Con un rechazo que depende de la calidad, el manifiesto se pide dos veces: la extracción
+    sin descarga no conoce la calidad, y el rechazo llega al volver a extraer para descargar.
+    """
+    assert cli("agregar", url, "--calidad", calidad, "--carpeta", destino).exit_code == 0
+
+    resultado = cli("ejecutar")
+
+    assert resultado.exit_code == 1, resultado.output
+    store = Store.abrir(app_home)
+    try:
+        descarga = store.obtener(1)
+    finally:
+        store.cerrar()
+    assert descarga.estado is Estado.FAILED
+    assert (1, Estado.WAITING_NETWORK) not in transiciones  # sin reintentos: permanente
+    assert descarga.intentos_sin_avance == 0
+    assert descarga.ultimo_error == f"contenido con DRM ({sistema}): no se puede descargar"
+    assert f"#1 fallida  {descarga.ultimo_error}" in resultado.output
+    assert {r for r in servidor.pedidas if not r.startswith("watch/")} == {manifiesto}
+    assert not any(p.is_file() for p in destino.iterdir())
+
+
+def descargada(cli, app_home, destino, url, calidad="mejor"):
+    """`ejecutar` la completa; devuelve la descarga, el archivo publicado y la salida."""
+    assert cli("agregar", url, "--calidad", calidad, "--carpeta", destino).exit_code == 0
+
+    resultado = cli("ejecutar")
+
+    assert resultado.exit_code == 0, resultado.output
+    store = Store.abrir(app_home)
+    try:
+        descarga = store.obtener(1)
+    finally:
+        store.cerrar()
+    assert descarga.estado is Estado.COMPLETED
+    archivo = destino / descarga.archivo_final
+    assert [p for p in destino.iterdir() if p.is_file()] == [archivo]
+    publish.verificar([], archivo)  # se lee entero, con paquetes en todos los flujos (R8)
+    descifrado_entero(archivo)  # y dura lo que el original
+    return descarga, archivo, resultado.output
+
+
+def video(id_, altura, dentro=""):
+    return dash.representacion(id_, f"{id_}.mp4", dash.VIDEO, altura=altura, dentro=dentro)
+
+
+AUDIO = dash.conjunto(dash.AUDIO, dash.representacion("audio", "audio.m4a", dash.AUDIO))
+SUBREPRESENTACION = '<SubRepresentation level="0" contentComponent="1">{}</SubRepresentation>'
+
+
+def video_protegido(nivel, proteccion):
+    """El conjunto del video de 720p con `proteccion` en el `nivel` pedido."""
+    if nivel == "adaptationset":
+        return dash.conjunto(dash.VIDEO, video("video-720", 720), dentro=proteccion)
+    if nivel == "subrepresentation":
+        proteccion = SUBREPRESENTACION.format(proteccion)
+    return dash.conjunto(dash.VIDEO, video("video-720", 720, dentro=proteccion))
+
+
+def omitidas_en_el_aviso(descarga, salida, aviso):
+    assert descarga.ultimo_aviso == aviso
+    assert f"#1 aviso  {aviso}" in salida
+
+
+@pytest.mark.ytdlp_internals
+@pytest.mark.parametrize("nivel", ["adaptationset", "representation", "subrepresentation"])
+def test_mpd_con_el_video_protegido_se_rechaza_sin_descargar_el_audio(
+    cli, app_home, destino, servidor, pistas, transiciones, nivel
+):
+    """(a) yt-dlp descartaba el video y descargaba solo el audio, sin aviso (R5)."""
+    manifiesto = registrar_mpd(servidor, pistas, "protegido",
+                               dash.periodo(video_protegido(nivel, dash.WIDEVINE_CP), AUDIO))
+    rechazado_como_drm(cli, app_home, destino, servidor, transiciones,
+                       servidor.url("watch/protegido"), manifiesto, "DASH")
+
+
+@pytest.mark.ytdlp_internals
+@pytest.mark.parametrize("nivel", ["adaptationset", "representation"])
+def test_mpd_con_el_video_protegido_y_calidad_audio_descarga_solo_el_audio(
+    cli, app_home, destino, servidor, pistas, nivel
+):
+    """(b) Lo que queda sin proteger cubre `audio`: se descarga con el aviso (N = 1)."""
+    registrar_mpd(servidor, pistas, "protegido",
+                  dash.periodo(video_protegido(nivel, dash.WIDEVINE_CP), AUDIO))
+
+    descarga, archivo, salida = descargada(cli, app_home, destino,
+                                           servidor.url("watch/protegido"), "audio")
+
+    tipos = tipos_de_flujo(archivo)
+    assert "audio" in tipos and "video" not in tipos
+    assert "protegido/video-720.mp4" not in servidor.pedidas
+    assert servidor.bytes_servidos["protegido/audio.m4a"] == len(pistas.audio)
+    omitidas_en_el_aviso(descarga, salida, "1 representación protegida omitida")
+
+
+@pytest.mark.ytdlp_internals
+@pytest.mark.parametrize("calidad", ["mejor", "audio"])
+@pytest.mark.parametrize("nivel", ["period", "mpd"])
+def test_proteccion_en_el_period_o_en_el_mpd_rechaza_todo(
+    cli, app_home, destino, servidor, pistas, transiciones, nivel, calidad
+):
+    """(c) yt-dlp no la detectaba y lo descargaba todo como si no estuviera protegido (R5)."""
+    contenido = (dash.conjunto(dash.VIDEO, video("video-720", 720)), AUDIO)
+    if nivel == "period":
+        manifiesto = registrar_mpd(servidor, pistas, "protegido",
+                                   dash.periodo(*contenido, dentro=dash.WIDEVINE_CP))
+    else:
+        manifiesto = registrar_mpd(servidor, pistas, "protegido", dash.periodo(*contenido),
+                                   dentro=dash.WIDEVINE_CP)
+    rechazado_como_drm(cli, app_home, destino, servidor, transiciones,
+                       servidor.url("watch/protegido"), manifiesto, "DASH", calidad)
+
+
+@pytest.mark.ytdlp_internals
+@pytest.mark.parametrize("proteccion", [dash.MP4PROTECTION, dash.MP4PROTECTION_KID],
+                         ids=["sin-kid", "con-kid"])
+@pytest.mark.parametrize("nivel", ["adaptationset", "representation"])
+def test_mp4protection_solo_cuenta_como_proteccion(
+    cli, app_home, destino, servidor, pistas, transiciones, nivel, proteccion
+):
+    """(d) `urn:mpeg:dash:mp4protection:2011` no nombra ningún sistema, pero protege."""
+    manifiesto = registrar_mpd(servidor, pistas, "protegido",
+                               dash.periodo(video_protegido(nivel, proteccion), AUDIO))
+    rechazado_como_drm(cli, app_home, destino, servidor, transiciones,
+                       servidor.url("watch/protegido"), manifiesto, "DASH")
+
+
+def mpd_mixto():
+    """1080p protegida; 720p y audio sin proteger, en el mismo conjunto que la 1080p."""
+    return dash.periodo(
+        dash.conjunto(dash.VIDEO, video("video-1080", 1080, dentro=dash.WIDEVINE_CP),
+                      video("video-720", 720)),
+        AUDIO,
+    )
+
+
+def mixto_descargado(servidor, pistas, archivo, prefijo):
+    tipos = tipos_de_flujo(archivo)
+    assert "video" in tipos and "audio" in tipos
+    assert f"{prefijo}/video-1080.mp4" not in servidor.pedidas
+    assert servidor.bytes_servidos[f"{prefijo}/video-720.mp4"] == len(pistas.video)
+    assert servidor.bytes_servidos[f"{prefijo}/audio.m4a"] == len(pistas.audio)
+
+
+@pytest.mark.ytdlp_internals
+def test_mpd_mixto_descarga_la_720p_sin_pedir_la_1080p_protegida(cli, app_home, destino,
+                                                                   servidor, pistas):
+    """(e) Aviso en singular: una representación omitida."""
+    registrar_mpd(servidor, pistas, "mixto", mpd_mixto())
+
+    descarga, archivo, salida = descargada(cli, app_home, destino, servidor.url("watch/mixto"))
+
+    mixto_descargado(servidor, pistas, archivo, "mixto")
+    omitidas_en_el_aviso(descarga, salida, "1 representación protegida omitida")
+
+
+@pytest.mark.ytdlp_internals
+def test_aviso_en_plural_con_dos_representaciones_omitidas(cli, app_home, destino, servidor,
+                                                           pistas):
+    """La protección del conjunto alcanza a sus dos representaciones (1440p y 1080p)."""
+    registrar_mpd(servidor, pistas, "plural", dash.periodo(
+        dash.conjunto(dash.VIDEO, video("video-1440", 1440), video("video-1080", 1080),
+                      dentro=dash.WIDEVINE_CP),
+        dash.conjunto(dash.VIDEO, video("video-720", 720)),
+        AUDIO,
+    ))
+
+    descarga, archivo, salida = descargada(cli, app_home, destino, servidor.url("watch/plural"))
+
+    mixto_descargado(servidor, pistas, archivo, "plural")
+    assert "plural/video-1440.mp4" not in servidor.pedidas
+    omitidas_en_el_aviso(descarga, salida, "2 representaciones protegidas omitidas")
+
+
+@pytest.mark.ytdlp_internals
+def test_mpd_mixto_por_url_directa_con_el_extractor_generico(cli, app_home, destino, servidor,
+                                                             pistas):
+    """El extractor genérico lee 512 bytes del MPD antes que el resto."""
+    manifiesto = registrar_mpd(servidor, pistas, "directo-dash", mpd_mixto(), pagina=False)
+
+    descarga, archivo, salida = descargada(cli, app_home, destino, servidor.url(manifiesto))
+
+    mixto_descargado(servidor, pistas, archivo, "directo-dash")
+    omitidas_en_el_aviso(descarga, salida, "1 representación protegida omitida")
+
+
+@pytest.mark.ytdlp_internals
+def test_mpd_sin_proteccion_se_descarga_integro_y_sin_aviso(cli, app_home, destino, servidor,
+                                                            pistas):
+    registrar_mpd(servidor, pistas, "libre", dash.periodo(
+        dash.conjunto(dash.VIDEO, video("video-1080", 1080), video("video-720", 720)), AUDIO,
+    ))
+
+    descarga, archivo, salida = descargada(cli, app_home, destino, servidor.url("watch/libre"))
+
+    assert servidor.bytes_servidos["libre/video-1080.mp4"] == len(pistas.video)
+    assert servidor.bytes_servidos["libre/audio.m4a"] == len(pistas.audio)
+    assert "libre/video-720.mp4" not in servidor.pedidas
+    assert descarga.ultimo_aviso is None
+    assert "aviso" not in salida
+
+
+@pytest.mark.ytdlp_internals
+@pytest.mark.parametrize(
+    "proteccion",
+    [dash.PROTECTION, dash.PROTECTION_SOLA, dash.PROTECTION_HEADER],
+    ids=["protection-y-header", "protection", "protection-header"],
+)
+def test_ism_con_proteccion_se_rechaza(cli, app_home, destino, servidor, transiciones,
+                                       proteccion):
+    """(f) yt-dlp solo veía un `Protection` hijo directo de la raíz, con su propio mensaje."""
+    manifiesto = registrar_manifiesto(servidor, "ism", "manifiesto.ism", dash.ism(proteccion),
+                                      "text/xml")
+    rechazado_como_drm(cli, app_home, destino, servidor, transiciones, servidor.url("watch/ism"),
+                       manifiesto, "ISM")
+
+
+@pytest.mark.ytdlp_internals
+@pytest.mark.parametrize("junto", [False, True], ids=["solo", "con-media-sin-cifrar"])
+@pytest.mark.parametrize(
+    "indicador",
+    [dash.DRM_HEADER, dash.DRM_HEADER_SET, dash.MEDIA_CON_HEADER_ID,
+     dash.MEDIA_CON_HEADER_SET_ID],
+    ids=["drm-header", "drm-header-set", "media-header-id", "media-header-set-id"],
+)
+def test_f4m_con_drm_se_rechaza_entero(cli, app_home, destino, servidor, transiciones,
+                                       indicador, junto):
+    """(g) yt-dlp descartaba en silencio los `media` cifrados, sin marcarlos (R5)."""
+    elementos = [indicador, dash.MEDIA_SIN_CIFRAR] if junto else [indicador]
+    manifiesto = registrar_manifiesto(servidor, "hds", "manifiesto.f4m", dash.f4m(*elementos),
+                                      "application/f4m+xml")
+    rechazado_como_drm(cli, app_home, destino, servidor, transiciones, servidor.url("watch/hds"),
+                       manifiesto, "F4M")

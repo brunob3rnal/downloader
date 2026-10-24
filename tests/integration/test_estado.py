@@ -173,3 +173,15 @@ def test_cola_corrupta_sale_con_3_como_agregar(cli, app_home, destino):
     (copia,) = app_home.glob("cola.db.corrupta-*")
     assert copia.read_bytes() == basura
     assert (app_home / "cola.db").read_bytes() == basura  # no se sustituye por una cola nueva
+
+
+@pytest.mark.parametrize("argumentos", [["--desconocida"], ["extra"]],
+                         ids=["opcion-desconocida", "argumento-de-mas"])
+def test_uso_invalido_sale_con_2_sin_crear_la_cola(cli, app_home, argumentos):
+    """Typer lo rechaza antes de leer la cola (contracts/cli.md, N6)."""
+    resultado = cli("estado", *argumentos)
+
+    assert resultado.exit_code == 2, resultado.output
+    assert "Usage: " in resultado.stderr and "estado" in resultado.stderr
+    assert resultado.stdout == ""
+    assert not (app_home / "cola.db").exists()

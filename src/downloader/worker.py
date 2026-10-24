@@ -30,6 +30,13 @@ DISCO_LLENO = (
 )
 
 
+def aviso_omitidas(cantidad: int) -> str | None:
+    """El aviso de las representaciones protegidas que se excluyeron de un MPD (FR-015, R5)."""
+    if cantidad == 1:
+        return "1 representación protegida omitida"
+    return f"{cantidad} representaciones protegidas omitidas" if cantidad else None
+
+
 @dataclass
 class Tiempos:
     backoff_base: float = 2
@@ -252,7 +259,11 @@ def _descargar(store, presentador, tiempos, navegador, plantilla, seguimiento):
     )
     publicacion = publish.publicar(archivo, descarga.carpeta_destino, nombre)
 
-    avisos = [a for a in (ytdl.aviso_calidad(descarga.calidad, info), publicacion.aviso) if a]
+    avisos = [
+        a for a in (ytdl.aviso_calidad(descarga.calidad, info),
+                    aviso_omitidas(info.get(ytdl.OMITIDAS, 0)), publicacion.aviso)
+        if a
+    ]
     for aviso in avisos:
         presentador.aviso(descarga, aviso)
     store.transicion(

@@ -108,6 +108,7 @@ tests/
 │   ├── flaky_server.py  # HTTP con Range, cortes, 403 por token, apagado/rearranque
 │   ├── fake_extractor.py   # InfoExtractor de prueba (no empieza por test_)
 │   ├── hls.py           # manifiestos HLS cifrados para los tests de DRM y de AES-128 (R5; Fase 10)
+│   ├── dash.py          # manifiestos MPD, ISM y F4M con y sin protección (R5; Fase 11)
 │   └── navegador_falso.py  # lectura de cookies del navegador simulada, con una cookie ficticia (R25)
 ├── unit/                # models, store, errors, retry, publish, ytdl (formatos)
 └── integration/         # cortes, caída de red, cierre abrupto, Ctrl+C, URL caducada, permanentes, listas, CLI
@@ -130,7 +131,8 @@ tests/
    petición (incluida la lectura del cuerpo), la fase y si descarga un programa externo,
    porque yt-dlp descarta la excepción original al agotar sus reintentos; `errors.clasificar`
    lo usa cuando la cadena de causas no trae código HTTP (R4). Es la única subclase de yt-dlp
-   del proyecto y sobrescribe dos métodos (`urlopen` y `dl`).
+   del proyecto; empezó sobrescribiendo dos métodos (`urlopen` y `dl`), y las decisiones
+   siguientes añaden los demás.
 7. Los 403/410 durante la descarga se reintentan como URL caducada, con un tope de 3 intentos
    seguidos sin bytes nuevos (`retry.TopeSinAvance`, FR-026); es una excepción acotada a
    "reintentar indefinidamente" (FR-010).
@@ -150,7 +152,10 @@ tests/
     la conexión se corta, entrega lo acumulado antes de relanzar el error en la lectura
     siguiente: yt-dlp pide bloques de hasta 4 MiB y urllib3 descarta lo recibido de un bloque
     incompleto, lo que incumplía SC-002. Cuesta CPU: la descarga local baja de ~700 a
-    ~275 MiB/s (R18).
+    ~275 MiB/s (R18). Con Ctrl+C igual: lo acumulado se entrega a yt-dlp, que lo escribe en el
+    `.part`, y la interrupción se relanza en la siguiente lectura o petición, o al terminar `dl`
+    o `extract_info` (que se sobrescribe para eso), porque si lo entregado completa el archivo
+    o el fragmento, yt-dlp no vuelve a leer esa respuesta. Sin coste medible (R18).
 14. `YoutubeDLRegistrado` cierra las respuestas abiertas durante la extracción al acabar esta
     (`process_ie_result`), al empezar la descarga (`dl`) y al cerrarse: con URLs directas de
     `Content-Type: video/*`, el extractor genérico de yt-dlp deja abierto un GET completo que
@@ -216,8 +221,8 @@ tests/
 27. Licencia MIT para el código propio (`LICENSE`, `license` en `pyproject.toml`). `yt-dlp[default]`
     instala `mutagen` (GPL-2.0-or-later), que no se incluye en el repositorio; el README lo
     advierte. Es una decisión del propietario del repositorio, sin asesoría legal.
-28. Marcadores `slow` (más de unos 5 s) y `ytdlp_internals` (R1, R3, R4, R19, R21, R23, R24,
-    R25), registrados en `pyproject.toml`. Los de `test_network_cuts.py` y
+28. Marcadores `slow` (más de unos 5 s) y `ytdlp_internals` (R1, R3, R4, R5, R18, R19, R21, R23,
+    R24, R25), registrados en `pyproject.toml`. Los de `test_network_cuts.py` y
     `test_crash_recovery.py` (T016 y T017, que no se modifican) se aplican desde
     `tests/integration/conftest.py`; `tests/unit/test_marcadores.py` comprueba la lista exacta.
 
@@ -237,16 +242,21 @@ tests/
     `has_drm`" porque yt-dlp descarga el `AES-128` con `KEYFORMAT` de Widevine o con un PSSH, y
     pasa a ffmpeg el `SAMPLE-AES`, que no permite reanudar (FR-008).
     Desde el hallazgo G1 (Fase 11, T095–T096), `drm.py` analiza también los manifiestos MPD, ISM
-    y F4M, con `xml.etree` (el mismo analizador con el que yt-dlp lee esos bytes: ni
-    dependencias nuevas ni más exposición). Busca los indicadores de R5 por su nombre local y,
-    en MPD, devuelve qué representaciones están protegidas y si la protección alcanza a todo
-    (`Period` o `MPD`). `ytdl.py` lo aplica a cada manifiesto leído, como con HLS: rechaza ISM y
-    F4M con indicadores; en MPD excluye de la selección los formatos de las representaciones
-    protegidas, evalúa lo que queda contra la calidad pedida y, si no la cubre, rechaza antes de
-    pedir ningún medio; si la cubre, el trabajador añade el aviso de las omitidas. Tampoco aquí
-    basta `has_drm`: yt-dlp no detecta un `ContentProtection` en `Period` o `MPD`, no marca F4M
-    y, entre lo no protegido, puede quedarse solo con el audio sin avisar. Las variantes HLS
-    mixtas siguen con el criterio de `drm.py` para HLS (diferencia conocida, R5).
+    y F4M, con expat (`xml.parsers.expat`, el analizador de `xml.etree` con el que yt-dlp lee
+    esos bytes: ni dependencias nuevas ni más exposición), que además da la posición en bytes
+    de cada elemento. Busca los indicadores de R5 por su nombre local y, en MPD, decide qué
+    representaciones están protegidas y si la protección alcanza a todo (`Period` o `MPD`).
+    `ytdl.py` lo aplica a cada cuerpo XML leído, como con HLS, reteniéndolo hasta tenerlo entero:
+    rechaza ISM y F4M con indicadores; en MPD evalúa lo que queda sin proteger contra la calidad
+    pedida y, si no la cubre, rechaza antes de pedir ningún medio; si la cubre, entrega al
+    extractor el MPD sin los bytes de las representaciones protegidas, de modo que sus formatos
+    no llegan a la selección, y el trabajador añade el aviso de las omitidas. Quitar los bytes,
+    en lugar de marcar después los formatos `has_drm`, no depende de cómo cada extractor nombre
+    o modifique los formatos, y deja el resto del manifiesto intacto. Tampoco aquí basta
+    `has_drm`: yt-dlp no detecta un `ContentProtection` en `Period` o `MPD`, no marca F4M y,
+    entre lo no protegido, puede quedarse solo con el audio sin avisar. Un MPD con varios
+    `Period` y protección parcial se rechaza (R5). Las variantes HLS mixtas siguen con el
+    criterio de `drm.py` para HLS (diferencia conocida, R5).
 
 ## Complexity Tracking
 
