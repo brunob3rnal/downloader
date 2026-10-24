@@ -80,6 +80,36 @@ Al terminar, un resumen con el número de completadas y fallidas, y la causa de 
 
 Los errores van a stderr y nunca incluyen cookies, cabeceras de autenticación ni tokens.
 
+## `estado`
+
+Muestra la cola sin modificarla (FR-032). Es de solo lectura: no toma el bloqueo de
+`ejecutar`, así que funciona mientras otro `ejecutar` corre, y no cambia ninguna fila. No
+necesita red.
+
+Salida (stdout), una línea por descarga en orden de `id`, con la etiqueta visible del estado
+(data-model.md), el progreso, el título y, si lo hay, el último aviso o error, con los
+secretos ocultos:
+
+```text
+#11 en cola  —  Título del video
+#12 descargando  43.1%  Título del video
+#13 esperando red  12.0%  Título del video  (conexión rechazada)
+#14 completada  100%  Título del video  ~/Descargas/Título del video.mp4
+#15 fallida  —  https://…/watch/abc  Video privado: el propietario restringió el acceso
+#16 completada  lista (3 videos)  https://…/playlist/xyz
+```
+
+El progreso sale de `bytes_descargados` y `bytes_totales`, que `ejecutar` guarda como mucho
+cada 2 s: puede ir hasta 2 s por detrás de la línea de `ejecutar`. Sin `bytes_totales`, se
+muestran los bytes descargados (`35.2 MiB`); sin título todavía, la URL. Con la cola vacía, o
+si `cola.db` no existe (no la crea), imprime `cola vacía`.
+
+| Código | Significado |
+|--------|-------------|
+| 0 | cola mostrada (también si alguna descarga está `failed`) o cola vacía |
+| 2 | uso inválido |
+| 3 | archivo de estado de la cola corrupto; se guardó una copia, como en `agregar` |
+
 ## `actualizar`
 
 Actualiza yt-dlp a su última versión dentro del proyecto (FR-025 enmendado, research R14):

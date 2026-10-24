@@ -77,6 +77,10 @@ Toda transición no listada es un error de programación y se rechaza.
 **Pendientes** (para la condición de salida de `ejecutar`, FR-021): `queued`, `downloading`,
 `waiting_network`. `ejecutar` termina cuando no queda ninguna.
 
+**Lectura sin bloqueo**: `estado` (FR-032) lee las filas en una transacción de solo lectura,
+sin tomar `ejecutar.lock` y sin ninguna transición. Con WAL (R11) ve el último estado confirmado
+por `ejecutar` aunque este siga corriendo.
+
 ## Entidad: Configuración (`config.toml` en el directorio de la app)
 
 | Clave | Por defecto | Notas |
