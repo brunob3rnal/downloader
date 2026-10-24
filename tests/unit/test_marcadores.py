@@ -73,6 +73,9 @@ INTERNOS_YTDLP = {
     "tests/integration/test_hls_aes.py::test_hls_sin_cifrar_sigue_descargandose",
     "tests/integration/test_hls_aes.py::test_la_clave_se_pide_con_la_sesion_del_usuario",
     "tests/integration/test_hls_aes.py::test_clave_data_con_base64_invalido_falla_sin_excepcion",
+    # R18: `HttpFD` escribe en el `.part` lo que devuelve `read` antes de volver a leer, y ningún
+    # `except KeyboardInterrupt` del camino de descarga descarta Ctrl+C.
+    "tests/integration/test_interrupcion.py::test_ctrl_c_a_mitad_de_bloque_no_pierde_lo_recibido",
     # R5 (DASH, ISM y F4M): los extractores, también el genérico (que lee 512 bytes antes que
     # el resto), leen el manifiesto con `urlopen(...).read()` y crean los formatos solo a partir
     # de esos bytes, un formato por `Representation`; la descarga DASH no vuelve a pedir el MPD.
@@ -95,6 +98,7 @@ INTERNOS_YTDLP = {
 
 LENTOS = {
     "tests/integration/test_interrupcion.py::test_ctrl_c_guarda_el_progreso_y_relanzar_termina",
+    "tests/integration/test_interrupcion.py::test_ctrl_c_a_mitad_de_bloque_no_pierde_lo_recibido",
     "tests/integration/test_crash_recovery.py::test_cierre_abrupto_a_mitad_y_relanzar",
     "tests/integration/test_network_cuts.py::test_servidor_colgado_es_temporal",
     "tests/unit/test_worker_espera.py::test_nunca_falla_por_errores_temporales_no_ambiguos",

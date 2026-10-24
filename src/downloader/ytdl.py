@@ -168,6 +168,8 @@ class YoutubeDLRegistrado(YoutubeDL):
         # El primer manifiesto rechazado (R5): `process_info` vuelve a lanzarlo por si el
         # extractor capturó el error de la lectura.
         self._rechazo: ErrorPermanente | None = None
+        # Ctrl+C que llegó a mitad de un bloque y se aplazó para entregar lo ya recibido (R18).
+        self._interrupcion: KeyboardInterrupt | None = None
 
     # --- vigilante de estancamiento (R21) ---------------------------------------------
 
@@ -233,6 +235,23 @@ class YoutubeDLRegistrado(YoutubeDL):
             except Exception:  # ya cerrada o conexión rota: no hay nada que liberar
                 pass
 
+    def _relanzar_interrupcion(self) -> None:
+        """Relanza el Ctrl+C aplazado, si lo hay, una sola vez (research R18).
+
+        Se comprueba en la siguiente lectura de cualquier respuesta, en la siguiente petición y
+        al terminar `dl` y `extract_info`: si lo entregado completa el archivo (o un fragmento
+        HLS o DASH, que tiene su propia respuesta), yt-dlp no vuelve a leer esa respuesta.
+        """
+        interrupcion, self._interrupcion = self._interrupcion, None
+        if interrupcion is not None:
+            raise interrupcion
+
+    def extract_info(self, *args, **kwargs):
+        try:
+            return super().extract_info(*args, **kwargs)
+        finally:
+            self._relanzar_interrupcion()
+
     def close(self):
         self._cerrar_respuestas_extraccion()
         super().close()
@@ -274,9 +293,13 @@ class YoutubeDLRegistrado(YoutubeDL):
             descargador = get_suitable_downloader(info, self.params, to_stdout=(name == "-"))
             self.registro.fase = Fase.DESCARGA
             self.registro.externo = issubclass(descargador, ExternalFD)
-        return super().dl(name, info, subtitle, test)
+        try:
+            return super().dl(name, info, subtitle, test)
+        finally:
+            self._relanzar_interrupcion()
 
     def urlopen(self, req):
+        self._relanzar_interrupcion()
         if self._estancado is not None:
             # Intento abortado: sin esto, el reintento interno de yt-dlp volvería a esperar.
             raise self._estancado
@@ -438,6 +461,9 @@ class YoutubeDLRegistrado(YoutubeDL):
         la conexión se corta antes de completarlo (research R18). Por eso se lee en trozos de
         `TROZO_LECTURA` bytes: si un trozo falla con un error de transporte tras haber
         acumulado bytes, se entregan esos bytes y el error se relanza en la lectura siguiente.
+        Con Ctrl+C (`KeyboardInterrupt`) igual, para que yt-dlp escriba lo recibido en el
+        `.part`, aunque se relanza también si yt-dlp no vuelve a leer esta respuesta
+        (`_relanzar_interrupcion`).
 
         Con el manejador de `requests` cada trozo se lee con `read1`, que vuelve en cuanto llega
         algún dato: así el vigilante de estancamiento comprueba también un goteo de bytes,
@@ -478,32 +504,40 @@ class YoutubeDLRegistrado(YoutubeDL):
 
         def read(amt=None):
             nonlocal aplazado
+            self._relanzar_interrupcion()
             if aplazado is not None:
                 error, aplazado = aplazado, None
                 raise error
             if amt is None or amt < 0:
                 return leer_registrando(amt)
             acumulado = bytearray()
-            while len(acumulado) < amt:
-                try:
-                    trozo = leer_registrando(min(TROZO_LECTURA, amt - len(acumulado)))
-                except TransportError as error:
-                    # Un timeout de socket puede completar un estancamiento.
+            try:
+                while len(acumulado) < amt:
+                    try:
+                        trozo = leer_registrando(min(TROZO_LECTURA, amt - len(acumulado)))
+                    except TransportError as error:
+                        # Un timeout de socket puede completar un estancamiento.
+                        estancado = self._comprobar_estancamiento()
+                        if estancado is not None:
+                            error = abortar(estancado)
+                        if not acumulado:
+                            raise error
+                        aplazado = error
+                        break
+                    if not trozo:
+                        break
+                    acumulado += trozo
+                    self._anotar_bytes(len(trozo))
                     estancado = self._comprobar_estancamiento()
                     if estancado is not None:
-                        error = abortar(estancado)
-                    if not acumulado:
-                        raise error
-                    aplazado = error
-                    break
-                if not trozo:
-                    break
-                acumulado += trozo
-                self._anotar_bytes(len(trozo))
-                estancado = self._comprobar_estancamiento()
-                if estancado is not None:
-                    aplazado = abortar(estancado)
-                    break
+                        aplazado = abortar(estancado)
+                        break
+            except KeyboardInterrupt as interrupcion:
+                # Ctrl+C a mitad del bloque: lo recibido se entrega para que yt-dlp lo escriba
+                # en el `.part` antes de relanzarlo (`_relanzar_interrupcion`).
+                if not acumulado:
+                    raise
+                self._interrupcion = interrupcion
             return bytes(acumulado)
 
         respuesta.read = read

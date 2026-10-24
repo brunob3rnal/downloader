@@ -2,7 +2,8 @@
 
 Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento. Desde el 2026-10-24,
 `uv.lock` fija yt-dlp 2026.10.21: `actualizar` la aceptó tras pasar los tests marcados
-`ytdlp_internals` (R14), que cubren lo citado de R1, R3, R4, R19, R21, R23, R24 y R25. El resto
+`ytdlp_internals` (R14), que cubren lo citado de R1, R3, R4, R5, R18, R19, R21, R23, R24 y
+R25. El resto
 de citas no se ha vuelto a revisar a mano en esa versión, salvo R5 y la lista de caminos que
 esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
 
@@ -329,7 +330,9 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
   representaciones se entrega como UTF-8: si la respuesta declara otro `charset`, esos
   caracteres llegan mal a yt-dlp (una `BaseURL` con ellos fallaría), aunque la protección se
   detecta igual. Un manifiesto que no llega por `urlopen` (p. ej. incrustado en la página del
-  sitio) no se analiza: queda a lo que detecte yt-dlp.
+  sitio) no se analiza: queda a lo que detecte yt-dlp. Límite menor, aceptado: un rechazo de
+  MPD que depende de la calidad pide el manifiesto dos veces, porque la extracción sin
+  descarga (`ytdl.extraer_plano`) no conoce la calidad; ningún medio se pide.
 - **Rationale**: Principio V; ninguna clave de un sistema de licencias se llega a pedir. El
   cifrado que solo ffmpeg sabe descargar se rechaza por FR-008, no por el Principio V.
 - **Alternatives considered**: confiar solo en `_has_drm` (deja pasar Widevine y el PSSH, y
@@ -658,6 +661,37 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
   yt-dlp: el mismo límite de pérdida, pero yt-dlp llamaría al hook de progreso y escribiría
   en disco cada 4 KiB; (C) recuperar el búfer interno de urllib3 tras el error: depende de
   atributos privados (`_decoded_buffer`).
+- **Ctrl+C a mitad de bloque (2026-10-24, hallazgo de T097)**: Ctrl+C (`KeyboardInterrupt`)
+  también llegaba casi siempre mientras el envoltorio acumulaba un bloque, y lo acumulado se
+  perdía y se volvía a pedir al relanzar. T097 pasaba solo porque interrumpe justo después
+  de una escritura del `.part` (exceso del 0,45–0,91 % en 10 ejecuciones). Con un Ctrl+C a
+  mitad de bloque (`test_ctrl_c_a_mitad_de_bloque_no_pierde_lo_recibido`, 64 KiB recibidos
+  sin escribir), el exceso era del 3,5 %; con bloques de hasta 4 MiB podía ser cualquier
+  cosa.
+  - **Decision**: el mismo patrón que con los errores de transporte. Si llega Ctrl+C tras
+    haber acumulado bytes, se entregan y la interrupción se relanza después; si no había
+    nada, al momento. Se relanza en lo primero que ocurra: la siguiente lectura de cualquier
+    respuesta, la siguiente petición (`urlopen`), o el final de `dl` o de `extract_info`. No
+    basta la siguiente lectura de la misma respuesta: si lo entregado completa el archivo,
+    `HttpFD` sale del bucle sin volver a leer (`byte_counter == data_len`), y en HLS y DASH
+    cada fragmento tiene su propia respuesta; ahí el Ctrl+C se perdería y `ejecutar`
+    seguiría con la siguiente descarga.
+  - **Verificado** en yt-dlp 2026.10.21 (`downloader/http.py`, `fragment.py`): `HttpFD`
+    escribe en el `.part` cada bloque que devuelve `read` antes de la siguiente lectura, y si
+    una lectura lanza cualquier excepción, el `except:` de su bucle de reintentos cierra el
+    archivo (vuelca su búfer) y la relanza; ningún `except KeyboardInterrupt` del camino de
+    descarga la descarta (los de `fragment.py` la relanzan, salvo en directos, que se
+    rechazan antes). `worker._procesar` trata Ctrl+C venga de donde venga, también en
+    Windows, donde Ctrl+Break llega como la misma `KeyboardInterrupt`.
+  - Exceso tras el arreglo: 0,35–0,45 % en T097 y 0,40–0,45 % en el test nuevo, el de los GET
+    de sondeo del extractor genérico (R19). SC-002 no cambia: 1 % estricto tras Ctrl+C.
+  - Coste medido como arriba (200 MiB contra `flaky_server` en otro proceso, sin límite de
+    velocidad, mediana de 10 descargas por serie, series alternadas con el código anterior):
+    antes 353–374 MiB/s (6 series), después 325–370 MiB/s (4 series). Las series se solapan;
+    la diferencia de las medias (362 frente a 347 MiB/s, −4 %) queda dentro del ruido de la
+    medida: el arreglo añade por bloque una llamada y un `try`, sin coste si no hay
+    excepción. Como mucho se pierde el trozo de 4 KiB en curso, si Ctrl+C llega dentro de
+    urllib3.
 
 ## R19. Respuestas de la extracción que quedan abiertas
 
@@ -701,8 +735,9 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
 - **Decision**: SC-002 admite, solo tras una interrupción abrupta, el 1 % del tamaño del
   archivo más 128 KiB fijos. Los 128 KiB cubren los sondeos y el búfer del archivo con margen,
   y el bloque en vuelo cuando la interrupción llega poco después de una escritura, como en el
-  test. Tras un corte de red (T016) el límite sigue siendo el 1 % estricto: ahí el envoltorio
-  entrega lo acumulado antes de relanzar el error (R18) y no se pierde nada.
+  test. Tras un corte de red (T016) o un Ctrl+C el límite sigue siendo el 1 % estricto: ahí el
+  envoltorio entrega lo acumulado antes de relanzar el error o la interrupción (R18) y no se
+  pierde nada.
 - **Alternatives considered**: limitar el bloque que entrega el envoltorio (p. ej. a 64 KiB)
   para escribir el `.part` más a menudo: más llamadas al hook de progreso y más CPU, y un
   `SIGKILL` seguiría perdiendo el bloque en curso y el búfer del archivo. Rechazado por el

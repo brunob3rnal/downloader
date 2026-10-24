@@ -131,7 +131,8 @@ tests/
    petición (incluida la lectura del cuerpo), la fase y si descarga un programa externo,
    porque yt-dlp descarta la excepción original al agotar sus reintentos; `errors.clasificar`
    lo usa cuando la cadena de causas no trae código HTTP (R4). Es la única subclase de yt-dlp
-   del proyecto y sobrescribe dos métodos (`urlopen` y `dl`).
+   del proyecto; empezó sobrescribiendo dos métodos (`urlopen` y `dl`), y las decisiones
+   siguientes añaden los demás.
 7. Los 403/410 durante la descarga se reintentan como URL caducada, con un tope de 3 intentos
    seguidos sin bytes nuevos (`retry.TopeSinAvance`, FR-026); es una excepción acotada a
    "reintentar indefinidamente" (FR-010).
@@ -151,7 +152,10 @@ tests/
     la conexión se corta, entrega lo acumulado antes de relanzar el error en la lectura
     siguiente: yt-dlp pide bloques de hasta 4 MiB y urllib3 descarta lo recibido de un bloque
     incompleto, lo que incumplía SC-002. Cuesta CPU: la descarga local baja de ~700 a
-    ~275 MiB/s (R18).
+    ~275 MiB/s (R18). Con Ctrl+C igual: lo acumulado se entrega a yt-dlp, que lo escribe en el
+    `.part`, y la interrupción se relanza en la siguiente lectura o petición, o al terminar `dl`
+    o `extract_info` (que se sobrescribe para eso), porque si lo entregado completa el archivo
+    o el fragmento, yt-dlp no vuelve a leer esa respuesta. Sin coste medible (R18).
 14. `YoutubeDLRegistrado` cierra las respuestas abiertas durante la extracción al acabar esta
     (`process_ie_result`), al empezar la descarga (`dl`) y al cerrarse: con URLs directas de
     `Content-Type: video/*`, el extractor genérico de yt-dlp deja abierto un GET completo que
@@ -217,8 +221,8 @@ tests/
 27. Licencia MIT para el código propio (`LICENSE`, `license` en `pyproject.toml`). `yt-dlp[default]`
     instala `mutagen` (GPL-2.0-or-later), que no se incluye en el repositorio; el README lo
     advierte. Es una decisión del propietario del repositorio, sin asesoría legal.
-28. Marcadores `slow` (más de unos 5 s) y `ytdlp_internals` (R1, R3, R4, R19, R21, R23, R24,
-    R25), registrados en `pyproject.toml`. Los de `test_network_cuts.py` y
+28. Marcadores `slow` (más de unos 5 s) y `ytdlp_internals` (R1, R3, R4, R5, R18, R19, R21, R23,
+    R24, R25), registrados en `pyproject.toml`. Los de `test_network_cuts.py` y
     `test_crash_recovery.py` (T016 y T017, que no se modifican) se aplican desde
     `tests/integration/conftest.py`; `tests/unit/test_marcadores.py` comprueba la lista exacta.
 

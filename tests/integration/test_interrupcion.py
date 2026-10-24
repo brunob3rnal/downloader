@@ -97,3 +97,61 @@ def test_ctrl_c_guarda_el_progreso_y_relanzar_termina(app_home, destino, servido
     # Ctrl+C no es una terminación abrupta: el 1 % de SC-002, sin la tolerancia de 128 KiB de
     # un cierre abrupto (R20).
     assert servidor.bytes_servidos["lento.mp4"] <= 1.01 * len(datos)
+
+
+# Bytes del bloque en curso ya recibidos y aún no escritos en el `.part` cuando se interrumpe:
+# muy por encima del 1 % del archivo (~20 KB).
+EN_VUELO = 64 * 1024
+
+
+@pytest.mark.slow
+@pytest.mark.ytdlp_internals  # R18: yt-dlp escribe lo que devuelve `read` antes de volver a leer
+def test_ctrl_c_a_mitad_de_bloque_no_pierde_lo_recibido(app_home, destino, servidor, medios):
+    """Ctrl+C mientras el envoltorio de lectura (R18) acumula el bloque que pidió yt-dlp.
+
+    El servidor envía el archivo en trozos de 1 KiB con una pausa entre ellos (200 KB/s), así
+    que yt-dlp pide bloques de unos 200 KB que tardan cerca de 1 s en llegar. Se interrumpe
+    cuando ya se han recibido `EN_VUELO` bytes del bloque en curso sin escribirlos: lo recibido
+    tiene que acabar en el `.part` y no volver a pedirse (SC-002, 1 % estricto tras Ctrl+C).
+    """
+    datos = medios.datos_mp4
+    servidor.registrar("bloque.mp4", datos, tipo_contenido="video/mp4", velocidad=200_000)
+    (app_home / "config.toml").write_text(f'sondas_red = ["127.0.0.1:{servidor.puerto}"]\n')
+    store = Store.abrir(app_home)
+    id_ = store.agregar(servidor.url("bloque.mp4"), Calidad.MEJOR, str(destino)).descarga.id
+    store.cerrar()
+
+    proceso = ejecutar(app_home)
+    try:
+        trabajo = destino / ".downloader-tmp" / str(id_)
+        fin = time.monotonic() + LIMITE
+        while True:
+            parciales = list(trabajo.glob("*.part")) if trabajo.exists() else []
+            en_disco = parciales[0].stat().st_size if parciales else 0
+            if (
+                en_disco > 0.3 * len(datos)
+                and servidor.bytes_servidos["bloque.mp4"] - en_disco >= EN_VUELO
+                and estado(app_home, id_) == Estado.DOWNLOADING
+            ):
+                break
+            assert proceso.poll() is None, "ejecutar terminó antes de poder interrumpirlo"
+            assert time.monotonic() < fin, "no llegó a haber un bloque a medias"
+            time.sleep(0.01)  # intervalo de sondeo
+        interrumpir(proceso)
+        _, errores = proceso.communicate(timeout=SALIDA_TRAS_INTERRUPCION)
+    finally:
+        if proceso.poll() is None:
+            proceso.kill()
+            proceso.wait()
+
+    assert proceso.returncode == INTERRUMPIDO, errores
+    assert b"Traceback" not in errores
+    assert b"interrumpido; progreso guardado" in errores
+
+    relanzado = ejecutar(app_home)
+    _, errores = relanzado.communicate(timeout=LIMITE)
+    assert relanzado.returncode == 0, errores
+    publicados = [p for p in destino.iterdir() if p.is_file()]
+    assert len(publicados) == 1
+    assert publicados[0].read_bytes() == datos
+    assert servidor.bytes_servidos["bloque.mp4"] <= 1.01 * len(datos)
