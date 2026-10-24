@@ -1,6 +1,6 @@
 # Feature Specification: Gestor de descargas de video resiliente
 
-**Feature Branch**: `001-resilient-video-downloader`
+**Feature Branch**: `main`. No existe una rama `001-resilient-video-downloader`: la feature se integra en `main` mediante PRs desde ramas de trabajo `claude/*`, y su directorio se fija con `SPECIFY_FEATURE_DIRECTORY` (`.specify/feature.json`)
 
 **Created**: 2026-10-20
 
@@ -26,6 +26,12 @@
 ### Session 2026-10-22
 
 - Q: ¿Cuánto exceso de transferencia se admite tras una interrupción abrupta del proceso (SIGKILL, corte de luz), que no se puede capturar? → A: El 1 % del tamaño del archivo más una tolerancia fija de 128 KiB (enmienda de SC-002, research R20). Tras un corte de red controlado el límite sigue siendo el 1 % estricto.
+
+### Session 2026-10-24
+
+- Q: ¿Cómo se evita que `actualizar` instale una versión de yt-dlp que rompa el programa? → A: Tras actualizar, ejecuta los tests que dependen del comportamiento interno de yt-dlp; si fallan, vuelve a la versión anterior y explica qué falló (enmienda de FR-025).
+- Q: ¿Qué nombre llevan los archivos publicados? → A: Una plantilla configurable; por defecto, solo el título del video, sin su identificador. Dos videos con el mismo título se publican sin pisarse, con sufijo numérico (FR-022). En Windows el título se recorta para que la ruta completa no pase de 240 caracteres.
+- Q: ¿Qué pasa con una lista de reproducción sin videos? → A: Falla como error permanente con un mensaje que sugiere que la URL puede no estar soportada o requerir sesión; no se da por completada.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -138,6 +144,8 @@ El usuario puede configurar la carpeta de destino. Opcionalmente, puede indicar 
 - El servidor no permite reanudar: esa descarga se reinicia desde cero, se avisa claramente al usuario de que se reinició y por qué, y las demás no se ven afectadas.
 - El archivo de estado de la cola está corrupto: `ejecutar` y `agregar` se detienen con un mensaje claro, se conserva una copia del archivo y no se tocan las descargas parciales existentes.
 - Lista de reproducción con videos no disponibles: se descargan los disponibles y se reportan los que fallaron.
+- Lista de reproducción sin ningún video (a menudo una URL no soportada o que exige sesión): falla como permanente con el mensaje "no se encontraron videos; la URL puede no estar soportada o requerir sesión (ver --cookies-de)" y no se intenta descargar nada.
+- El servidor deniega el acceso (403 o 410) al obtener la información del video: falla como permanente, sin reintentos, con un mensaje que sugiere `--cookies-de NAVEGADOR`.
 - La calidad pedida no existe para un video: se elige la más cercana inferior y se avisa al usuario.
 - El usuario intenta descargar contenido con DRM o una transmisión en vivo: se rechaza con un mensaje claro.
 - Cierre ordenado del programa (Ctrl+C) durante una descarga: el progreso se guarda antes de salir.
@@ -175,7 +183,7 @@ El usuario puede configurar la carpeta de destino. Opcionalmente, puede indicar 
 - **FR-022**: Al publicar un archivo terminado cuyo nombre ya existe en la carpeta de destino, el sistema MUST conservar el existente, publicar el nuevo con un sufijo numérico y avisar al usuario; MUST NOT sobrescribir archivos existentes.
 - **FR-023**: Antes de publicar un archivo con su nombre final, el sistema MUST verificar que su tamaño coincide con el anunciado por el servidor (cuando este lo informa) y que el archivo es legible hasta el final tras unir audio y video; si la verificación falla, MUST NOT publicarlo como completo e informar del problema.
 - **FR-024**: Si el servidor no permite reanudar una descarga, el sistema MUST reiniciarla desde cero y MUST avisar claramente al usuario de que se reinició y por qué.
-- **FR-025**: El comando `actualizar` MUST actualizar yt-dlp a su última versión dentro del proyecto, mostrar la versión anterior y la nueva, e informar con claridad si la actualización falla.
+- **FR-025** *(enmendado 2026-10-24)*: El comando `actualizar` MUST actualizar yt-dlp a su última versión dentro del proyecto, mostrar la versión anterior y la nueva, e informar con claridad si la actualización falla. Antes de dar por buena una versión nueva, MUST ejecutar los tests que dependen del comportamiento interno de yt-dlp; si fallan o no se pueden ejecutar, MUST restaurar la versión anterior, explicar qué falló e indicar que se conserva la versión anterior.
 - **FR-026**: Un acceso denegado (HTTP 403 o 410) durante la transferencia y un fallo sin causa conocida de una descarga hecha por un programa externo (ffmpeg) MUST reintentarse como temporales, obteniendo una URL nueva en cada intento (FR-012). Si 3 intentos seguidos terminan en uno de esos errores sin ningún byte nuevo sobre el máximo ya descargado, el sistema MUST marcar la descarga como fallida con un mensaje claro de la causa que, para 403 y 410, sugiera usar `--cookies-de NAVEGADOR`. Los cortes de red, timeouts y errores 429 y 5xx MUST NOT contar para este tope.
 
 ### Key Entities
@@ -183,7 +191,7 @@ El usuario puede configurar la carpeta de destino. Opcionalmente, puede indicar 
 - **Descarga**: un video concreto a obtener. Atributos: URL de origen, calidad elegida, estado (en cola, descargando, esperando red, completada, fallida; las tres primeras cuentan como pendientes), progreso, causa de fallo, archivo parcial y archivo final.
 - **Cola**: conjunto ordenado de descargas con su estado persistente; sobrevive a cierres y reinicios.
 - **Lista de reproducción**: URL que se expande en varias descargas individuales.
-- **Configuración**: carpeta de destino y calidad por defecto. El uso de cookies del navegador no se configura aquí: solo se activa con la opción explícita de FR-016.
+- **Configuración**: carpeta de destino, calidad por defecto y plantilla del nombre de los archivos publicados (por defecto, el título sin el identificador del video). El uso de cookies del navegador no se configura aquí: solo se activa con la opción explícita de FR-016.
 
 ## Success Criteria *(mandatory)*
 

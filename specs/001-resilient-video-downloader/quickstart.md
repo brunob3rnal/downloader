@@ -17,8 +17,11 @@ uv sync
 ## Tests
 
 ```bash
-uv run pytest                 # todo; los marcados ffmpeg se omiten si falta
-uv run pytest -m "not ffmpeg" # solo lo que no necesita ffmpeg
+uv run pytest                      # todo; los marcados ffmpeg se omiten si falta
+uv run pytest -m "not ffmpeg"      # solo lo que no necesita ffmpeg
+uv run pytest -m "not slow"        # los rápidos
+uv run pytest -m slow              # los de más de unos 5 s
+uv run pytest -m ytdlp_internals   # los que ejecuta `actualizar` (FR-025)
 ```
 
 Ningún test usa internet: todos van contra el servidor local de `tests/`.
@@ -39,7 +42,27 @@ Ningún test usa internet: todos van contra el servidor local de `tests/`.
 | 9 | Cookies | test: sin `--cookies-de` no se leen; con él, opción pasada a yt-dlp y nada escrito en disco; cookies ilegibles | el video que exige sesión se descarga; sin cookies en la base de datos ni en el directorio de trabajo; el error de lectura nombra el navegador y la causa | US6, FR-016, FR-017, R25 |
 | 10 | Directo o DRM | test: extractor con `is_live` o `has_drm` | `failed` con mensaje claro, sin intento de descarga | FR-015 |
 | 11 | Servidor sin reanudación | test: el servidor ignora `Range` tras un corte | la descarga se reinicia desde cero, se muestra el aviso y termina íntegra | FR-024 |
-| 12 | Actualizar yt-dlp | `uv run downloader actualizar` | muestra versión anterior y nueva, o "ya está al día"; código 0 | FR-025 |
+| 12 | Actualizar yt-dlp | `uv run downloader actualizar` | muestra versión anterior y nueva tras pasar `pytest -m ytdlp_internals`, o "ya está al día"; código 0. Si esos tests fallan, se restaura la versión anterior y sale con 1 | FR-025 |
+
+## Validación (T065, 2026-10-24)
+
+Linux, con ffmpeg, yt-dlp 2026.10.21. Windows, en el job `windows-latest` del CI.
+
+| # | Validado con | Resultado |
+|---|--------------|-----------|
+| 1 | a mano: `agregar` de dos URLs directas del servidor local con `--calidad 720p` y `ejecutar`; y `test_descarga_basica.py` | ✓ dos archivos íntegros, líneas `descargando  NN.N%  X MiB/s  ETA`, código 0 |
+| 2 | `test_network_cuts.py` (casos a y e) | ✓ |
+| 2b | `test_network_cuts.py` (casos b y c), `test_estancamiento.py` | ✓ |
+| 3 | `test_network_cuts.py` (caso d) | ✓ |
+| 4 | `test_crash_recovery.py` | ✓ |
+| 5 | `test_url_caducada.py`, `test_registro_peticiones.py` | ✓ |
+| 6 | `test_errores_permanentes.py` | ✓ |
+| 7 | `test_integridad.py`, `test_rango_no_satisfacible.py` | ✓ |
+| 8 | `test_publish_nombres.py`, `test_plantilla_nombre.py` | ✓ |
+| 9 | `test_cookies.py`, `test_secretos.py` | ✓ |
+| 10 | `test_directo_drm.py` | ✓ |
+| 11 | `test_sin_reanudacion.py` | ✓ |
+| 12 | a mano: `uv run downloader actualizar` dos veces; y `test_actualizar.py` | ✓ `yt-dlp 2026.8.19 → 2026.10.21` (40 tests marcados en verde) y después `yt-dlp ya está al día (2026.10.21)` |
 
 Contrato de comandos y códigos de salida: [contracts/cli.md](contracts/cli.md).
 Estados y transiciones: [data-model.md](data-model.md).

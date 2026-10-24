@@ -1,6 +1,9 @@
 # Research: Gestor de descargas de video resiliente
 
-Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
+Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento. Desde el 2026-10-24,
+`uv.lock` fija yt-dlp 2026.10.21: `actualizar` la aceptó tras pasar los tests marcados
+`ytdlp_internals` (R14), que cubren lo citado de R1, R3, R4, R19, R21, R23, R24 y R25. El resto
+de citas no se ha vuelto a revisar a mano en esa versión.
 
 ## R1. yt-dlp como librería
 
@@ -187,8 +190,14 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   - Longitud: sin `LongPathsEnabled` en el registro, Windows limita la ruta a 260 caracteres
     (259 más el NUL); Linux limita cada nombre a 255 bytes. `nombre_publicado` acorta el título
     hasta que el nombre, con hueco para el sufijo más largo de `publicar` (` (9999)`), cabe en
-    255 bytes UTF-8 y, en Windows, la ruta completa en 259 unidades UTF-16. El id y la
-    extensión no se recortan.
+    255 bytes UTF-8 y, en Windows, la ruta completa en 240 unidades UTF-16 (antes 259; plan,
+    decisión 22: margen para programas que añaden algo a la ruta al abrirla). La extensión no se
+    recorta; si no queda sitio para el título, el nombre es el id.
+  - Nombre (enmienda del 2026-10-24): `plantilla_nombre` de `config.toml`, con los campos
+    `{titulo}` e `{id}`; por defecto `{titulo}`, sin el id, porque las colisiones ya se
+    resuelven con sufijo (FR-022). Antes era siempre `<titulo> [<id>]`. La plantilla se valida
+    al cargar la configuración: campos conocidos, al menos uno, llaves cerradas y sin `/` ni `\`
+    (no crea subcarpetas). `sanitize_filename` se aplica al nombre ya compuesto.
   - Directorio de trabajo: los archivos se llaman `descarga.<ext>` (y yt-dlp añade
     `.f<formato>`, `.part`, `.part-Frag<N>`, `.ytdl`, `.temp`) en lugar de `<id_video>.<ext>`:
     el id podría ser largo, o un nombre reservado si lo deduce el extractor genérico de la URL
@@ -284,6 +293,23 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
 - **Rationale**: los extractores de yt-dlp se rompen con frecuencia; actualizarlo es la
   operación de mantenimiento más habitual. Hacerlo por medio de uv mantiene `uv.lock` como
   fuente de verdad.
+- **Enmienda (2026-10-24, FR-025)**: el programa depende de detalles internos de yt-dlp que
+  ninguna versión garantiza (el registro de peticiones de R4, `_real_read` de R21, la petición
+  repetida tras un 416 de R23, el `.part` abierto de R24…). Tras `uv sync`, `actualizar` ejecuta
+  `uv run pytest -m ytdlp_internals` en el proyecto (unos 25 s en Linux). Si fallan, restaura el
+  contenido anterior de `uv.lock` byte a byte, vuelve a ejecutar `uv sync`, sale con 1 y el
+  mensaje lleva las líneas `FAILED` de pytest y "se conserva yt-dlp <anterior>"; si la
+  restauración del entorno también falla, lo dice y pide `uv sync`. Si `uv sync` falla tras
+  `uv lock`, también se restaura. Con la misma versión no sincroniza ni ejecuta tests. Exige
+  ffmpeg y ffprobe antes de modificar nada: los tests marcados que descargan se omitirían sin
+  ellos y una versión rota se aceptaría. La versión se lee del `uv.lock`, no del entorno
+  cargado. Primera ejecución real: yt-dlp 2026.8.19 → 2026.10.21, con los 40 tests marcados en
+  verde.
+- **Marcados `ytdlp_internals`**: los que prueban R1 (HLS nativo y AES), R4 (registro de
+  peticiones), R19 (respuestas de la extracción), R23 (416), R24 (`.part` abierto), y además
+  R3 (borrado del `.part` sin `Range`), R21 (`_real_read`/`read1`) y R25 (cadena de
+  `CookieLoadError`), que también dependen de detalles internos. La lista exacta la fija
+  `tests/unit/test_marcadores.py`.
 
 ## R15. Tests
 
@@ -690,3 +716,40 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
   comprobarlas (una lectura más por ejecución, y no cubre las de cada fila); reintentar el
   fallo como TEMPORAL (un navegador abierto no se cierra solo, y Chrome 127+ no se arregla
   esperando).
+
+## R26. Archivos en uso en Windows al publicar
+
+- **Contexto**: en Windows, el antivirus o el indexador abren los archivos recién escritos para
+  examinarlos. Mientras, enlazar, copiar o borrar ese archivo falla con `PermissionError` y
+  `winerror` 32 (ERROR_SHARING_VIOLATION) o 5 (ERROR_ACCESS_DENIED). Se libera en fracciones de
+  segundo. No se ha podido reproducir en el CI; la decisión se prueba con errores simulados.
+- **Decision**: `publish.publicar` reintenta cada paso por separado (`os.link`, la copia
+  exclusiva de FAT32/exFAT y el `os.unlink` del origen) hasta 3 veces, tras 0,2, 0,5 y 1 s. Solo
+  esos dos `winerror`: cualquier otro error, o un `PermissionError` sin `winerror` (Linux), sale
+  al instante. Un `winerror` 5 de `os.link` que persiste tras los reintentos sigue llevando a la
+  copia, como antes (R7). Si tras publicar el origen no se puede borrar, la publicación vale y se
+  avisa con la ruta del archivo que queda; `worker._limpiar_trabajo` tampoco convierte en fallo
+  un archivo que no puede borrar. Antes, una excepción ahí llegaba a `_fallo` con la descarga ya
+  `completed` y `completed → failed` detenía `ejecutar` con una traza.
+- `apartar_invalidos` ya creaba la carpeta con `mkdir(exist_ok=False)` dentro del bucle de
+  sufijos, sin comprobar antes con `exists()` (R24); solo se hace explícito `exist_ok=False`.
+- **Alternatives considered**: reintentar la publicación entera (tras enlazar crearía una
+  segunda copia con ` (1)`); esperas aleatorias (no se ganaba nada y los tests serían menos
+  deterministas).
+
+## R27. Secretos en las URLs y en `cola.db`
+
+- **Hallazgo**: `ocultar_secretos` solo ocultaba los parámetros llamados exactamente `token`,
+  `sig`, `signature`, `key` o `auth`. Una URL prefirmada (`X-Amz-Signature`,
+  `X-Amz-Security-Token`, `Key-Pair-Id`, `Policy`, `lsig`, `access_token`, `hdnts`) pasaba
+  entera a la salida y a `ultimo_error`, por ejemplo en "Unsupported URL: …".
+- **Decision**: el nombre del parámetro se divide en palabras por `-`, `_` y `.`, y se oculta el
+  valor si alguna es `token`, `sig`, `signature`, `key`, `auth`, `credential`, `policy`, `hmac`,
+  `hdnts`, `password` o `secret`, o si el nombre termina en `token`, `sig` o `signature`.
+  `monkey`, `itag` o `X-Amz-Date` se conservan.
+- **Alcance**: los tokens y firmas que se obtienen al extraer nunca se guardan. La URL que da el
+  usuario se guarda tal cual en la columna `url` de `cola.db`, porque hace falta para
+  descargarla; si lleva un token, queda ahí (README, límites conocidos). En los mensajes, la
+  salida y las demás columnas aparece con los secretos ocultos. Lo comprueba
+  `tests/integration/test_secretos.py` con la cookie ficticia, un token y tres firmas por
+  extracción y una URL prefirmada del usuario.

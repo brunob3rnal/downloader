@@ -5,10 +5,12 @@ puede informar progreso (y escribir el `.part` correspondiente, como yt-dlp) y d
 con un error dado o terminar con un archivo en el directorio de trabajo.
 """
 
+import errno
 import io
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 from rich.console import Console
@@ -230,6 +232,7 @@ def test_intentos_sin_avance_vuelve_a_0_tras_progreso(entorno, cola):
     assert cola.obtener(entorno.id).estado is Estado.COMPLETED
 
 
+@pytest.mark.slow
 def test_nunca_falla_por_errores_temporales_no_ambiguos(entorno, cola):
     error_5xx = DownloadError("ERROR: Giving up after 3 retries")
     error_5xx.registro = RegistroRed(UltimaPeticion(estado=503), Fase.DESCARGA)
@@ -333,7 +336,7 @@ def test_verifica_antes_de_publicar(entorno, cola, destino):
     assert contenido == [".downloader-tmp"]  # aún no se había publicado nada
     final = cola.obtener(entorno.id)
     assert final.estado is Estado.COMPLETED
-    assert (destino / "Video de prueba [v].mp4").read_bytes() == b"video"
+    assert (destino / "Video de prueba.mp4").read_bytes() == b"video"
 
 
 def test_verificacion_fallida_no_publica_y_aparta_los_archivos(entorno, cola, destino):
@@ -353,3 +356,28 @@ def test_verificacion_fallida_no_publica_y_aparta_los_archivos(entorno, cola, de
     assert sorted(p.name for p in trabajo.iterdir()) == [publish.INVALIDOS]
     (intento,) = (trabajo / publish.INVALIDOS).iterdir()
     assert (intento / "descarga.mp4").read_bytes() == b"video"
+
+
+def test_un_archivo_de_trabajo_en_uso_no_impide_completar(entorno, cola, destino, monkeypatch):
+    """En Windows, si otro programa retiene un archivo del directorio de trabajo, la limpieza
+    tras publicar no puede borrarlo: la descarga sigue completada y `ejecutar` continúa (T072)."""
+    borrar = Path.unlink
+
+    def unlink(self, missing_ok=False):
+        if self.suffix == ".part":
+            error = PermissionError(errno.EACCES, "being used by another process")
+            error.winerror = 32
+            raise error
+        return borrar(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+    errores = []
+    monkeypatch.setattr(threading, "excepthook", lambda args: errores.append(args.exc_value))
+    entorno.lanzar([Intento(bytes_=100, terminado=True)])
+    entorno.esperar_fin()
+
+    assert errores == []
+    final = cola.obtener(entorno.id)
+    assert final.estado is Estado.COMPLETED
+    assert (destino / "Video de prueba.mp4").read_bytes() == b"video"
+    assert (destino / ".downloader-tmp" / str(entorno.id) / "descarga.mp4.part").exists()

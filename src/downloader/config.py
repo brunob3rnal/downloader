@@ -7,12 +7,13 @@ from pathlib import Path
 
 import typer
 
+from downloader import publish
 from downloader.models import Calidad
 
 ARCHIVO = "config.toml"
 CLAVES = (
     "carpeta_destino", "calidad", "sondas_red",
-    "estancamiento_segundos", "estancamiento_velocidad_minima",
+    "estancamiento_segundos", "estancamiento_velocidad_minima", "plantilla_nombre",
 )
 SONDAS_POR_DEFECTO = ["1.1.1.1:443", "8.8.8.8:443"]
 # Fragmentos de nombres de clave que delatan una credencial o las cookies (FR-016, FR-017,
@@ -48,6 +49,8 @@ class Configuracion:
     # velocidad mínima (bytes/s), antes de abortar el intento y reconectar.
     estancamiento_segundos: float = 30
     estancamiento_velocidad_minima: float = 1024
+    # Nombre de los archivos publicados, sin la extensión: campos {titulo} e {id}.
+    plantilla_nombre: str = publish.PLANTILLA_NOMBRE
 
 
 def cargar(directorio: Path | None = None) -> Configuracion:
@@ -108,6 +111,12 @@ def cargar(directorio: Path | None = None) -> Configuracion:
             if isinstance(valor, bool) or not isinstance(valor, (int, float)) or valor <= 0:
                 raise ConfiguracionInvalida(f"{ruta}: {clave} debe ser un número positivo")
             setattr(configuracion, clave, float(valor))
+    if "plantilla_nombre" in valores:
+        try:
+            publish.validar_plantilla(valores["plantilla_nombre"])
+        except ValueError as error:
+            raise ConfiguracionInvalida(f"{ruta}: plantilla_nombre {error}") from None
+        configuracion.plantilla_nombre = valores["plantilla_nombre"]
     return configuracion
 
 

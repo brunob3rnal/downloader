@@ -17,6 +17,9 @@ from downloader.models import Estado
 from downloader.store import Store
 from tests.support import fake_extractor
 
+# Dependen de `_real_read` y `read1` de la respuesta de yt-dlp (R21).
+pytestmark = pytest.mark.ytdlp_internals
+
 LIMITE = 60  # s; un bucle que no se recupera no debe colgar la suite
 
 

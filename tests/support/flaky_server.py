@@ -52,6 +52,7 @@ class _Video:
     archivo: str
     titulo: str
     alturas: list[int]
+    firma: bool = False  # añade a la URL de medios parámetros de firma, como una URL prefirmada
 
 
 class FlakyServer:
@@ -72,6 +73,9 @@ class FlakyServer:
         self._listas: dict[str, tuple[str, list[str]]] = {}
         self._tokens_validos: set[str] = set()
         self._sesion: tuple[str, str] | None = None  # cookie que exige `exigir_sesion`
+        # Valores de los tokens y firmas puestos en URLs de medios: no deben aparecer en ningún
+        # mensaje ni archivo de la aplicación (Principio VI).
+        self.secretos_emitidos: list[str] = []
         self._cerrojo = threading.Lock()
         self._parado = threading.Event()
         self._conexiones: set[socket.socket] = set()
@@ -229,9 +233,15 @@ class FlakyServer:
             self._archivos[nombre].ausente = indice == fragmento_ausente
         return nombre_manifiesto
 
-    def registrar_video(self, id_video, archivo, *, titulo=None, alturas=(720,)):
-        """Hace que `/watch/<id_video>` describa el archivo registrado `archivo`."""
-        self._videos[id_video] = _Video(archivo, titulo or f"Video {id_video}", list(alturas))
+    def registrar_video(self, id_video, archivo, *, titulo=None, alturas=(720,), firma=False):
+        """Hace que `/watch/<id_video>` describa el archivo registrado `archivo`.
+
+        Con `firma=True`, la URL de medios lleva además parámetros de firma ficticios
+        (`X-Amz-Security-Token`, `X-Amz-Signature`, `lsig`), que el servidor no comprueba.
+        """
+        self._videos[id_video] = _Video(
+            archivo, titulo or f"Video {id_video}", list(alturas), firma
+        )
 
     def registrar_lista(self, id_lista, ids_videos, *, titulo=None):
         """Hace que `/playlist/<id_lista>` devuelva esas entradas."""
@@ -248,7 +258,16 @@ class FlakyServer:
         token = secrets.token_hex(8)
         with self._cerrojo:
             self._tokens_validos.add(token)
+            self.secretos_emitidos.append(token)
         return token
+
+    def firmar(self, url):
+        """`url` con parámetros de firma de valores aleatorios, anotados como secretos."""
+        valores = [secrets.token_hex(12) for _ in range(3)]
+        with self._cerrojo:
+            self.secretos_emitidos.extend(valores)
+        nombres = ("X-Amz-Security-Token", "X-Amz-Signature", "lsig")
+        return url + "".join(f"&{n}={v}" for n, v in zip(nombres, valores))
 
     def caducar_tokens(self):
         """Invalida todos los tokens emitidos hasta ahora."""
@@ -473,10 +492,11 @@ class _Manejador(BaseHTTPRequestHandler):
         video = self.flaky._videos.get(id_video)
         if video is None:
             return self._responder_vacio(404)
+        url = self.flaky.url(video.archivo, self.flaky.emitir_token())
         respuesta = {
             "id": id_video,
             "titulo": video.titulo,
-            "url": self.flaky.url(video.archivo, self.flaky.emitir_token()),
+            "url": self.flaky.firmar(url) if video.firma else url,
             "alturas": video.alturas,
         }
         if "list" in consulta:

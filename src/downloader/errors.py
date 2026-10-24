@@ -75,6 +75,14 @@ class Clasificacion:
     # Conexión estancada: no cuenta para el tope de los ambiguos ni como intento sin avance, y
     # se reintenta tras una espera corta (R21).
     estancamiento: bool = False
+    consejo: str | None = None  # qué puede hacer el usuario, para añadir al mensaje del fallo
+
+
+# Un acceso denegado suele deberse a un video que exige la sesión del usuario (FR-016, FR-026).
+CONSEJO_SESION = (
+    "Puede que el video exija una sesión iniciada: vuelva a agregarlo con --cookies-de "
+    "NAVEGADOR (por ejemplo, --cookies-de firefox)."
+)
 
 
 _TRANSPORTE = (TransportError, TimeoutError, ConnectionError)
@@ -99,8 +107,17 @@ def _cadena(exc):
     return vistas
 
 
+def _sin_espacio(exc) -> bool:
+    return isinstance(exc, OSError) and exc.errno == errno.ENOSPC
+
+
 def _es_fatal(exc) -> bool:
-    return isinstance(exc, ErrorFatal) or (isinstance(exc, OSError) and exc.errno == errno.ENOSPC)
+    return isinstance(exc, ErrorFatal) or _sin_espacio(exc)
+
+
+def disco_lleno(exc: BaseException) -> bool:
+    """Si en la cadena de `exc` hay un `OSError(ENOSPC)`: no queda espacio en el disco."""
+    return any(_sin_espacio(e) for e in _cadena(exc))
 
 
 def _es_permanente(exc) -> bool:
@@ -146,7 +163,9 @@ def _por_senal(senal, fase: Fase) -> Clasificacion:
         # Rango no satisfacible sin un `Content-Range */TOTAL` que lo explique (los que lo
         # traen los resuelve `ytdl`, R23): puede ser pasajero, con tope (FR-026).
         return Clasificacion(Tipo.TEMPORAL, ambiguo=True, motivo="HTTP 416")
-    return PERMANENTE  # 404 en cualquier fase; 403, 410 y 416 al extraer; otros 4xx
+    if senal in (403, 410):  # al extraer: sin reintentos, pero con qué hacer (SC-005)
+        return Clasificacion(Tipo.PERMANENTE, motivo=f"HTTP {senal}", consejo=CONSEJO_SESION)
+    return PERMANENTE  # 404 en cualquier fase; 416 al extraer; otros 4xx
 
 
 def clasificar_detalle(exc: BaseException, en_linea: bool) -> Clasificacion:
@@ -240,13 +259,30 @@ _CABECERA = re.compile(
     r"""(?P<valor>(?(comilla)[^'"\n]*|[^\n]*))""",
     re.IGNORECASE,
 )
-_PARAMETRO = re.compile(
-    r"(?P<clave>[?&](?:token|sig|signature|key|auth)=)[^&\s#'\"]*", re.IGNORECASE
-)
+_PARAMETRO = re.compile(r"(?P<clave>[?&;](?P<nombre>[\w.~-]+)=)(?P<valor>[^&\s#'\"]*)")
+# Palabras que delatan un secreto en el nombre de un parámetro, separadas por `-`, `_` o `.`
+# (`X-Amz-Signature`, `access_token`, `Key-Pair-Id`); `monkey` o `itag` no lo son. Los nombres
+# que terminan en `token`, `sig` o `signature` (`lsig`) también.
+_PALABRAS_SECRETAS = {
+    "token", "sig", "signature", "key", "auth", "credential", "policy", "hmac", "hdnts",
+    "password", "secret",
+}
+_SUFIJOS_SECRETOS = ("token", "sig", "signature")
 OCULTO = "***"
 
 
+def _parametro_secreto(nombre: str) -> bool:
+    nombre = nombre.lower()
+    return (
+        not _PALABRAS_SECRETAS.isdisjoint(re.split(r"[-_.]", nombre))
+        or nombre.endswith(_SUFIJOS_SECRETOS)
+    )
+
+
 def ocultar_secretos(texto: str) -> str:
-    """Elimina valores de cabeceras Cookie/Authorization y parámetros de URL con aspecto de token."""
+    """Elimina valores de cabeceras Cookie/Authorization y de parámetros de URL de token o
+    firma (`token`, `sig`, `X-Amz-Signature`, `Key-Pair-Id`, `access_token`…)."""
     texto = _CABECERA.sub(lambda m: f"{m['clave']}{m['comilla'] or ''}{OCULTO}", texto)
-    return _PARAMETRO.sub(lambda m: f"{m['clave']}{OCULTO}", texto)
+    return _PARAMETRO.sub(
+        lambda m: f"{m['clave']}{OCULTO}" if _parametro_secreto(m["nombre"]) else m[0], texto
+    )

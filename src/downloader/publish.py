@@ -6,8 +6,10 @@ import itertools
 import json
 import os
 import shutil
+import string
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,13 +24,24 @@ from downloader.errors import ErrorFatal, ErrorPermanente
 # ERROR_NOT_SAME_DEVICE, ERROR_NOT_SUPPORTED y ERROR_TOO_MANY_LINKS.
 _SIN_ENLACES = {errno.EXDEV, errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.EMLINK}
 _SIN_ENLACES_WINDOWS = {1, 5, 17, 50, 1142}
+# Windows: mientras otro programa (el antivirus, el indexador) tiene abierto un archivo recién
+# escrito, enlazarlo, copiarlo o borrarlo falla con ERROR_SHARING_VIOLATION (32) o
+# ERROR_ACCESS_DENIED (5). Se reintenta tras cada una de estas esperas (s).
+_EN_USO_WINDOWS = {5, 32}
+ESPERAS_EN_USO = (0.2, 0.5, 1.0)
 _MAX_SUFIJO = 10_000
 _RESERVA_SUFIJO = len(f" ({_MAX_SUFIJO - 1})")
 
 # Límites de longitud: 255 bytes por nombre (ext4; en NTFS son 255 unidades UTF-16, que nunca
-# superan a los bytes UTF-8) y, en Windows, 259 caracteres por ruta (MAX_PATH sin el NUL).
+# superan a los bytes UTF-8) y, en Windows, 240 caracteres por ruta: MAX_PATH (259 sin el NUL)
+# con margen para los programas que añaden algo al abrir el archivo.
 LIMITE_NOMBRE = 255
-LIMITE_RUTA = 259 if os.name == "nt" else None
+LIMITE_RUTA = 240 if os.name == "nt" else None
+
+# Nombre del archivo publicado, sin la extensión (`plantilla_nombre` de config.toml). Por defecto
+# sin el id del video: dos títulos iguales no se pisan, el segundo recibe ` (1)` (FR-022).
+PLANTILLA_NOMBRE = "{titulo}"
+CAMPOS_PLANTILLA = ("titulo", "id")
 
 # Nombres de dispositivo que Windows no admite como nombre de archivo, con cualquier extensión.
 _RESERVADOS = {"CON", "PRN", "AUX", "NUL"} | {
@@ -46,22 +59,43 @@ def _unidades_windows(texto: str) -> int:
     return len(texto.encode("utf-16-le")) // 2
 
 
+def validar_plantilla(plantilla) -> None:
+    """Lanza `ValueError` si `plantilla` no sirve como `plantilla_nombre`."""
+    if not isinstance(plantilla, str) or not plantilla.strip():
+        raise ValueError("no puede estar vacía; p. ej. '{titulo}' o '{titulo} [{id}]'")
+    if "/" in plantilla or "\\" in plantilla:
+        raise ValueError("no puede contener / ni \\ (no crea subcarpetas)")
+    try:
+        campos = [campo for _, campo, _, _ in string.Formatter().parse(plantilla)
+                  if campo is not None]
+    except ValueError as error:
+        raise ValueError(f"llaves desemparejadas ({error})") from None
+    admitidos = ", ".join(f"{{{c}}}" for c in CAMPOS_PLANTILLA)
+    for campo in campos:
+        if campo not in CAMPOS_PLANTILLA:
+            raise ValueError(f"campo desconocido {{{campo}}}; admitidos: {admitidos}")
+    if not campos:
+        raise ValueError("debe incluir {titulo} o {id}")
+
+
 def nombre_publicado(
     titulo: str,
     id_video: str,
     extension: str,
     carpeta: Path | str | None = None,
     limite_ruta: int | None = LIMITE_RUTA,
+    plantilla: str = PLANTILLA_NOMBRE,
 ) -> str:
-    """`<titulo> [<id_video>].<ext>`, válido como nombre de archivo en Windows y en Linux.
+    """`plantilla` con el título y el id, más `.<ext>`; válido como nombre en Windows y Linux.
 
     `sanitize_filename` sustituye los caracteres no válidos en Windows (`: ? | " < > * / \\`).
     Si el nombre, con hueco para el sufijo ` (N)` de `publicar`, no cabe en `LIMITE_NOMBRE`
-    bytes o la ruta en `carpeta` supera `limite_ruta`, se acorta el título. Si lo que queda antes
-    del primer punto es un nombre reservado de Windows (`CON`, `NUL`, `COM1`…), se antepone `_`.
+    bytes o la ruta en `carpeta` supera `limite_ruta`, se acorta el título; si no queda nada, el
+    nombre es el id. Si lo que queda antes del primer punto es un nombre reservado de Windows
+    (`CON`, `NUL`, `COM1`…), se antepone `_`.
     """
-    cola = sanitize_filename(f"[{id_video}].{extension}")
-    titulo = sanitize_filename(titulo) if titulo else ""
+    titulo = titulo or ""
+    extension = sanitize_filename(extension)
     prefijo = _unidades_windows(str(Path(carpeta))) + 1 if carpeta is not None else 0
 
     def cabe(nombre: str) -> bool:
@@ -72,7 +106,8 @@ def nombre_publicado(
         return prefijo + _unidades_windows(nombre) + _RESERVA_SUFIJO <= limite_ruta
 
     def unir(titulo: str) -> str:
-        nombre = f"{titulo} {cola}" if titulo else cola
+        base = sanitize_filename(plantilla.format(titulo=titulo, id=id_video)).strip()
+        nombre = f"{base or sanitize_filename(id_video)}.{extension}"
         if nombre.split(".")[0].rstrip(" ").upper() in _RESERVADOS:
             nombre = f"_{nombre}"
         return nombre
@@ -102,6 +137,19 @@ def _candidatos(nombre: str):
         yield f"{base} ({n}){extension}"
 
 
+def _reintentando(operacion, *args):
+    """`operacion(*args)`, reintentada hasta 3 veces si otro programa tiene el archivo en uso
+    en Windows (`PermissionError` con `winerror` 32 o 5). Cualquier otro error sale enseguida."""
+    for espera in ESPERAS_EN_USO:
+        try:
+            return operacion(*args)
+        except PermissionError as error:
+            if getattr(error, "winerror", None) not in _EN_USO_WINDOWS:
+                raise
+        time.sleep(espera)
+    return operacion(*args)
+
+
 def publicar(origen: Path, carpeta: Path, nombre: str) -> Publicacion:
     """Mueve `origen` a `carpeta/nombre` sin sobrescribir nunca un archivo existente.
 
@@ -110,6 +158,10 @@ def publicar(origen: Path, carpeta: Path, nombre: str) -> Publicacion:
     admite enlaces duros (FAT32, exFAT), se crea el destino con `O_CREAT | O_EXCL` y se copia.
     Funciona igual en NTFS y en Linux. Nunca se usa `os.rename` ni `os.replace`: sobrescriben
     en POSIX (y `os.replace` también en Windows).
+
+    Cada paso (enlazar, copiar, borrar el origen) se reintenta por separado si el archivo está
+    en uso en Windows: repetir la publicación entera tras enlazar crearía una segunda copia. Si
+    el origen no se puede borrar, el archivo ya está publicado: se avisa y no es un fallo.
     """
     origen, carpeta = Path(origen), Path(carpeta)
     enlazar = True
@@ -118,20 +170,25 @@ def publicar(origen: Path, carpeta: Path, nombre: str) -> Publicacion:
         try:
             if enlazar:
                 try:
-                    os.link(origen, destino)
+                    _reintentando(os.link, origen, destino)
                 except OSError as error:
                     if not _sin_enlaces(error):
                         raise
                     enlazar = False
             if not enlazar:
-                _copiar_exclusivo(origen, destino)
+                _reintentando(_copiar_exclusivo, origen, destino)
         except FileExistsError:
             continue
-        os.unlink(origen)
-        aviso = None
+        avisos = []
         if candidato != nombre:
-            aviso = f"ya existía «{nombre}»; se publicó como «{candidato}» sin tocar el anterior"
-        return Publicacion(destino, aviso)
+            avisos.append(
+                f"ya existía «{nombre}»; se publicó como «{candidato}» sin tocar el anterior"
+            )
+        try:
+            _reintentando(os.unlink, origen)
+        except OSError as error:
+            avisos.append(f"no se pudo borrar el archivo de trabajo {origen} ({error})")
+        return Publicacion(destino, "; ".join(avisos) or None)
     raise FileExistsError(f"no hay ningún nombre libre para «{nombre}» en {carpeta}")
 
 
@@ -235,7 +292,7 @@ def apartar_invalidos(trabajo: Path) -> Path:
     destino = trabajo / INVALIDOS / fecha
     for numero in itertools.count(1):
         try:
-            destino.mkdir(parents=True)  # nuevo: nunca mezcla dos intentos
+            destino.mkdir(parents=True, exist_ok=False)  # nuevo: nunca mezcla dos intentos
             break
         except FileExistsError:
             destino = trabajo / INVALIDOS / f"{fecha}-{numero}"

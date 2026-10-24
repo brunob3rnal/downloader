@@ -146,8 +146,8 @@ def test_tamano_anunciado_mayor_que_el_servido_se_reintenta_sin_publicar(
     servidor.configurar("v1.mp4", anunciar_tamano=None)
     entorno.esperar_fin()
     assert entorno.cola.obtener(id_).estado is Estado.COMPLETED
-    assert entorno.publicados() == ["Video de prueba [v1].mp4"]
-    assert (destino / "Video de prueba [v1].mp4").read_bytes() == datos
+    assert entorno.publicados() == ["Video de prueba.mp4"]
+    assert (destino / "Video de prueba.mp4").read_bytes() == datos
     assert servidor.bytes_servidos["v1.mp4"] <= 1.01 * len(datos)  # SC-002
 
 
@@ -197,7 +197,7 @@ def test_reencolar_tras_verificacion_fallida_descarga_de_nuevo(
     entorno.ejecutar()
 
     assert entorno.cola.obtener(id_).estado is Estado.COMPLETED
-    assert (destino / "Video de prueba [v1].mp4").read_bytes() == datos
+    assert (destino / "Video de prueba.mp4").read_bytes() == datos
     # Se descargó entero otra vez: los archivos de `invalidos/` no se dieron por buenos.
     assert servidor.bytes_servidos["v1.mp4"] - servidos_antes >= len(datos)
     # Y siguen ahí: nunca se borran automáticamente (data-model.md).
@@ -224,8 +224,8 @@ def test_durante_una_descarga_interrumpida_solo_existe_el_directorio_temporal(
     for _, contenido, partes in interrumpida:
         assert contenido == [".downloader-tmp"]  # ningún nombre final (US5, escenario 1)
         assert partes == ["descarga.mp4.part"]  # el parcial, claramente identificado
-    assert entorno.publicados() == ["Video de prueba [v1].mp4"]
-    assert (destino / "Video de prueba [v1].mp4").read_bytes() == datos
+    assert entorno.publicados() == ["Video de prueba.mp4"]
+    assert (destino / "Video de prueba.mp4").read_bytes() == datos
 
 
 def test_fragmento_hls_cortado_en_transito_se_reintenta_y_termina_integro(
@@ -243,10 +243,11 @@ def test_fragmento_hls_cortado_en_transito_se_reintenta_y_termina_integro(
 
     assert entorno.cola.obtener(id_).estado is Estado.COMPLETED
     assert Estado.WAITING_NETWORK in entorno.estados
-    assert entorno.publicados() == ["Video HLS [h].mp4"]
-    assert paquetes(destino / "Video HLS [h].mp4") == paquetes(medios.mp4)
+    assert entorno.publicados() == ["Video HLS.mp4"]
+    assert paquetes(destino / "Video HLS.mp4") == paquetes(medios.mp4)
 
 
+@pytest.mark.ytdlp_internals  # R24
 def test_cada_intento_empieza_sin_archivos_del_anterior_abiertos(
     entorno, destino, servidor, medios, monkeypatch
 ):

@@ -3,6 +3,8 @@ name = "downloader"
 version = "0.1.0"
 description = "Gestor de descargas de video resiliente basado en yt-dlp"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "typer>=0.27.3",
@@ -26,4 +28,6 @@ testpaths = ["tests"]
 addopts = "--strict-markers"
 markers = [
     "ffmpeg: requiere ffmpeg y ffprobe en el PATH",
+    "slow: tarda más de unos 5 s; los tests rápidos se ejecutan con -m \"not slow\"",
+    "ytdlp_internals: depende del comportamiento interno de yt-dlp; `downloader actualizar` los ejecuta antes de aceptar una versión nueva",
 ]
