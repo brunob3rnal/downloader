@@ -1,3 +1,21 @@
+<!--
+Sync Impact Report (2026-10-24)
+- Versión: 2.1.0 → 3.0.0 (MAJOR)
+- Principio modificado: V. "Sin elusión de DRM ni protecciones técnicas" → "Sin elusión de DRM
+  ni sistemas de licencias".
+- Motivo: la redacción anterior prohibía "descifrar ... cifrado de contenido" sin excepciones,
+  y el diseño descifra HLS AES-128 (research R1, R5; test_hls_aes.py). Hallazgo C1 de
+  /speckit-analyze.
+- Por qué MAJOR: redefine el principio de forma incompatible. El mismo código recibe veredictos
+  distintos con una versión y otra: el descifrado de HLS con clave `identity` estaba prohibido
+  y ahora se permite, y las entregas de clave que yt-dlp no reconoce como DRM (otro `KEYFORMAT`,
+  clave incrustada), que el texto anterior no obligaba a detectar, ahora MUST rechazarse.
+  Mismo criterio que la enmienda del Principio IV (v2.0.0).
+- Plan de migración: research R5 (comportamiento verificado de yt-dlp 2026.10.21) y tareas de
+  la Fase 10 de specs/001-resilient-video-downloader/tasks.md (tests de DRM `skd://`, de
+  AES-128 aceptado y de las entregas de clave que yt-dlp no rechaza).
+- Plantillas: sin cambios necesarios (.specify/templates no citan el Principio V).
+-->
 # Downloader Constitution
 
 ## Core Principles
@@ -36,11 +54,22 @@ reinició y por qué. Fuera de ese caso, un archivo parcial MUST NOT borrarse ni
 automáticamente. Un archivo parcial MUST permanecer claramente distinguido del archivo
 completo (por ejemplo, con un sufijo temporal) hasta que su integridad se verifique.
 
-### V. Sin elusión de DRM ni protecciones técnicas
-El proyecto MUST NOT eludir, descifrar ni saltarse DRM, cifrado de contenido, controles de
+### V. Sin elusión de DRM ni sistemas de licencias
+El proyecto MUST NOT eludir, descifrar ni saltarse DRM, sistemas de licencias, controles de
 acceso ni otras medidas técnicas de protección. MUST descargar solo contenido al que el
 usuario tenga acceso legítimo por medios estándar. Las contribuciones que añadan
 funcionalidad de elusión MUST rechazarse.
+
+El cifrado de transporte estándar no es una medida técnica de protección: un HLS cuya clave
+se obtiene por HTTP(S) desde la URI que declara el manifiesto, con `KEYFORMAT="identity"` (o
+sin `KEYFORMAT`, que según RFC 8216 equivale a `identity`) y con la misma sesión del usuario
+que el resto de peticiones, MAY descargarse y descifrarse. Cualquier otra entrega de la clave
+(URI `skd://`, PSSH o clave incrustados en el manifiesto, cualquier otro `KEYFORMAT`) MUST
+tratarse como DRM: la descarga MUST rechazarse con un mensaje claro y sin pedir la clave.
+
+Justificación: la clave `identity` la recibe cualquier reproductor HLS con la misma petición
+HTTP que el usuario ya puede hacer; un sistema de licencias la entrega solo a módulos de
+descifrado autorizados, y obtenerla por otra vía sería eludirlo.
 
 ### VI. Sin credenciales ni cookies en el repositorio
 Credenciales, tokens, cookies y cualquier secreto de sesión MUST NOT guardarse en el
@@ -88,4 +117,4 @@ material, PATCH para aclaraciones y correcciones de redacción. Toda revisión d
 comprobar el cumplimiento; las desviaciones MUST justificarse en la sección de complejidad
 del plan.
 
-**Version**: 2.1.0 | **Ratified**: 2026-10-20 | **Last Amended**: 2026-10-21
+**Version**: 3.0.0 | **Ratified**: 2026-10-20 | **Last Amended**: 2026-10-24
