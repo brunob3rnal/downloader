@@ -361,7 +361,9 @@ en el commit. T016, T017, T097 y T098a no se modifican, ni ningún test o límit
 
 **Checkpoint**: `uv run pytest -rfxX` completo con ffmpeg tres veces en Linux y en el CI
 (`ubuntu-latest` y `windows-latest`), en verde y con 0 omitidos fuera de los ya justificados
-(T067).
+(T067). *(Linux: tres ejecuciones de `uv run pytest -rfxX`, 770 pasados y 1 omitido
+(FAT32/exFAT, T067) en cada una. CI (run 40138024008): 771 pasados en `ubuntu-latest` y 772 en
+`windows-latest`, 0 omitidos.)*
 
 ---
 
