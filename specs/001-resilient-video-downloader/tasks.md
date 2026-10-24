@@ -346,6 +346,25 @@ marcados. *(Linux: tres ejecuciones de `uv run pytest -rfxX`, 743 pasados y 1 om
 
 ---
 
+## Phase 12: Hallazgos H1 y H2 de `/speckit-analyze` (2026-10-24)
+
+**Purpose**: cerrar H1 (formatos que el extractor entrega ya marcados `has_drm`: yt-dlp descarta
+el video protegido y descarga solo el audio sin avisar; FR-015 enmendado, research R5). H2
+(excepción de SC-002 a velocidades altas tras una terminación abrupta; SC-002 y R20) y la fila V
+del Constitution Check del plan son solo documentación, sin tareas de código. El test se escribe
+y se ejecuta en rojo antes de su implementación; si un caso pasa a la primera porque el
+comportamiento ya existía, se valida con una mutación del código que lo haga fallar y se anota
+en el commit. T016, T017, T097 y T098a no se modifican, ni ningún test o límite existente.
+
+- [ ] T101 [P] (H1, FR-015, Principio V v3.0.0, research R5) Tests primero, en rojo antes de T102. En `tests/support/fake_extractor.py`, escenarios nuevos junto a `drm` (sin cambiar `drm` ni `directo`), con los formatos entregados por el extractor, sin manifiesto: `drm-video` (video `has_drm=True` con `vcodec` conocido y `acodec="none"`, y audio sin proteger con `vcodec="none"`), `solo-audio` (un audio con `vcodec="none"`, sin `has_drm`) y `sin-vcodec` (un formato sin `vcodec`, códec desconocido, sin `has_drm`). En `tests/unit/test_drm.py`, `drm.analizar_seleccion(info, calidad)` sin red ni yt-dlp: selección sin video (un formato o `requested_formats`) con `_has_drm` o con un formato `has_drm='maybe'` y calidad `mejor`, `1080p` o `720p` → DRM ("video protegido"); con `audio` o sin calidad → aceptado; sin `has_drm` → aceptado; `vcodec` `None` o ausente → cuenta como video. En `tests/integration/test_directo_drm.py` (`ytdlp_internals`), con el video y el audio de `pistas` servidos por `flaky_server`: (a) `drm-video` con `--calidad mejor`, `1080p` y `720p` → `failed` permanente, sin reintentos, con "contenido con DRM (video protegido): no se puede descargar" y ninguna petición de medios; (b) `drm-video` con `--calidad audio` → se descarga el audio, íntegro, sin pedir el video; (c) `solo-audio` con `--calidad mejor` → se descarga; (d) `sin-vcodec` con `--calidad mejor` → se descarga íntegro. Se espera que solo (a) falle en rojo (yt-dlp descarga el audio); (b), (c) y (d) se validan con mutaciones de `drm.analizar_seleccion` (rechazar también con `audio`; rechazar sin mirar `has_drm`; contar `vcodec` `None` como sin video). Añadir los tests nuevos a `tests/unit/test_marcadores.py`
+- [ ] T102 (H1) Hacer pasar T101 (plan, decisión 30; research R5): en `src/downloader/drm.py`, `analizar_seleccion`; en `src/downloader/ytdl.py`, aplicarlo en `YoutubeDLRegistrado.process_info` con la calidad de `downloader_calidad`, como `_comprobar_cifrado` (`ErrorPermanente` registrado como última petición), antes de pedir ningún medio. Actualizar la docstring de `YoutubeDLRegistrado`, la nota de DRM del README y la fila V del Constitution Check del plan
+
+**Checkpoint**: `uv run pytest -rfxX` completo con ffmpeg tres veces en Linux y en el CI
+(`ubuntu-latest` y `windows-latest`), en verde y con 0 omitidos fuera de los ya justificados
+(T067).
+
+---
+
 ## Dependencies & Execution Order
 
 ### xfail estrictos
@@ -374,6 +393,7 @@ marcados. *(Linux: tres ejecuciones de `uv run pytest -rfxX`, 743 pasados y 1 om
 - **Hallazgos de la verificación (Fase 11)**: depende de la Fase 10. Los pares T095→T096,
   T097→T098 y T099→T100 son independientes entre sí, salvo T096 y T098 si los dos tocan
   `src/downloader/ytdl.py`, que no deben hacerse en paralelo. El checkpoint, al final.
+- **Hallazgos H1 y H2 (Fase 12)**: depende de la Fase 11. T101 → T102; el checkpoint, al final.
 
 ### Mapa de requisitos y escenarios
 
@@ -390,6 +410,7 @@ marcados. *(Linux: tres ejecuciones de `uv run pytest -rfxX`, 743 pasados y 1 om
 | FR-005 y SC-007 (progreso en terminal) | T033, T041d, T092, T093 |
 | FR-015 (DRM, Principio V v3.0.0; `SAMPLE-AES` no soportado) | T053, T054, T089, T090, T090a, T091 |
 | FR-015 (DASH, ISM y F4M; hallazgo G1) | T095, T096 |
+| FR-015 (formatos marcados `has_drm` por el extractor; hallazgo H1) | T101, T102 |
 | FR-021 (`ejecutar` con `cola.db` corrupta) | T087, T088 |
 | FR-027 (plantilla de nombre, 240 caracteres) | T035a, T074, T075 |
 | FR-028 (lista vacía) | T070, T071 |
@@ -407,7 +428,7 @@ marcados. *(Linux: tres ejecuciones de `uv run pytest -rfxX`, 743 pasados y 1 om
 | Escenario 7 | T045, T046, T048, T049 |
 | Escenario 8 | T027, T032 |
 | Escenario 9 | T057, T057a, T058, T058a |
-| Escenario 10 | T053, T054, T089, T090, T090a, T091, T095, T096 |
+| Escenario 10 | T053, T054, T089, T090, T090a, T091, T095, T096, T101, T102 |
 | Escenario 11 | T036, T039 |
 | Escenario 12 | T060, T061, T068, T069 |
 | Escenario 13 | T083, T084, T099, T100 |
@@ -470,6 +491,8 @@ T032 publish.py (publicar)  T033 progress.py
    Principio V v3.0.0 y modo terminal del progreso.
 9. Hallazgos de la verificación → DRM en DASH, ISM y F4M, SC-002 tras Ctrl+C y código 2 de
    `estado`.
+10. Hallazgos H1 y H2 → formatos marcados `has_drm` por el extractor; excepción de SC-002 a
+    velocidades altas.
 
 ---
 

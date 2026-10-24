@@ -321,6 +321,44 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
   En ningún rechazo se pidió la clave ni un fragmento. Diferencias con MPD: una variante
   protegida elegida o leída rechaza todo en lugar de excluirse; una protegida que no se lee no
   se detecta ni se avisa; y el resultado depende del orden del maestro y del extractor.
+- **Regla (formatos marcados por el extractor; FR-015, hallazgo H1 de `/speckit-analyze`)**:
+  lo anterior solo cubre los manifiestos que llegan por `urlopen`. Cuando el extractor entrega
+  los formatos ya construidos (a partir de JSON, o de un manifiesto incrustado en la página) y
+  marca `has_drm` los del video, yt-dlp los descarta y, con cualquier selector de R6, elige el
+  audio sin proteger sin avisar: el mismo defecto que en MPD. Por eso, en `process_info`
+  (`drm.analizar_seleccion`, sin red ni yt-dlp), con una calidad distinta de `audio`, si todos
+  los formatos de la selección final (`requested_formats`, o el propio formato si es uno solo)
+  tienen `vcodec == "none"` y algún formato del video está marcado `has_drm`, se rechaza como DRM
+  permanente, con el mensaje "contenido con DRM (video protegido): no se puede descargar", antes
+  de pedir ningún medio. Cuenta como marcado tanto lo que yt-dlp resume en `_has_drm` (los
+  formatos con `has_drm` verdadero, ya descartados) como un formato que queda en `formats` con
+  `has_drm='maybe'`. Con `audio`, se descarga el audio. Sin `has_drm`, un contenido solo de audio
+  se descarga normalmente, y un `vcodec` `None` (códec desconocido) cuenta como video.
+  - Verificado el 2026-10-24 en yt-dlp 2026.10.21, leyendo `extractor/common.py`,
+    `utils/_utils.py` (`parse_codecs`, `FormatSorter._fill_sorting_fields`) y
+    `YoutubeDL.py`, y con `process_ie_result(download=True)` sobre formatos de prueba y los
+    selectores de R6:
+    - Los extractores marcan explícitamente `vcodec: "none"` solo cuando saben que el formato es
+      de audio (HLS con `TYPE=AUDIO`, ISM `audio`, F4M con `mimeType` `audio/…`, `<audio>`
+      HTML5, JSON-LD `AudioObject`; 113 de 941 extractores lo escriben). Si no conocen el
+      códec, dejan `vcodec` en `None` o sin la clave: HLS sin `CODECS`, F4M, el genérico con
+      URL directa, `<video>` HTML5 y, en MPD, una `Representation` sin `codecs` (`parse_codecs`
+      devuelve `{}`), también si es de audio por su `contentType`.
+    - yt-dlp no rellena después un `vcodec` ausente: `process_video_result` solo copia `ext` a
+      `acodec` en `aac`, `opus`, `mp3`, `flac` y `vorbis`, y `_fill_sorting_fields` no toca
+      `vcodec`. Todo el código de selección compara con `!= "none"`, así que `None` cuenta como
+      video.
+    - Una selección combinada (`bv*+ba`) solo lleva `vcodec` en el diccionario de nivel superior
+      si tiene un único video; por eso se mira cada formato de `requested_formats`.
+    - Con el video `has_drm=True` y el audio `vcodec="none"`, `mejor`, `720p` y `audio` eligen
+      el audio (`_has_drm` verdadero). Con solo un audio sin `has_drm`, el mismo audio y
+      `_has_drm` `None`. Con un formato sin `vcodec` y sin `has_drm`, ese formato. Con el video
+      `has_drm='maybe'`, yt-dlp lo conserva, no lo cuenta en `_has_drm` y elige `video+audio`.
+  - Límite conocido: un audio sin proteger con `vcodec` `None` (p. ej. sin códec declarado)
+    junto a un video marcado `has_drm` cuenta como video y no se rechaza; yt-dlp lo elegiría y
+    se publicaría solo el audio. Es la consecuencia de que un `vcodec` desconocido cuente como
+    video, para no rechazar los formatos de códec desconocido, que son la mayoría de las URLs
+    directas.
 - **Límites conocidos (DRM)**: la detección solo se ha comprobado con manifiestos de prueba,
   no con manifiestos reales de sitios (los tests no usan internet), tampoco en HLS; y la
   descarga completa de un ISM sin protección no tiene test: el ISM de prueba sin protección se
@@ -330,7 +368,8 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
   representaciones se entrega como UTF-8: si la respuesta declara otro `charset`, esos
   caracteres llegan mal a yt-dlp (una `BaseURL` con ellos fallaría), aunque la protección se
   detecta igual. Un manifiesto que no llega por `urlopen` (p. ej. incrustado en la página del
-  sitio) no se analiza: queda a lo que detecte yt-dlp. Límite menor, aceptado: un rechazo de
+  sitio) no se analiza: queda a lo que detecte yt-dlp, con la regla de los formatos marcados por el
+extractor (arriba). Límite menor, aceptado: un rechazo de
   MPD que depende de la calidad pide el manifiesto dos veces, porque la extracción sin
   descarga (`ytdl.extraer_plano`) no conoce la calidad; ningún medio se pide.
 - **Rationale**: Principio V; ninguna clave de un sistema de licencias se llega a pedir. El
@@ -742,9 +781,11 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
   para escribir el `.part` más a menudo: más llamadas al hook de progreso y más CPU, y un
   `SIGKILL` seguiría perdiendo el bloque en curso y el búfer del archivo. Rechazado por el
   usuario.
-- **Límite conocido**: con bloques grandes (conexiones rápidas), un `SIGKILL` en mitad de un
-  bloque puede perder más de 128 KiB; sigue siendo progreso que se vuelve a descargar, no un
-  archivo corrupto (el `.part` solo contiene bytes escritos en orden).
+- **Excepción de SC-002 (hallazgo H2 de `/speckit-analyze`; enmienda de SC-002)**: con bloques
+  grandes (conexiones rápidas), un `SIGKILL` en mitad de un bloque puede perder más de 128 KiB,
+  hasta un bloque de lectura (4 MiB como mucho), y SC-002 lo admite a velocidades altas: es
+  progreso que se vuelve a descargar, no un archivo corrupto (el `.part` solo contiene bytes
+  escritos en orden). El 1 % estricto tras Ctrl+C y tras un corte de red no cambia.
 
 ## R21. Conexión estancada sin cortarse (silencio o goteo)
 
