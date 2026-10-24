@@ -2,8 +2,8 @@
 
 Punto de entrada: `uv run downloader <comando>` (script de consola del paquete).
 
-La configuración (carpeta de destino, calidad por defecto y plantilla del nombre de los archivos
-publicados) vive en `config.toml`, en el
+La configuración (`carpeta_destino`, `calidad`, `plantilla_nombre`, `sondas_red`,
+`estancamiento_segundos` y `estancamiento_velocidad_minima`) vive en `config.toml`, en el
 directorio que devuelve `typer.get_app_dir("downloader")`; ver
 [data-model.md](../data-model.md). Las opciones de línea de comandos prevalecen sobre ella.
 
@@ -112,7 +112,7 @@ si `cola.db` no existe (no la crea), imprime `cola vacía`.
 | Código | Significado |
 |--------|-------------|
 | 0 | cola mostrada (también si alguna descarga está `failed`) o cola vacía |
-| 2 | uso inválido |
+| 2 | uso inválido: una opción o un argumento que `estado` no admite (lo rechaza Typer antes de leer la cola) |
 | 3 | archivo de estado de la cola corrupto; se guardó una copia, como en `agregar` |
 
 ## `actualizar`

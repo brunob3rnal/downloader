@@ -208,7 +208,57 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
     permanente por su cuenta.
   - Cobertura (Fase 10 de tasks.md): `tests/unit/test_drm.py` (analizador y cada fila de la
     tabla), `test_directo_drm.py` (rechazos, sin peticiones de clave ni de fragmentos y sin
-    lanzar ffmpeg) y `test_hls_aes.py` (aceptados y descifrados).
+    lanzar ffmpeg) y `test_hls_aes.py` (aceptados y descifrados). DASH, ISM y F4M: T095 y T096
+    (Fase 11).
+- **Regla (DASH, ISM y F4M; FR-015, hallazgo G1 de `/speckit-analyze`)**: cualquier indicador de
+  protección rechaza la descarga como DRM permanente (`ErrorPermanente`, sin reintentos), antes
+  de pedir ningún segmento y aunque el manifiesto tenga también representaciones sin protección.
+  Indicadores: un `ContentProtection` hijo de un `AdaptationSet` o de una `Representation` del
+  MPD, sea cual sea su `schemeIdUri` (también `urn:mpeg:dash:mp4protection:2011` solo, que no
+  nombra ningún sistema de licencias); un `Protection` hijo de `SmoothStreamingMedia` en ISM; y
+  en F4M, un `drmAdditionalHeader` o `drmAdditionalHeaderSet`, o un `media` con
+  `drmAdditionalHeaderId` o `drmAdditionalHeaderSetId`. Mensaje: "contenido con DRM
+  (DASH|ISM|F4M): no se puede descargar". Es el mismo criterio que en HLS, donde un DRM en el
+  manifiesto maestro rechaza todas sus variantes. Sin esta regla, yt-dlp elige en silencio lo
+  que queda sin proteger: otra calidad, o solo el audio.
+- **Hallazgos (DASH, ISM y F4M)**: verificados el 2026-10-24 con el yt-dlp instalado
+  (2026.10.21), con manifiestos servidos por un servidor HTTP local y el extractor genérico; la
+  elección de formato, con `ytdl.crear_ydl` y los cuatro selectores de R6 (`download=False`); las
+  peticiones de medios, con `extract_info(download=True)` de `YoutubeDL` sin nuestra subclase.
+  También leyendo `_parse_mpd_formats_and_subtitles`, `_parse_ism_formats_and_subtitles` y
+  `_parse_f4m_formats` (`extractor/common.py`), `remove_encrypted_media` y `F4mFD`
+  (`downloader/f4m.py`) y `process_video_result` (`YoutubeDL.py`). El script no está en el
+  repositorio.
+
+  | Manifiesto | Qué hace yt-dlp | Peticiones de medios |
+  |------------|-----------------|----------------------|
+  | MPD con `ContentProtection` Widevine y `cenc:pssh` en el `AdaptationSet` de video; audio sin proteger | marca `has_drm=True` el video y lo descarta; con los cuatro selectores elige **solo el audio**, sin aviso | las del audio |
+  | MPD con solo `urn:mpeg:dash:mp4protection:2011` (con y sin `cenc:default_KID`), en el `AdaptationSet` o en la `Representation` | igual: cuenta cualquier `ContentProtection` hijo directo, sin mirar `schemeIdUri` (elección verificada solo con `mejor`) | las del audio |
+  | MPD mixto: 1080p con `ContentProtection` y 720p sin él, en `AdaptationSet` distintos o en el mismo | descarta la 1080p y elige `720p+audio`, sin aviso, con `mejor`, `1080p` y `720p` | las de la 720p y el audio |
+  | MPD con video y audio protegidos | descarta todo y falla al extraer con "This video is DRM protected" (`ExtractorError`, `expected=True`), antes de `process_info` | ninguna |
+  | MPD con `ContentProtection` solo como hijo de `Period` o de `MPD` | no lo marca: lo descarga como si no estuviera protegido | todas |
+  | ISM con `<Protection>` (PlayReady) | marca `has_drm=True` todos los formatos (el elemento vale para todo el manifiesto) y falla al extraer con "This video is DRM protected" | ninguna |
+  | F4M con un `media` con `drmAdditionalHeaderId` | **no marca `has_drm`**: descarta el `media` al extraer; sin ninguno más, falla con "No video formats found!" (`expected=False`), sin nombrar el DRM | ninguna |
+  | F4M con un `media` cifrado y otro sin cifrar | descarta el cifrado en silencio y elige el otro; `_has_drm` vacío | no comprobado (el `bootstrapInfo` de prueba no era válido y la descarga falló antes de pedir fragmentos) |
+  | F4M con un `drmAdditionalHeader` sin `id` | la extracción lo acepta; al descargar, `F4mFD` falla con "Missing ID in f4m DRM" | ninguna |
+
+  - En DASH e ISM, cuando quedan formatos sin proteger, `info['_has_drm']` sigue en `True` al
+    llegar a `process_info`; cuando no queda ninguno, yt-dlp falla antes, con su mensaje. En F4M
+    yt-dlp no marca nada, así que, como en HLS, el indicador hay que leerlo en el manifiesto.
+  - `has_drm='maybe'` solo lo usa el extractor de YouTube, para formatos HLS: yt-dlp los
+    conserva, no los cuenta en `_has_drm` y los prueba descargando un fragmento antes de
+    elegirlos (`_check_formats`). Quedan fuera de esta regla porque son HLS y pasan por el
+    analizador de `drm.py`.
+  - Límite conocido: un `ContentProtection` hijo de `Period` o de `MPD` no lo marca yt-dlp y
+    queda fuera de la regla.
+  - No comprobado: manifiestos reales de sitios (los tests no usan internet); si el esquema de
+    DASH admite `ContentProtection` como hijo de `Period` o de `MPD`, y si aparece así en sitios
+    reales; un `ContentProtection` en `SubRepresentation` o `ContentComponent`; un
+    `ContentProtection` con `ref` a uno del nivel `MPD` (por lectura del código, yt-dlp lo
+    contaría si está en el `AdaptationSet` o la `Representation`; no lo ejecuté); el error
+    "Unsupported DRM" de `F4mFD`, porque con todos los `media` cifrados la extracción falla antes;
+    y los formatos `maybe` de YouTube. El ISM de prueba sin protección se extrajo sin `has_drm`
+    (control); su descarga no terminó, porque los fragmentos de prueba no eran válidos.
 - **Rationale**: Principio V; ninguna clave de un sistema de licencias se llega a pedir. El
   cifrado que solo ffmpeg sabe descargar se rechaza por FR-008, no por el Principio V.
 - **Alternatives considered**: confiar solo en `_has_drm` (deja pasar Widevine y el PSSH, y
@@ -396,7 +446,8 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
   - Prueba de cierre abrupto: lanzar `ejecutar` en un subproceso (`python -m downloader`, sin
     `uv run` en medio), matarlo a mitad con `Popen.kill()` (`SIGKILL` en POSIX,
     `TerminateProcess` en Windows), relanzar y comprobar que el total de bytes servidos no
-    supera el tamaño del archivo en más de un 1 % (SC-002).
+    supera el tamaño del archivo en más de un 1 % más 128 KiB (SC-002 para interrupciones
+    abruptas, R20).
   - Ctrl+C: en Windows no se puede enviar Ctrl+C a un solo proceso, así que el test lanza
     `ejecutar` con `CREATE_NEW_PROCESS_GROUP` y le envía `CTRL_BREAK_EVENT` (R17); en Linux,
     `SIGINT`.
@@ -427,7 +478,7 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
   `synchronous=FULL` (R11) hace `fsync` en cada commit: lo confirmado sobrevive también a un
   corte de luz, y al relanzar se recupera igual (filas en `downloading` → `queued`). Un
   reinicio ordenado del equipo es un caso más suave: el sistema vacía su caché al apagarse.
-- **Corte de luz (límite conocido; fuera de SC-002 desde el 2026-10-24)**: `Popen.kill()` no
+- **Corte de luz (límite conocido; fuera de SC-002 y excepción de SC-004 desde el 2026-10-24)**: `Popen.kill()` no
   simula la pérdida de la caché de páginas del sistema, así que no equivale a un corte de luz.
   - Se garantiza: la cola tal como quedó en la última transacción confirmada, porque
     `synchronous=FULL` hace `fsync` en cada commit (R11), y al relanzar la misma recuperación
@@ -436,14 +487,15 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
     pase se aparta en `invalidos/<fecha>/` sin borrarse (R8, R22).
   - No se garantiza: el contenido del `.part` que el sistema no había volcado a disco (en Linux,
     por defecto, hasta unos 30 s de escrituras). Se pierde y se vuelve a descargar; el exceso no
-    está acotado por SC-002.
+    está acotado por SC-002. Como no se garantiza, el corte de luz es también la segunda excepción
+    de SC-004, junto al HLS truncado en origen (R22).
   - Hipótesis no verificada (zona vacía): en sistemas de archivos que no ordenan las escrituras
     de datos y de metadatos, el `.part` podría conservar un tamaño cuyos últimos bloques no
     contienen los bytes recibidos (ceros o datos anteriores). yt-dlp reanudaría tras esa zona y
     el archivo final la contendría; solo la verificación podría detectarlo, si ffprobe encuentra
-    el daño. Con `ext4` en modo `data=ordered` (el habitual) no debería ocurrir; en NTFS no se ha
-    comprobado. No hay test que lo cubra: exigiría cortar la alimentación o simular la caché de
-    páginas.
+    el daño, y si no lo encuentra el archivo se publicaría incompleto. Con `ext4` en modo
+    `data=ordered` (el habitual) no debería ocurrir; en NTFS no se ha comprobado. No hay test que
+    lo cubra: exigiría cortar la alimentación o simular la caché de páginas.
 - **Riesgo**: si el entorno de CI no tiene ffmpeg, las pruebas de unión y verificación se
   omitirían en silencio. El CI MUST instalar ffmpeg.
 

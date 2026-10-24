@@ -126,7 +126,7 @@ porcentaje, velocidad y ETA, y el código de salida es 0.
 
 ### Compatibilidad con Windows 10/11 (añadida tras el MVP)
 
-- [X] T035a Windows 10/11 como plataforma objetivo junto a Linux (constitución v2.1.0; spec, Assumptions; plan, decisiones 9–12; research R7 y R17). Origen: en Windows, `uv run downloader` fallaba con `ModuleNotFoundError: No module named 'fcntl'`. Tests primero: `tests/unit/test_plataforma.py` importa todos los módulos de `downloader` y falla si en `src/` o `tests/` hay un `import fcntl` (u otro módulo o atributo de un solo sistema: `termios`, `msvcrt`, `signal.SIGKILL`, `os.fork`, `os.getuid`…) sin protección; en `tests/unit/test_store.py`, la rama de Windows del bloqueo con un `msvcrt` simulado; en `tests/unit/test_publish_nombres.py`, respaldo sin enlaces duros con `winerror` de Windows, otro `OSError` de `os.link` que no se oculta, publicación en volúmenes FAT32/exFAT reales (`DOWNLOADER_TEST_SIN_ENLACES`, los crea el CI), nombres sin `: ? | " < > *`, sin nombres reservados y dentro de 255 bytes y 259 caracteres de ruta, y `publish.escribible`; `tests/integration/test_ctrl_c.py`: interrumpir `ejecutar` a mitad (`SIGINT` o `CTRL_BREAK_EVENT`) lo termina sin traza, conserva el `.part`, no publica nada y libera el bloqueo; en `tests/integration/test_cli_agregar.py`, salida redirigida en cp1252 con caracteres que no caben; `tests/integration/test_crash_recovery.py` usa `python -m downloader` y `Popen.kill()` en lugar de `uv run`, `start_new_session` y `os.killpg(…, SIGKILL)`; `tests/unit/test_ytdl.py` compara rutas con `pathlib`. Implementación: `src/downloader/store.py` con `msvcrt.locking`/`fcntl.flock` por import condicional; `src/downloader/publish.py` con `_sin_enlaces` (errno y `winerror`), `nombre_publicado` con nombres reservados y límites de longitud, y `escribible` en lugar de `os.access` (usado por `cli.py` y `worker.py`); `src/downloader/ytdl.py` con `windowsfilenames=True` y plantilla `descarga.%(ext)s`; `src/downloader/progress.py` sin `/` a mano; `src/downloader/cli.py` con Ctrl+Break como Ctrl+C y `stdout`/`stderr` con `errors="backslashreplace"`; `src/downloader/__main__.py`; `.github/workflows/tests.yml` con matriz `ubuntu-latest` y `windows-latest`, ffmpeg en ambos (`apt-get`, `choco`) y volúmenes FAT32/exFAT
+- [X] T035a Windows 10/11 como plataforma objetivo junto a Linux (constitución v2.1.0; spec, Assumptions; plan, decisiones 9–12; research R7 y R17). Origen: en Windows, `uv run downloader` fallaba con `ModuleNotFoundError: No module named 'fcntl'`. Tests primero: `tests/unit/test_plataforma.py` importa todos los módulos de `downloader` y falla si en `src/` o `tests/` hay un `import fcntl` (u otro módulo o atributo de un solo sistema: `termios`, `msvcrt`, `signal.SIGKILL`, `os.fork`, `os.getuid`…) sin protección; en `tests/unit/test_store.py`, la rama de Windows del bloqueo con un `msvcrt` simulado; en `tests/unit/test_publish_nombres.py`, respaldo sin enlaces duros con `winerror` de Windows, otro `OSError` de `os.link` que no se oculta, publicación en volúmenes FAT32/exFAT reales (`DOWNLOADER_TEST_SIN_ENLACES`, los crea el CI), nombres sin `: ? | " < > *`, sin nombres reservados y dentro de 255 bytes y 259 caracteres de ruta, y `publish.escribible`; `tests/integration/test_ctrl_c.py`: interrumpir `ejecutar` a mitad (`SIGINT` o `CTRL_BREAK_EVENT`) lo termina sin traza, conserva el `.part`, no publica nada y libera el bloqueo; en `tests/integration/test_cli_agregar.py`, salida redirigida en cp1252 con caracteres que no caben; `tests/integration/test_crash_recovery.py` usa `python -m downloader` y `Popen.kill()` en lugar de `uv run`, `start_new_session` y `os.killpg(…, SIGKILL)`; `tests/unit/test_ytdl.py` compara rutas con `pathlib`. Implementación: `src/downloader/store.py` con `msvcrt.locking`/`fcntl.flock` por import condicional; `src/downloader/publish.py` con `_sin_enlaces` (errno y `winerror`), `nombre_publicado` con nombres reservados y límites de longitud, y `escribible` en lugar de `os.access` (usado por `cli.py` y `worker.py`); `src/downloader/ytdl.py` con `windowsfilenames=True` y plantilla `descarga.%(ext)s`; `src/downloader/progress.py` sin `/` a mano; `src/downloader/cli.py` con Ctrl+Break como Ctrl+C y `stdout`/`stderr` con `errors="backslashreplace"`; `src/downloader/__main__.py`; `.github/workflows/tests.yml` con matriz `ubuntu-latest` y `windows-latest`, ffmpeg en ambos (`apt-get`, `choco`) y volúmenes FAT32/exFAT *(Superada en parte por T074: en Windows la ruta completa no pasa de 240 caracteres, con hueco para el sufijo de FR-022, y no de 259.)*
 
 ---
 
@@ -225,7 +225,7 @@ perder progreso; directos y DRM rechazados.
 
 ### Implementation for User Story 4
 
-- [X] T054 [US4] En `src/downloader/ytdl.py`, rechazar antes de descargar con `PERMANENTE` si `info['is_live']` es verdadero o si yt-dlp informa DRM (research R5); en `src/downloader/worker.py`, ante `PERMANENTE` pasar a `failed` con la causa filtrada y continuar con la siguiente. La clasificación de 403/410 (`PERMANENTE` al extraer; `TEMPORAL` ambiguo al descargar, con re-extracción en el siguiente intento y tope de 3 intentos sin avance, FR-026) ya está en `errors.py` y `retry.py` (T037b): aquí solo se comprueba de extremo a extremo que un 403 constante deja la fila `failed` con un `ultimo_error` que menciona `--cookies-de` y que el resto de la cola sigue. Hace pasar T051–T053
+- [X] T054 [US4] En `src/downloader/ytdl.py`, rechazar antes de descargar con `PERMANENTE` si `info['is_live']` es verdadero o si yt-dlp informa DRM (research R5); en `src/downloader/worker.py`, ante `PERMANENTE` pasar a `failed` con la causa filtrada y continuar con la siguiente. La clasificación de 403/410 (`PERMANENTE` al extraer; `TEMPORAL` ambiguo al descargar, con re-extracción en el siguiente intento y tope de 3 intentos sin avance, FR-026) ya está en `errors.py` y `retry.py` (T037b): aquí solo se comprueba de extremo a extremo que un 403 constante deja la fila `failed` con un `ultimo_error` que menciona `--cookies-de` y que el resto de la cola sigue. Hace pasar T051–T053 *(Superada en parte por T091: el DRM de HLS lo decide `src/downloader/drm.py`, no lo que informa yt-dlp; el de DASH, ISM y F4M, T095–T096.)*
 - [X] T055 [US4] En `src/downloader/cli.py`, salir con 1 cuando la cola se vacía con al menos una `failed` en esta ejecución (contracts/cli.md, FR-021). Hace pasar la parte de código de salida de T052
 
 **Checkpoint**: escenarios 5, 6 y 10 en verde; todo lo anterior sigue en verde.
@@ -322,6 +322,27 @@ T056 y T057) y se anota en el commit. T016 y T017 no se modifican.
 
 ---
 
+## Phase 11: Hallazgos de la verificación de `/speckit-analyze` (2026-10-24)
+
+**Purpose**: cerrar G1 (DRM en DASH, ISM y F4M: FR-015 enmendado, research R5), A4-r (SC-002 tras
+Ctrl+C) y N6 (código 2 de `estado` sin definir ni probar). Cada test se escribe y se ejecuta en
+rojo antes de su tarea de implementación; si pasa a la primera porque el comportamiento ya
+existía, se valida con una mutación del código que lo haga fallar y se anota en el commit. T016
+y T017 no se modifican.
+
+- [ ] T095 [P] (G1, FR-015, Principio V v3.0.0, research R5) Ampliar `tests/integration/test_directo_drm.py` (`ytdlp_internals`) con manifiestos servidos por `flaky_server` (un generador en `tests/support/`, como `hls.py`, con valores ficticios: Principio VI): MPD con `ContentProtection` Widevine y `cenc:pssh` en el `AdaptationSet` de video y el audio sin proteger, con `--calidad mejor` y con `--calidad audio`; MPD con solo `urn:mpeg:dash:mp4protection:2011`, en el `AdaptationSet` y en la `Representation`; MPD con la 1080p protegida y la 720p sin proteger; MPD con video y audio protegidos; ISM con `<Protection>`; F4M con un `media` con `drmAdditionalHeaderId`, solo y junto a otro sin cifrar; y F4M con un `drmAdditionalHeader` sin `id`. En cada caso, la descarga queda `failed` como permanente, sin reintentos, con el mensaje "contenido con DRM (DASH|ISM|F4M): no se puede descargar", y el servidor no recibe ninguna petición salvo la del manifiesto. Un MPD sin `ContentProtection` sigue descargándose íntegro. Según la verificación de R5, se esperan en rojo el MPD con el audio sin proteger y el mixto (yt-dlp elige lo que no está protegido y pide sus segmentos), los F4M (yt-dlp no los marca) y el mensaje de los demás (yt-dlp falla con el suyo). Añadir los tests nuevos a `tests/unit/test_marcadores.py` (`ytdlp_internals` y, si pasan de unos 5 s, `slow`)
+- [ ] T096 (G1) Hacer pasar T095 en `src/downloader/ytdl.py`: rechazar en `process_info` la descarga con `info['_has_drm']` (DASH e ISM; yt-dlp lo deja en `True` aunque queden formatos sin proteger) y dar el mensaje de FR-015 también cuando yt-dlp falla al extraer con "This video is DRM protected"; en F4M, que yt-dlp no marca, leer los indicadores en el manifiesto, como hace `_vigilar_manifiesto` con HLS (en `src/downloader/drm.py`, con sus casos en `tests/unit/test_drm.py`). Actualizar la docstring de `YoutubeDLRegistrado`, la nota de DRM del README y la decisión 30 del plan. Si algún caso de T095 pasa a la primera, validarlo con una mutación (p. ej., no rechazar con `_has_drm`) que lo haga fallar
+- [ ] T097 [P] (A4-r, SC-002) Ampliar `tests/integration/test_interrupcion.py` (T042): al terminar el `ejecutar` relanzado, `servidor.bytes_servidos["lento.mp4"]` no supera el 101 % del tamaño del archivo, sin la tolerancia de 128 KiB, porque Ctrl+C no es una terminación abrupta (SC-002, R20)
+- [ ] T098 (A4-r) Hacer pasar T097 si falla (p. ej., si al interrumpir se pierde lo que el envoltorio de lectura de R18 había acumulado sin entregarlo a yt-dlp), en `src/downloader/ytdl.py` o `src/downloader/worker.py`; si para cumplirlo hubiera que enmendar SC-002, consultarlo antes. Si pasa a la primera, validarlo con una mutación (p. ej., reanudar con `continuedl=False`, que vuelve a pedir el archivo desde el byte 0 y aun así publica un archivo íntegro) que lo haga fallar
+- [ ] T099 [P] (N6, FR-032, contracts/cli.md) Ampliar `tests/integration/test_estado.py`: `estado --desconocida` y `estado extra` salen con 2 y el mensaje de uso en stderr, sin crear `cola.db`
+- [ ] T100 (N6) Hacer pasar T099 en `src/downloader/cli.py` si falla. Si pasa a la primera, validarlo con una mutación (p. ej., `estado` con `context_settings={"allow_extra_args": True, "ignore_unknown_options": True}`) que lo haga fallar
+
+**Checkpoint**: `uv run pytest` completo con ffmpeg en Linux y en Windows (jobs del CI), en verde
+y con 0 omitidos fuera de los ya justificados (T067); escenarios 10, 13 y 14 de quickstart
+marcados.
+
+---
+
 ## Dependencies & Execution Order
 
 ### xfail estrictos
@@ -347,12 +368,16 @@ T056 y T057) y se anota en el commit. T016 y T017 no se modifican.
   (T083→T084, T085→T086, T087→T088, T089+T090+T090a→T091, T092→T093) son independientes entre sí,
   salvo T084, T088 (`cli.py`) y T091, T086 (`ytdl.py`), que no deben hacerse en paralelo. T094
   al final.
+- **Hallazgos de la verificación (Fase 11)**: depende de la Fase 10. Los pares T095→T096,
+  T097→T098 y T099→T100 son independientes entre sí, salvo T096 y T098 si los dos tocan
+  `src/downloader/ytdl.py`, que no deben hacerse en paralelo. El checkpoint, al final.
 
 ### Mapa de requisitos y escenarios
 
 | Requisito / escenario | Tareas |
 |-----------------------|--------|
-| FR-021 (salida de `ejecutar`) | T030, T034, T035, T042, T044, T052, T055, T062, T063 |
+| FR-021 (salida de `ejecutar`, enmendado: 0, 1, 2, 3 y 130) | T030, T034, T035, T042, T044, T047, T050, T052, T055, T057a, T058a, T062, T063 |
+| SC-002 (acumulado; 1 % estricto tras Ctrl+C) | T016, T017, T041a, T050a, T051, T097, T098 |
 | FR-022 (sin sobrescribir) | T027, T032, T072–T075 |
 | FR-023 (verificación) | T045, T046, T048, T049 |
 | FR-024 (reinicio con aviso) | T036, T039, T050a, T050b |
@@ -361,13 +386,14 @@ T056 y T057) y se anota en el commit. T016 y T017 no se modifican.
 | FR-002 (calidad `audio` de extremo a extremo) | T015, T031, T085, T086 |
 | FR-005 y SC-007 (progreso en terminal) | T033, T041d, T092, T093 |
 | FR-015 (DRM, Principio V v3.0.0; `SAMPLE-AES` no soportado) | T053, T054, T089, T090, T090a, T091 |
+| FR-015 (DASH, ISM y F4M; hallazgo G1) | T095, T096 |
 | FR-021 (`ejecutar` con `cola.db` corrupta) | T087, T088 |
 | FR-027 (plantilla de nombre, 240 caracteres) | T035a, T074, T075 |
 | FR-028 (lista vacía) | T070, T071 |
 | FR-029 (cookies ilegibles) | T057a, T058a |
 | FR-030 (403 al extraer) | T076, T077 |
 | FR-031 (vigilante de estancamiento) | T041a–T041d |
-| FR-032 (`estado`) | T083, T084 |
+| FR-032 (`estado`) | T083, T084, T099, T100 |
 | Plataformas: Windows 10/11 y Linux (constitución v2.1.0) | T035a, T065 |
 | Escenario 1 | T028, T034, T035 |
 | Escenario 2 y 2b | T016, T037a, T037b, T038 |
@@ -378,9 +404,11 @@ T056 y T057) y se anota en el commit. T016 y T017 no se modifican.
 | Escenario 7 | T045, T046, T048, T049 |
 | Escenario 8 | T027, T032 |
 | Escenario 9 | T057, T057a, T058, T058a |
-| Escenario 10 | T053, T054 |
+| Escenario 10 | T053, T054, T089, T090, T090a, T091, T095, T096 |
 | Escenario 11 | T036, T039 |
 | Escenario 12 | T060, T061, T068, T069 |
+| Escenario 13 | T083, T084, T099, T100 |
+| Escenario 14 | T085, T086 |
 
 ### Within Each User Story
 
@@ -437,6 +465,8 @@ T032 publish.py (publicar)  T033 progress.py
 7. Polish → `actualizar`, disco lleno, README, validación de los 12 escenarios.
 8. Hallazgos del análisis → `estado`, solo audio, base corrupta en `ejecutar`, DRM según el
    Principio V v3.0.0 y modo terminal del progreso.
+9. Hallazgos de la verificación → DRM en DASH, ISM y F4M, SC-002 tras Ctrl+C y código 2 de
+   `estado`.
 
 ---
 

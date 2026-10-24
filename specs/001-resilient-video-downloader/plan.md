@@ -33,14 +33,16 @@ Windows, detector de usos de un solo sistema sin proteger)
 **Target Platform**: Windows 10/11 y Linux (constitución v2.1.0, sección Plataformas). El
 bloqueo de un único `ejecutar` usa `msvcrt.locking` en Windows y `fcntl.flock` en Linux, con
 import condicional (R17); nombres de archivo válidos en Windows desde cualquier sistema
-(`windowsfilenames=True`, nombres reservados y límite de 260 caracteres por ruta, R7); el CI
+(`windowsfilenames=True`, nombres reservados y rutas de hasta 240 caracteres, por debajo del
+límite de 260 de Windows; R7, FR-027); el CI
 ejecuta la suite en `ubuntu-latest` y `windows-latest` con ffmpeg. macOS no es plataforma
 objetivo: nada lo excluye, pero no se verifica.
 
 **Project Type**: CLI de un solo paquete
 
 **Performance Goals**: progreso actualizado ≥ 1 vez/s (SC-007); total servido ≤ 1 % por encima
-del tamaño del archivo, acumulado en todas las reanudaciones (SC-002); error permanente notificado en < 30 s (SC-005)
+del tamaño del archivo, acumulado en todas las reanudaciones, más 128 KiB si alguna fue una
+terminación abrupta del proceso (SC-002, R20); error permanente notificado en < 30 s (SC-005)
 
 **Constraints**: sin servicio en segundo plano; un solo `ejecutar` a la vez; una descarga
 simultánea; ningún secreto en disco ni en logs
@@ -57,7 +59,7 @@ simultánea; ningún secreto en disco ni en logs
 | II. Tests con cortes de red | servidor local con respuestas truncadas, timeouts, 5xx, apagado/rearranque, tokens caducados y `SIGKILL`; sin internet (R15) | Pasa; CI MUST instalar ffmpeg para no omitir en silencio |
 | III. Errores claros | clasificación TEMPORAL/PERMANENTE/FATAL con una tabla única por fase y tope de 3 intentos sin avance para 403/410 y ffmpeg (R4, FR-026); códigos de salida en [contracts/cli.md](contracts/cli.md) | Pasa |
 | IV. No perder progreso reanudable (v2.0.0) | `.part` en directorio de trabajo, `skip_unavailable_fragments=False`, recuperación al arrancar, Ctrl+C conserva todo; si el servidor no permite reanudar, reinicio con aviso detectado por retroceso de bytes (R3, FR-024) | Pasa |
-| V. Sin DRM ni sistemas de licencias (v3.0.0) | el criterio es el sistema de licencias: `skd://`, FairPlay, PlayReady, Widevine, PSSH y cualquier `KEYFORMAT` distinto de `identity` se rechazan como DRM con un analizador propio de los atributos de `#EXT-X-KEY`/`#EXT-X-SESSION-KEY`, en cualquier orden y antes de pedir la clave; `AES-128` con `KEYFORMAT` ausente o `identity` se descarga y descifra, con la clave por HTTP(S) (misma sesión), `data:` o `hls_aes`; `SAMPLE-AES` y otros métodos con clave `identity`, error permanente "no soportado" (FR-008, no Principio V); `is_live` rechazado en `process_info` (R5, decisión 30) | Pasa (Fase 10, T089–T091) |
+| V. Sin DRM ni sistemas de licencias (v3.0.0) | el criterio es el sistema de licencias: `skd://`, FairPlay, PlayReady, Widevine, PSSH y cualquier `KEYFORMAT` distinto de `identity` se rechazan como DRM con un analizador propio de los atributos de `#EXT-X-KEY`/`#EXT-X-SESSION-KEY`, en cualquier orden y antes de pedir la clave; `AES-128` con `KEYFORMAT` ausente o `identity` se descarga y descifra, con la clave por HTTP(S) (misma sesión), `data:` o `hls_aes`; `SAMPLE-AES` y otros métodos con clave `identity`, error permanente "no soportado" (FR-008, no Principio V); `is_live` rechazado en `process_info` (R5, decisión 30); en DASH, ISM y F4M, cualquier indicador de protección rechaza la descarga como DRM antes de pedir ningún segmento, aunque haya representaciones sin protección (R5, hallazgo G1) | Pasa en HLS (Fase 10, T089–T091); DASH, ISM y F4M pendientes de la Fase 11 (T095–T096) |
 | VI. Sin credenciales | `cookiesfrombrowser` en memoria, sin `cookiefile`; la base de datos solo guarda el nombre del navegador; `config.toml` rechaza claves de credenciales o cookies; logger que filtra secretos (R12, R25) | Pasa |
 | Plataformas (v2.1.0) | sin dependencias nuevas: `msvcrt`/`fcntl` con import condicional (R17); publicación con `os.link` también en NTFS y copia exclusiva en FAT32/exFAT (R7); nombres válidos en Windows; `tests/unit/test_plataforma.py` falla ante un `import fcntl` o un `signal.SIGKILL` sin proteger; CI en Linux y Windows | Pasa; la verificación real en Windows es el job `windows-latest` |
 
@@ -105,6 +107,7 @@ tests/
 ├── support/
 │   ├── flaky_server.py  # HTTP con Range, cortes, 403 por token, apagado/rearranque
 │   ├── fake_extractor.py   # InfoExtractor de prueba (no empieza por test_)
+│   ├── hls.py           # manifiestos HLS cifrados para los tests de DRM y de AES-128 (R5; Fase 10)
 │   └── navegador_falso.py  # lectura de cookies del navegador simulada, con una cookie ficticia (R25)
 ├── unit/                # models, store, errors, retry, publish, ytdl (formatos)
 └── integration/         # cortes, caída de red, cierre abrupto, Ctrl+C, URL caducada, permanentes, listas, CLI
