@@ -171,9 +171,9 @@ class FlakyServer:
         - `cortar_tras_bytes=N`: envía N bytes del cuerpo y cierra la conexión (`veces` peticiones).
         - `colgarse=True`: no envía nada hasta que el cliente cierre (`veces` peticiones).
         - `errores=[503, 500, ...]`: una petición por código.
-        - `caducar_tokens=True`: sirve la petición y después invalida todos los tokens emitidos
-          (una URL temporal que caduca a mitad de la descarga). Junto con `cortar_tras_bytes`,
-          corta y caduca en la misma petición (`veces` peticiones).
+        - `caducar_tokens=True`: invalida todos los tokens emitidos y sirve la petición, que ya
+          presentó uno válido (una URL temporal que caduca a mitad de la descarga). Junto con
+          `cortar_tras_bytes`, corta y caduca en la misma petición (`veces` peticiones).
         - `pausar_tras_bytes=N`: envía N bytes del cuerpo y deja la conexión abierta sin enviar
           nada más hasta que el cliente la cierre (`veces` peticiones).
         - `gotear_tras_bytes=N`: envía N bytes del cuerpo y luego un byte cada `intervalo` s
@@ -326,11 +326,13 @@ class _Manejador(BaseHTTPRequestHandler):
         if archivo.manifiesto_hls and token:
             datos = _con_token(datos, token)
         tipo = fallo[0] if fallo else None
+        if tipo in ("caducar", "cortar_caducar"):
+            # Antes de servir: esta petición ya presentó un token válido, y si se invalidaran al
+            # terminar, la siguiente petición del cliente podría llegar antes.
+            self.flaky.caducar_tokens()
         if tipo in ("pausar", "gotear"):
             return self._servir_estancado(ruta, archivo, datos, tipo, fallo[1])
         self._servir(ruta, archivo, datos, fallo[1] if tipo in ("cortar", "cortar_caducar") else None)
-        if tipo in ("caducar", "cortar_caducar"):
-            self.flaky.caducar_tokens()
 
     def _servir(self, ruta, archivo, datos, cortar_tras):
         total = archivo.anunciar_tamano if archivo.anunciar_tamano is not None else len(datos)

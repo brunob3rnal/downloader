@@ -18,6 +18,7 @@ from downloader.progress import Presentador
 from downloader.store import BaseCorrupta, EjecucionEnCurso, Store
 
 # Códigos de salida (contracts/cli.md).
+CON_FALLIDAS = 1
 USO_INVALIDO = 2
 FATAL = 3
 INTERRUMPIDO = 130
@@ -155,7 +156,7 @@ def ejecutar() -> None:
                 estancamiento=ajustes.estancamiento_segundos,
                 velocidad_minima=ajustes.estancamiento_velocidad_minima,
             )
-            worker.ejecutar(store, monitor, Presentador(), tiempos)
+            resultado = worker.ejecutar(store, monitor, Presentador(), tiempos)
         except ErrorFatal as error:
             raise _error(f"{error}. El progreso se ha conservado.", FATAL) from None
         except KeyboardInterrupt:
@@ -165,3 +166,5 @@ def ejecutar() -> None:
             monitor.detener()
     finally:
         store.cerrar()
+    if resultado.fallidas:  # la cola se vació, pero no todo se completó (FR-021)
+        raise typer.Exit(CON_FALLIDAS)

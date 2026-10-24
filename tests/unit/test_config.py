@@ -37,7 +37,9 @@ def test_ejecutar_pasa_los_umbrales_al_trabajador(app_home, monkeypatch):
     escribir(app_home, 'sondas_red = ["127.0.0.1:9"]\nestancamiento_segundos = 12\n'
                        "estancamiento_velocidad_minima = 300\n")
     recibidos = []
-    monkeypatch.setattr(worker, "ejecutar", lambda *args: recibidos.append(args[3]))
+    monkeypatch.setattr(
+        worker, "ejecutar", lambda *args: recibidos.append(args[3]) or worker.Resultado()
+    )
     monkeypatch.setattr(cli.MonitorRed, "iniciar", lambda self: None)
     # El trabajador está sustituido: no hace falta ffmpeg (su comprobación: test_ffmpeg_ausente).
     monkeypatch.setattr(cli, "_comprobar_ffmpeg", lambda: None)

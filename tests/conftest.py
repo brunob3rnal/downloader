@@ -1,3 +1,5 @@
+import dataclasses
+import functools
 import shutil
 import subprocess
 import threading
@@ -67,6 +69,14 @@ def tiempos_rapidos():
     from downloader.worker import Tiempos
 
     return Tiempos(backoff_base=0.05, backoff_tope=0.5, socket_timeout=1, espera_cola=0.05)
+
+
+@pytest.fixture
+def esperas_cortas(tiempos_rapidos, monkeypatch):
+    """`ejecutar` (fixture `cli`) con los tiempos de `tiempos_rapidos` en lugar de los reales."""
+    from downloader import worker
+
+    monkeypatch.setattr(worker, "Tiempos", functools.partial(dataclasses.replace, tiempos_rapidos))
 
 
 @pytest.fixture(scope="session")

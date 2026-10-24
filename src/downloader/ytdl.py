@@ -19,7 +19,14 @@ from yt_dlp.networking.common import Response
 from yt_dlp.networking.exceptions import HTTPError, IncompleteRead, TransportError
 from yt_dlp.utils import DownloadError
 
-from downloader.errors import Fase, RegistroRed, SinDatos, UltimaPeticion, ocultar_secretos
+from downloader.errors import (
+    ErrorPermanente,
+    Fase,
+    RegistroRed,
+    SinDatos,
+    UltimaPeticion,
+    ocultar_secretos,
+)
 from downloader.models import Calidad, Descarga
 
 DIRECTORIO_TEMPORAL = ".downloader-tmp"
@@ -37,6 +44,11 @@ PLANTILLA = "descarga.%(ext)s"
 
 _RANGO_PEDIDO = re.compile(r"bytes=(\d+)-$")  # reanudación: desde el tamaño del `.part`
 _RANGO_416 = re.compile(r"bytes \*/(\d+)$")  # `Content-Range` de un 416: tamaño real
+
+DIRECTO = (
+    "Es una transmisión en directo: no se descargan directos. Vuelva a agregar la URL cuando "
+    "la emisión haya terminado."
+)
 
 FORMATOS = {
     Calidad.MEJOR: "bv*+ba/b",
@@ -123,6 +135,9 @@ class YoutubeDLRegistrado(YoutubeDL):
 
     Resuelve el 416 al reanudar con comparación exacta en lugar de la de yt-dlp (R23); el motivo
     de un reinicio se añade a la lista del parámetro `downloader_reinicios`.
+
+    Rechaza los directos antes de pedir ningún medio (R5). El contenido con DRM ya lo rechaza
+    yt-dlp al elegir el formato, con `ExtractorError(expected=True)`.
     """
 
     def __init__(self, params=None, *args, **kwargs):
@@ -212,6 +227,12 @@ class YoutubeDLRegistrado(YoutubeDL):
         # y no solo en `close` evita recibir datos mientras se procesan los formatos.
         self._cerrar_respuestas_extraccion()
         return super().process_ie_result(ie_result, *args, **kwargs)
+
+    def process_info(self, info_dict):
+        # Lo último antes de descargar un video ya resuelto: aún no se ha pedido ningún medio.
+        if info_dict.get("is_live"):
+            raise ErrorPermanente(DIRECTO)  # Principio V, FR-015
+        return super().process_info(info_dict)
 
     def dl(self, name, info, subtitle=False, test=False):
         if not test:

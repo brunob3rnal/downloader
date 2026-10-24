@@ -135,6 +135,12 @@ Verificado contra yt-dlp 2026.08.19 cuando se cita su comportamiento.
 - **Decision**: rechazar como `PERMANENTE` si `info['is_live']` es verdadero, o si yt-dlp
   informa DRM (`_has_drm` o formatos con `has_drm`, que ya provoca
   `ExtractorError(expected=True)` "This video is DRM protected").
+- **Implementación**: `YoutubeDLRegistrado.process_info` lanza `ErrorPermanente` si
+  `is_live`: es el paso por el que yt-dlp entrega cada video resuelto a la descarga, antes de
+  elegir el descargador (FFmpegFD para HLS en directo) y de pedir ningún medio. No se hace en
+  `dl`, que debe seguir anotando la fase y el descargador externo de cualquier info (R4). El
+  DRM no necesita código propio: yt-dlp descarta los formatos con `has_drm` y lanza el error
+  al procesar el video, ya en `extraer_plano`.
 - **Rationale**: Principio V; no se intenta ningún formato con DRM.
 
 ## R6. Selección de calidad
