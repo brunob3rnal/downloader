@@ -78,6 +78,12 @@ INTERNOS_YTDLP = {
     "tests/integration/test_interrupcion.py::test_ctrl_c_a_mitad_de_bloque_no_pierde_lo_recibido",
     "tests/integration/test_interrupcion.py::"
     "test_ctrl_c_con_los_ultimos_bytes_y_relanzar_publica_sin_volver_a_descargar",
+    # R19 y R20: dos sondeos del extractor genérico por intento con URLs directas, cerrados
+    # al terminar la extracción; bloques de lectura de hasta 4 MiB.
+    "tests/integration/test_interrupcion.py::test_ctrl_c_guarda_el_progreso_y_relanzar_termina",
+    "tests/integration/test_reanudaciones_directas.py::"
+    "test_corte_de_red_ctrl_c_y_cierre_abrupto_cumplen_sc002",
+    "tests/unit/test_ytdl.py::test_yt_dlp_no_pide_bloques_de_mas_de_4_mib",
     # R5 (DASH, ISM y F4M): los extractores, también el genérico (que lee 512 bytes antes que
     # el resto), leen el manifiesto con `urlopen(...).read()` y crean los formatos solo a partir
     # de esos bytes, un formato por `Representation`; la descarga DASH no vuelve a pedir el MPD.
@@ -110,6 +116,8 @@ LENTOS = {
     "tests/integration/test_interrupcion.py::test_ctrl_c_guarda_el_progreso_y_relanzar_termina",
     "tests/integration/test_interrupcion.py::test_ctrl_c_a_mitad_de_bloque_no_pierde_lo_recibido",
     "tests/integration/test_crash_recovery.py::test_cierre_abrupto_a_mitad_y_relanzar",
+    "tests/integration/test_reanudaciones_directas.py::"
+    "test_corte_de_red_ctrl_c_y_cierre_abrupto_cumplen_sc002",
     "tests/integration/test_network_cuts.py::test_servidor_colgado_es_temporal",
     "tests/unit/test_worker_espera.py::test_nunca_falla_por_errores_temporales_no_ambiguos",
 }

@@ -186,6 +186,12 @@ crea en Linux y en Windows).
 - La detección de DRM (HLS, DASH, ISM y F4M) solo se ha comprobado con manifiestos de prueba,
   no con manifiestos reales de sitios. La descarga completa de un ISM (Smooth Streaming) sin
   protección no tiene test.
+- Con una URL directa a un archivo de video o audio (sin página del sitio), yt-dlp pide el
+  archivo dos veces por intento solo para identificarlo, antes de descargarlo. Hasta 4 MB/s eso
+  cuesta como mucho unos pocos KB por intento (medido); en conexiones más rápidas puede llegar
+  a transferirse el archivo entero en cada una de esas peticiones, sin que el programa pueda
+  cortarlo antes (no verificado en redes reales). No afecta a las URLs de sitios ni a HLS o
+  DASH.
 - Una sola descarga a la vez.
 - El vigilante de estancamiento solo actúa durante la descarga de los medios, no durante la
   extracción de la información del video: ahí una conexión colgada solo se corta por el

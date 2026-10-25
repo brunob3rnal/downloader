@@ -559,8 +559,7 @@ extractor (arriba). Límite menor, aceptado: un rechazo de
   - Prueba de cierre abrupto: lanzar `ejecutar` en un subproceso (`python -m downloader`, sin
     `uv run` en medio), matarlo a mitad con `Popen.kill()` (`SIGKILL` en POSIX,
     `TerminateProcess` en Windows), relanzar y comprobar que el total de bytes servidos no
-    supera el tamaño del archivo en más de un 1 % más 128 KiB (SC-002 para interrupciones
-    abruptas, R20).
+    supera el límite de SC-002 para interrupciones abruptas (R20).
   - Ctrl+C: en Windows no se puede enviar Ctrl+C a un solo proceso, así que el test lanza
     `ejecutar` con `CREATE_NEW_PROCESS_GROUP` y le envía `CTRL_BREAK_EVENT` (R17); en Linux,
     `SIGINT`.
@@ -723,7 +722,8 @@ extractor (arriba). Límite menor, aceptado: un rechazo de
     rechazan antes). `worker._procesar` trata Ctrl+C venga de donde venga, también en
     Windows, donde Ctrl+Break llega como la misma `KeyboardInterrupt`.
   - Exceso tras el arreglo: 0,35–0,45 % en T097 y 0,40–0,45 % en el test nuevo, el de los GET
-    de sondeo del extractor genérico (R19). SC-002 no cambia: 1 % estricto tras Ctrl+C.
+    de sondeo del extractor genérico (R19). SC-002 no cambia: 1 % estricto tras Ctrl+C
+    (desde el 2026-10-25, con el coste fijo de los sondeos: enmienda al final de R20).
   - Coste medido como arriba (200 MiB contra `flaky_server` en otro proceso, sin límite de
     velocidad, mediana de 10 descargas por serie, series alternadas con el código anterior):
     antes 353–374 MiB/s (6 series), después 325–370 MiB/s (4 series). Las series se solapan;
@@ -758,6 +758,35 @@ extractor (arriba). Límite menor, aceptado: un rechazo de
 - **Alternatives considered**: forzar el GC tras extraer (no garantiza el momento y depende de
   ciclos de referencias); extraer con un `YoutubeDL` y descargar con otro (más llamadas a
   yt-dlp y la misma fuga en el primero).
+- **Medición de los sondeos (2026-10-25, yt-dlp 2026.10.21)**: `python -m downloader ejecutar`
+  en un proceso nuevo, URL directa de un MP4 de 2.066.190 bytes con `Content-Type: video/mp4`
+  servida por `flaky_server`, sin interrupciones, de 4 a 7 descargas por velocidad; lo servido
+  por encima del tamaño es el coste de los sondeos. Cada intento hace dos extracciones
+  (`worker._intentar` llama a `extraer_plano` y después a `descargar`), con un GET de sondeo
+  cada una, sin `Range` y con las mismas cabeceras que la descarga.
+  - Servidor limitado (trozos de 1 KiB): 1–3 KiB por sondeo a 200 KB/s, 400 KB/s y 1 MB/s;
+    3–6 KiB a 4 MB/s. Máximo: 6 KiB por extracción, 9 KiB por intento.
+  - Sin límite (trozos de 16 KiB, en local): de 344.064 bytes al archivo entero por sondeo,
+    hasta 4.132.380 bytes por intento. El servidor escribe en los búferes de TCP antes de que
+    el cierre de esta sección llegue: son bytes enviados, no leídos por el cliente.
+  - Experimento (no incluido): cerrar la respuesta de la extracción en `urlopen` en cuanto
+    llegan las cabeceras `video/*` o `audio/*`. Sin límite seguían sirviéndose 0,5–1,4 MB por
+    sondeo: el coste depende de la velocidad y de la ventana de TCP, no de cuándo cierra el
+    cliente, y no se puede acotar desde él.
+  - **Decision** (enmienda de SC-002): el sondeo es un coste fijo de 16 KiB por extracción,
+    16 KiB × 2 × intentos en total, medido hasta 4 MB/s. Por encima, llega a
+    min(tamaño del archivo, ventana de TCP): no acotado y no verificado. Solo afecta a URLs
+    directas `video/*` o `audio/*` resueltas por el extractor genérico; los extractores de
+    sitio y HLS o DASH leen sus respuestas enteras y no tienen sondeos del archivo.
+  - Tests: `tests/support/sc002.py` cuenta los intentos por la secuencia de peticiones (dos
+    sondeos sin `Range`, la descarga y sus reintentos internos con `Range`), con la cabecera
+    `Range` que anota `flaky_server.rangos`.
+- **Mejora futura, con spec propia (no se implementa)**: pedir el sondeo del extractor
+  genérico con `Range`, para que el servidor no envíe más de unos bytes. Es lo único que lo
+  acotaría a cualquier velocidad. Riesgo: el extractor genérico usa la misma petición para
+  detectar páginas HTML (lee hasta 512 KiB y, si es HTML, la página entera); una respuesta
+  parcial podría romper la detección en páginas grandes o en servidores que traten `Range` de
+  otra forma.
 
 ## R20. Exceso admitido tras una interrupción abrupta (enmienda de SC-002)
 
@@ -771,8 +800,8 @@ extractor (arriba). Límite menor, aceptado: un rechazo de
   - Bloque en vuelo: lo que el envoltorio de lectura (R18) acumula para el bloque pedido por
     yt-dlp y aún no ha entregado; yt-dlp agranda el bloque según la velocidad (64–370 KB a
     400 KB/s, hasta 4 MiB).
-- **Decision**: SC-002 admite, solo tras una interrupción abrupta, el 1 % del tamaño del
-  archivo más 128 KiB fijos. Los 128 KiB cubren los sondeos y el búfer del archivo con margen,
+- **Decision** *(sustituida el 2026-10-25: ver la enmienda al final de esta sección)*: SC-002
+  admite, solo tras una interrupción abrupta, el 1 % del tamaño del archivo más 128 KiB fijos. Los 128 KiB cubren los sondeos y el búfer del archivo con margen,
   y el bloque en vuelo cuando la interrupción llega poco después de una escritura, como en el
   test. Tras un corte de red (T016) o un Ctrl+C el límite sigue siendo el 1 % estricto: ahí el
   envoltorio entrega lo acumulado antes de relanzar el error o la interrupción (R18) y no se
@@ -786,6 +815,24 @@ extractor (arriba). Límite menor, aceptado: un rechazo de
   hasta un bloque de lectura (4 MiB como mucho), y SC-002 lo admite a velocidades altas: es
   progreso que se vuelve a descargar, no un archivo corrupto (el `.part` solo contiene bytes
   escritos en orden). El 1 % estricto tras Ctrl+C y tras un corte de red no cambia.
+- **Enmienda de SC-002 (2026-10-25)**: los sondeos del extractor genérico salen del progreso
+  perdido y pasan a ser un coste fijo por extracción (R19). Límites:
+  - cortes de red y Ctrl+C: servidos ≤ tamaño × 1,01 + 16 KiB × 2 × intentos;
+  - con terminaciones abruptas: servidos ≤ tamaño × 1,01 + 16 KiB × 2 × intentos +
+    N × max(128 KiB, bloque en vuelo), con N el número de terminaciones abruptas.
+  El bloque en vuelo está acotado a 4 MiB: `FileDownloader.best_block_size` no pasa de ahí
+  (verificado en yt-dlp 2026.10.21) y el envoltorio de R18 no acumula más del bloque pedido.
+  "Alta velocidad" es aquí un bloque de lectura mayor de 128 KiB, no una velocidad; es una
+  métrica distinta del régimen de los sondeos (hasta 4 MB/s, R19). Se mantiene la salvedad de
+  archivos de al menos 1 MB.
+  - Cobertura: T017 (archivo de ~2 MB a 400 KB/s, `SIGKILL` poco después de una escritura del
+    `.part`) cubre el bloque pequeño, con su aserción de 1 % + 128 KiB, más estricta que la
+    fórmula. T103 cubre las tres interrupciones sobre la misma descarga con el número real de
+    intentos, también con bloque pequeño. El bloque de 4 MiB lo cubren los tests unitarios del
+    envoltorio (`tests/unit/test_ytdl.py`: no acumula más de lo pedido, y yt-dlp no pide más
+    de 4 MiB).
+  - No verificado: una terminación abrupta real en mitad de un bloque grande (más de 128 KiB
+    recibidos sin escribir), y el coste de los sondeos por encima de 4 MB/s.
 
 ## R21. Conexión estancada sin cortarse (silencio o goteo)
 
