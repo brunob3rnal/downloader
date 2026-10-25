@@ -42,7 +42,8 @@ objetivo: nada lo excluye, pero no se verifica.
 
 **Performance Goals**: progreso actualizado ≥ 1 vez/s (SC-007); total servido ≤ 1 % por encima
 del tamaño del archivo, acumulado en todas las reanudaciones, más 128 KiB si alguna fue una
-terminación abrupta del proceso (SC-002, R20); error permanente notificado en < 30 s (SC-005)
+terminación abrupta del proceso, salvo a velocidades altas, donde puede llegar a un bloque de
+lectura (hasta 4 MiB) (SC-002, R20); error permanente notificado en < 30 s (SC-005)
 
 **Constraints**: sin servicio en segundo plano; un solo `ejecutar` a la vez; una descarga
 simultánea; ningún secreto en disco ni en logs
@@ -59,7 +60,7 @@ simultánea; ningún secreto en disco ni en logs
 | II. Tests con cortes de red | servidor local con respuestas truncadas, timeouts, 5xx, apagado/rearranque, tokens caducados y `SIGKILL`; sin internet (R15) | Pasa; CI MUST instalar ffmpeg para no omitir en silencio |
 | III. Errores claros | clasificación TEMPORAL/PERMANENTE/FATAL con una tabla única por fase y tope de 3 intentos sin avance para 403/410 y ffmpeg (R4, FR-026); códigos de salida en [contracts/cli.md](contracts/cli.md) | Pasa |
 | IV. No perder progreso reanudable (v2.0.0) | `.part` en directorio de trabajo, `skip_unavailable_fragments=False`, recuperación al arrancar, Ctrl+C conserva todo; si el servidor no permite reanudar, reinicio con aviso detectado por retroceso de bytes (R3, FR-024) | Pasa |
-| V. Sin DRM ni sistemas de licencias (v3.0.0) | el criterio es el sistema de licencias: `skd://`, FairPlay, PlayReady, Widevine, PSSH y cualquier `KEYFORMAT` distinto de `identity` se rechazan como DRM con un analizador propio de los atributos de `#EXT-X-KEY`/`#EXT-X-SESSION-KEY`, en cualquier orden y antes de pedir la clave; `AES-128` con `KEYFORMAT` ausente o `identity` se descarga y descifra, con la clave por HTTP(S) (misma sesión), `data:` o `hls_aes`; `SAMPLE-AES` y otros métodos con clave `identity`, error permanente "no soportado" (FR-008, no Principio V); `is_live` rechazado en `process_info` (R5, decisión 30); en DASH, ISM y F4M, detección propia de los indicadores de protección en el manifiesto, sin `has_drm`: ISM y F4M con cualquiera, rechazo entero; en MPD, las representaciones protegidas se excluyen y se descarga la mejor calidad sin proteger, con aviso, si cubre lo pedido, y si no, o con la protección en `Period` o `MPD`, rechazo como DRM sin pedir ningún medio (R5, hallazgo G1) | Pasa en HLS (Fase 10, T089–T091); DASH, ISM y F4M pendientes de la Fase 11 (T095–T096) |
+| V. Sin DRM ni sistemas de licencias (v3.0.0) | el criterio es el sistema de licencias: `skd://`, FairPlay, PlayReady, Widevine, PSSH y cualquier `KEYFORMAT` distinto de `identity` se rechazan como DRM con un analizador propio de los atributos de `#EXT-X-KEY`/`#EXT-X-SESSION-KEY`, en cualquier orden y antes de pedir la clave; `AES-128` con `KEYFORMAT` ausente o `identity` se descarga y descifra, con la clave por HTTP(S) (misma sesión), `data:` o `hls_aes`; `SAMPLE-AES` y otros métodos con clave `identity`, error permanente "no soportado" (FR-008, no Principio V); `is_live` rechazado en `process_info` (R5, decisión 30); en DASH, ISM y F4M, detección propia de los indicadores de protección en el manifiesto, sin `has_drm`: ISM y F4M con cualquiera, rechazo entero; en MPD, las representaciones protegidas se excluyen y se descarga la mejor calidad sin proteger, con aviso, si cubre lo pedido, y si no, o con la protección en `Period` o `MPD`, rechazo como DRM sin pedir ningún medio (R5, hallazgo G1); con los formatos que el extractor entrega ya marcados `has_drm`, una selección sin video con una calidad distinta de `audio` se rechaza como DRM en `process_info` (R5, hallazgo H1) | Pasa: HLS (Fase 10, T089–T091), DASH, ISM y F4M (Fase 11, T095–T096) y formatos marcados por el extractor (Fase 12, T101–T102) |
 | VI. Sin credenciales | `cookiesfrombrowser` en memoria, sin `cookiefile`; la base de datos solo guarda el nombre del navegador; `config.toml` rechaza claves de credenciales o cookies; logger que filtra secretos (R12, R25) | Pasa |
 | Plataformas (v2.1.0) | sin dependencias nuevas: `msvcrt`/`fcntl` con import condicional (R17); publicación con `os.link` también en NTFS y copia exclusiva en FAT32/exFAT (R7); nombres válidos en Windows; `tests/unit/test_plataforma.py` falla ante un `import fcntl` o un `signal.SIGKILL` sin proteger; CI en Linux y Windows | Pasa; la verificación real en Windows es el job `windows-latest` |
 
@@ -162,8 +163,9 @@ tests/
     seguía recibiendo el video durante toda la descarga (R19).
 15. SC-002 enmendado (spec, Clarifications 2026-10-22): tras una interrupción abrupta del
     proceso se admite un exceso del 1 % más 128 KiB, por lo que no se puede capturar (sondeos
-    del extractor genérico, búfer del archivo, bloque en vuelo). Tras un corte de red sigue el
-    1 % estricto (R20).
+    del extractor genérico, búfer del archivo, bloque en vuelo); a velocidades altas, hasta un
+    bloque de lectura (4 MiB como mucho; hallazgo H2). Tras un corte de red o un Ctrl+C sigue
+    el 1 % estricto (R20).
 16. Vigilante de estancamiento en `YoutubeDLRegistrado`: aborta el intento con `SinDatos`
     (TEMPORAL) tras 30 s sin bytes o con menos de 1 KiB/s sostenido durante 30 s,
     configurables en `config.toml`; reintento tras ~5 s, sin contar para el tope de ambiguos
@@ -257,6 +259,12 @@ tests/
     entre lo no protegido, puede quedarse solo con el audio sin avisar. Un MPD con varios
     `Period` y protección parcial se rechaza (R5). Las variantes HLS mixtas siguen con el
     criterio de `drm.py` para HLS (diferencia conocida, R5).
+    Desde el hallazgo H1 (Fase 12, T101–T102), `drm.analizar_seleccion` cubre lo que no pasa
+    por un manifiesto leído: los formatos que el extractor entrega ya marcados `has_drm`. Con
+    una calidad distinta de `audio`, si todos los formatos elegidos tienen `vcodec == "none"` y
+    algún formato está marcado `has_drm`, `process_info` lo rechaza como DRM antes de pedir
+    ningún medio. Va en `process_info`, como `is_live`, porque es el primer punto donde se
+    conoce la selección final, y en `drm.py` porque es la misma política, sin red ni yt-dlp.
 
 ## Complexity Tracking
 

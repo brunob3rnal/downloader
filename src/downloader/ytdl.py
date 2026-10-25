@@ -149,7 +149,9 @@ class YoutubeDLRegistrado(YoutubeDL):
     rechaza ISM y F4M con cualquier indicador, y de un MPD entrega al extractor el manifiesto
     sin las representaciones protegidas, si lo que queda cubre la calidad del parámetro
     `downloader_calidad`, o lo rechaza; las excluidas se cuentan, por URL del manifiesto, en el
-    diccionario del parámetro `downloader_omitidas`.
+    diccionario del parámetro `downloader_omitidas`. Con los formatos que el extractor entrega
+    ya marcados `has_drm`, rechaza en `process_info` una selección sin video si la calidad no
+    es `audio` (R5, hallazgo H1).
     """
 
     def __init__(self, params=None, *args, **kwargs):
@@ -271,6 +273,9 @@ class YoutubeDLRegistrado(YoutubeDL):
         # Lo que la descarga usaría sin pedirlo: el manifiesto ya leído y la clave del extractor.
         self._comprobar_cifrado(drm.analizar(info_dict.get("hls_media_playlist_data") or ""))
         self._comprobar_cifrado(drm.analizar_hls_aes(info_dict.get("hls_aes") or {}))
+        # Los formatos que el extractor marcó `has_drm`: yt-dlp ya los descartó (R5, H1).
+        self._comprobar_cifrado(drm.analizar_seleccion(info_dict,
+                                                       self.params.get("downloader_calidad")))
         return super().process_info(info_dict)
 
     def _comprobar_cifrado(self, decision: drm.Decision) -> None:

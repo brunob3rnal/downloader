@@ -175,6 +175,26 @@ def analizar_hls_aes(hls_aes: dict) -> Decision:
     return decidir({"METHOD": METODO_NATIVO, "URI": uri}) if uri else ACEPTADO
 
 
+VIDEO_PROTEGIDO = "video protegido"  # el sistema del mensaje: el extractor no lo nombra
+
+
+def analizar_seleccion(info: dict, calidad: Calidad | None) -> Decision:
+    """La decisión para los formatos elegidos, con los que el extractor marcó `has_drm` (H1).
+
+    yt-dlp descarta los formatos `has_drm` (lo resume en `_has_drm`) y, si eran los del video,
+    elige el audio sin avisar. Con una calidad de video, una selección en la que ningún formato
+    tiene video (`vcodec == "none"`; uno `None` o ausente, códec desconocido, cuenta como video)
+    es DRM si algún formato estaba marcado, también como `has_drm='maybe'`, que yt-dlp conserva.
+    """
+    if calidad in (None, Calidad.AUDIO):
+        return ACEPTADO
+    elegidos = info.get("requested_formats") or [info]
+    if any(formato.get("vcodec") != "none" for formato in elegidos):
+        return ACEPTADO
+    marcado = info.get("_has_drm") or any(f.get("has_drm") for f in info.get("formats") or ())
+    return Decision(Veredicto.DRM, VIDEO_PROTEGIDO) if marcado else ACEPTADO
+
+
 # --- MPD, ISM y F4M -------------------------------------------------------------------
 
 DASH, ISM, F4M = "DASH", "ISM", "F4M"

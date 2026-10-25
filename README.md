@@ -176,6 +176,10 @@ crea en Linux y en Windows).
   o «N representaciones protegidas omitidas»; si no, se rechaza. Un MPD protegido entero (en
   el `Period` o en el `MPD`), o con varios periodos y alguna representación protegida, se
   rechaza.
+- Si el sitio entrega los formatos ya marcados como protegidos, sin un manifiesto que analizar,
+  y solo el audio queda sin proteger, se rechaza como DRM salvo con `--calidad audio`, en lugar
+  de publicar solo el audio. Un audio sin proteger cuyo códec el sitio no declara cuenta como
+  video, así que en ese caso se publicaría solo el audio.
 - Un HLS cifrado con `SAMPLE-AES`, `SAMPLE-AES-CTR` u otro método distinto de `AES-128` falla
   como no soportado: solo ffmpeg sabe descargarlo, y ffmpeg no permite reanudar de forma
   fiable. RTMP y WebSocket quedan fuera de alcance.

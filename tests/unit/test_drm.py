@@ -553,3 +553,70 @@ def test_f4m_sin_cifrar_se_entrega_igual():
 )
 def test_posible_xml(prefijo, final, esperado):
     assert drm.posible_xml(prefijo, final) is esperado
+
+
+# --- Formatos que el extractor entrega ya marcados `has_drm` (R5, hallazgo H1) -------
+
+FORMATO_VIDEO = {"format_id": "video", "vcodec": "avc1.64001e", "acodec": "none"}
+FORMATO_AUDIO = {"format_id": "audio", "vcodec": "none", "acodec": "mp4a.40.2"}
+MENSAJE_VIDEO_PROTEGIDO = "contenido con DRM (video protegido): no se puede descargar"
+
+
+def elegido(formato, **info):
+    """El `info` que recibe `process_info` con un solo formato elegido (yt-dlp los mezcla)."""
+    return {"id": "x", "formats": [formato], **info, **formato}
+
+
+def combinado(*formatos, **info):
+    return {"id": "x", "formats": list(formatos), "requested_formats": list(formatos),
+            "format_id": "+".join(f["format_id"] for f in formatos), **info}
+
+
+@pytest.mark.parametrize("calidad", CALIDADES_DE_VIDEO)
+def test_seleccion_sin_video_con_has_drm_es_drm(calidad):
+    # yt-dlp ya descartó el video protegido: solo queda `_has_drm` para saberlo.
+    decision = drm.analizar_seleccion(elegido(FORMATO_AUDIO, _has_drm=True), calidad)
+    assert decision.veredicto is Veredicto.DRM
+    assert decision.mensaje == MENSAJE_VIDEO_PROTEGIDO
+
+
+def test_has_drm_maybe_cuenta_como_marcado():
+    # yt-dlp conserva los formatos `maybe` y no los cuenta en `_has_drm`.
+    formatos = [FORMATO_VIDEO | {"has_drm": "maybe"}, FORMATO_AUDIO]
+    info = elegido(FORMATO_AUDIO) | {"formats": formatos}
+    assert drm.analizar_seleccion(info, Calidad.MEJOR).veredicto is Veredicto.DRM
+
+
+def test_seleccion_combinada_sin_video_con_has_drm_es_drm():
+    info = combinado(FORMATO_AUDIO, FORMATO_AUDIO | {"format_id": "audio2"}, _has_drm=True)
+    assert drm.analizar_seleccion(info, Calidad.MEJOR).veredicto is Veredicto.DRM
+
+
+@pytest.mark.parametrize("calidad", [Calidad.AUDIO, None])
+def test_con_audio_o_sin_calidad_se_acepta(calidad):
+    info = elegido(FORMATO_AUDIO, _has_drm=True)
+    assert drm.analizar_seleccion(info, calidad).veredicto is Veredicto.ACEPTADO
+
+
+@pytest.mark.parametrize("calidad", CALIDADES_DE_VIDEO)
+def test_solo_audio_sin_has_drm_se_acepta(calidad):
+    assert drm.analizar_seleccion(elegido(FORMATO_AUDIO), calidad).veredicto is Veredicto.ACEPTADO
+    info = elegido(FORMATO_AUDIO, _has_drm=None)
+    assert drm.analizar_seleccion(info, calidad).veredicto is Veredicto.ACEPTADO
+
+
+@pytest.mark.parametrize(
+    "formato",
+    [{"format_id": "u", "vcodec": None}, {"format_id": "u"}],
+    ids=["vcodec-none", "sin-vcodec"],
+)
+def test_vcodec_desconocido_cuenta_como_video(formato):
+    assert drm.analizar_seleccion(elegido(formato, _has_drm=True),
+                                  Calidad.MEJOR).veredicto is Veredicto.ACEPTADO
+    info = combinado(formato, FORMATO_AUDIO, _has_drm=True)
+    assert drm.analizar_seleccion(info, Calidad.MEJOR).veredicto is Veredicto.ACEPTADO
+
+
+def test_seleccion_con_video_y_has_drm_se_acepta():
+    info = combinado(FORMATO_VIDEO, FORMATO_AUDIO, _has_drm=True)
+    assert drm.analizar_seleccion(info, Calidad.MEJOR).veredicto is Veredicto.ACEPTADO

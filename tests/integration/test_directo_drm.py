@@ -483,3 +483,79 @@ def test_f4m_con_drm_se_rechaza_entero(cli, app_home, destino, servidor, transic
                                       "application/f4m+xml")
     rechazado_como_drm(cli, app_home, destino, servidor, transiciones, servidor.url("watch/hds"),
                        manifiesto, "F4M")
+
+
+# --- Formatos que el extractor entrega ya marcados `has_drm` (R5, hallazgo H1; FR-015) ---
+#
+# Sin manifiesto que analizar: yt-dlp descarta el video protegido y, con cualquier selector,
+# elige el audio sin avisar. Los medios existen y se servirían.
+
+
+def registrar_pistas(servidor, pistas, id_video):
+    servidor.registrar(f"medios/{id_video}/video.mp4", pistas.video, tipo_contenido="video/mp4")
+    servidor.registrar(f"medios/{id_video}/audio.m4a", pistas.audio, tipo_contenido="audio/mp4")
+
+
+@pytest.mark.ytdlp_internals
+@pytest.mark.parametrize("calidad", ["mejor", "1080p", "720p"])
+def test_video_marcado_has_drm_se_rechaza_sin_descargar_el_audio(
+    cli, app_home, destino, servidor, pistas, transiciones, calidad
+):
+    """(a) Con una calidad de video, la selección sin video se rechaza como DRM."""
+    registrar_pistas(servidor, pistas, "drm-video")
+    assert cli("agregar", servidor.url("watch/drm-video"), "--calidad", calidad,
+               "--carpeta", destino).exit_code == 0
+
+    resultado = cli("ejecutar")
+
+    assert resultado.exit_code == 1, resultado.output
+    store = Store.abrir(app_home)
+    try:
+        descarga = store.obtener(1)
+    finally:
+        store.cerrar()
+    assert descarga.estado is Estado.FAILED
+    assert (1, Estado.WAITING_NETWORK) not in transiciones  # sin reintentos: permanente
+    assert descarga.ultimo_error == "contenido con DRM (video protegido): no se puede descargar"
+    assert f"#1 fallida  {descarga.ultimo_error}" in resultado.output
+    assert servidor.pedidas == []  # ni el video ni el audio
+    assert not any(p.is_file() for p in destino.iterdir())
+
+
+@pytest.mark.ytdlp_internals
+def test_video_marcado_has_drm_con_calidad_audio_descarga_el_audio(cli, app_home, destino,
+                                                                   servidor, pistas):
+    """(b) Con `audio`, lo que se pide no está protegido."""
+    registrar_pistas(servidor, pistas, "drm-video")
+
+    _, archivo, _ = descargada(cli, app_home, destino, servidor.url("watch/drm-video"),
+                               "audio")
+
+    tipos = tipos_de_flujo(archivo)
+    assert "audio" in tipos and "video" not in tipos
+    assert "medios/drm-video/video.mp4" not in servidor.pedidas
+    assert servidor.bytes_servidos["medios/drm-video/audio.m4a"] == len(pistas.audio)
+
+
+@pytest.mark.ytdlp_internals
+def test_solo_audio_sin_has_drm_se_descarga(cli, app_home, destino, servidor, pistas):
+    """(c) Un contenido que solo es audio, sin `has_drm`, no es DRM."""
+    registrar_pistas(servidor, pistas, "solo-audio")
+
+    descarga, archivo, _ = descargada(cli, app_home, destino,
+                                      servidor.url("watch/solo-audio"))
+
+    assert tipos_de_flujo(archivo) == ["audio"]
+    assert servidor.bytes_servidos["medios/solo-audio/audio.m4a"] == len(pistas.audio)
+    assert descarga.ultimo_aviso is None
+
+
+@pytest.mark.ytdlp_internals
+def test_vcodec_desconocido_sin_has_drm_se_descarga(cli, app_home, destino, servidor, medios):
+    """(d) Un `vcodec` `None` (códec desconocido) cuenta como video."""
+    servidor.registrar("medios/sin-vcodec.mp4", medios.datos_mp4, tipo_contenido="video/mp4")
+
+    _, archivo, _ = descargada(cli, app_home, destino, servidor.url("watch/sin-vcodec"))
+
+    assert sorted(tipos_de_flujo(archivo)) == ["audio", "video"]
+    assert servidor.bytes_servidos["medios/sin-vcodec.mp4"] == len(medios.datos_mp4)
