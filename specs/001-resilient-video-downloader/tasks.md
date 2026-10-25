@@ -383,7 +383,9 @@ modifican, ni ningún otro límite; T097 pasa a la fórmula.
 
 **Checkpoint**: `uv run pytest -rfxX` completo con ffmpeg tres veces en Linux y en el CI
 (`ubuntu-latest` y `windows-latest`), en verde y con 0 omitidos fuera de los ya justificados
-(T067). *(Pendiente)*
+(T067). *(Linux: tres ejecuciones de `uv run pytest -rfxX`, 774 pasados y 1 omitido
+(FAT32/exFAT, T067) en cada una. CI (run 40151656237): 775 pasados en `ubuntu-latest` y 776 en
+`windows-latest`, 0 omitidos.)*
 
 ---
 
