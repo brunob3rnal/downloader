@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,6 +31,6 @@
 
 ## Notes
 
-- Quedan 3 marcadores [NEEDS CLARIFICATION]: FR-009 (detener un `ejecutar` de la CLI), FR-019 (Linux frente a la sección Plataformas de la constitución) y SC-005 (criterio de memoria).
+- Las 3 aclaraciones se resolvieron en la sesión 2026-10-27 (FR-009, FR-019, SC-005).
 - Las menciones a `agregar`, `ejecutar`, `config.toml` y códigos de salida no son detalles de implementación: son la interfaz visible de la CLI existente, cuyo comportamiento esta feature debe conservar.
 - Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`

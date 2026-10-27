@@ -8,6 +8,14 @@
 
 **Input**: User description: "Aplicación de escritorio para Windows 10/11 sobre el gestor de descargas existente, como segunda feature (la CLI no cambia y sigue funcionando igual). Se abre con doble clic en un lanzador incluido en el repositorio (sin consola visible) y muestra una ventana propia, sin terminal ni navegador externo. Funciones: pegar una o varias URLs (una por línea), elegir calidad (mejor, 1080p, 720p, solo audio) y carpeta de destino; ver la cola con estado, porcentaje, velocidad, ETA y último aviso o error; iniciar el procesamiento y detenerlo. Detener equivale al Ctrl+C actual: termina de forma ordenada y la cola queda lista para reanudar. No reimplementa la lógica: usa la misma cola y el mismo trabajador que la CLI. Nunca puede haber dos procesadores de la cola a la vez. Si ya hay uno en marcha (lanzado desde la CLI o desde una sesión anterior de la aplicación), la aplicación lo detecta, muestra la cola en directo y no lanza otro. Al cerrar la ventana con descargas en curso, pregunta si seguir en segundo plano, pausar o cancelar el cierre. Pausar deja la cola lista para reanudar. Si se eligió seguir en segundo plano, al volver a abrir la aplicación esta se reconecta a esa ejecución y permite verla y detenerla. Cookies del navegador: opción explícita y desactivada por defecto, con selección de navegador y la advertencia actual (Firefox fiable, Edge solo cerrado, Chrome 127+ no funciona). No se guardan. Una descarga fallida por requerir sesión ofrece reintentar con cookies. Seguridad: la interfaz solo acepta conexiones locales del propio equipo, nunca de la red. Rendimiento: debe funcionar con poca memoria (equipo de 4 GB de RAM); fijar un criterio medible en la fase de clarificación. Fuera de alcance: acceso remoto, varios usuarios, descargas simultáneas, instalador y .exe (etapa 2, spec aparte)."
 
+## Clarifications
+
+### Session 2026-10-27
+
+- Q: ¿La aplicación puede detener un `ejecutar` lanzado desde una terminal? → A: No. Solo detiene los procesamientos que lanzó ella misma, también los que dejó en segundo plano. Un `ejecutar` de la CLI se observa en directo desde la ventana y se detiene desde su terminal (FR-009, US3).
+- Q: ¿La aplicación debe funcionar también en Linux? → A: Solo la ventana y el lanzador son exclusivos de Windows 10/11, mediante una enmienda de la sección Plataformas de la constitución limitada a ellos. La lógica de la aplicación sigue exigiendo funcionar y probarse en Linux y en Windows (FR-019).
+- Q: ¿Cuál es el criterio de memoria? → A: 300 MB como máximo con 500 descargas en cola y una en curso, sumando todos los procesos de la aplicación: la ventana, lo que necesita para mostrarse y el procesador de la cola (SC-005).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Agregar URLs y descargar desde una ventana (Priority: P1)
@@ -59,7 +67,7 @@ Si ya hay un procesador de la cola en marcha, lanzado desde la CLI o por una ses
 2. **Given** un procesador ajeno en marcha, **When** el usuario intenta iniciar el procesamiento, **Then** no se lanza otro y la ventana explica por qué.
 3. **Given** el procesamiento iniciado desde la aplicación, **When** el usuario lanza `ejecutar` en una terminal, **Then** `ejecutar` sale con el código 2 sin procesar nada, igual que hoy.
 4. **Given** un procesador ajeno que termina mientras la ventana está abierta, **When** termina, **Then** la ventana lo refleja en 2 segundos como máximo y vuelve a permitir Iniciar.
-5. **Given** un `ejecutar` de la CLI en marcha y la aplicación abierta, **When** el usuario pulsa Detener, **Then** se aplica lo que fije FR-009 para los procesadores lanzados desde la CLI.
+5. **Given** un `ejecutar` de la CLI en marcha y la aplicación abierta, **When** el usuario pulsa Detener, **Then** la aplicación no lo detiene y explica que un procesamiento de la CLI se detiene desde su terminal con Ctrl+C.
 
 ---
 
@@ -129,7 +137,7 @@ Para videos que exigen la sesión del usuario, este activa de forma explícita e
 - **FR-006**: La aplicación MUST permitir iniciar el procesamiento de la cola cuando no hay ningún procesador en marcha. El procesamiento MUST comportarse como `ejecutar`: procesa una descarga a la vez, recoge las URLs que se agreguen mientras corre y termina cuando no quedan pendientes.
 - **FR-007**: La aplicación MUST NOT reimplementar la lógica de descarga: MUST usar la misma cola persistente y el mismo trabajador que la CLI, de modo que todo lo garantizado por la feature 001 (reanudación, reintentos, verificación, publicación, rechazo de DRM) valga igual.
 - **FR-008**: Nunca MUST haber dos procesadores de la misma cola a la vez, sea cual sea su origen (CLI, aplicación o una sesión anterior de la aplicación). Al abrirse y antes de iniciar, la aplicación MUST detectar un procesador en marcha; si lo hay, MUST mostrar la cola en directo e indicar su origen, y MUST NOT lanzar otro.
-- **FR-009**: Detener MUST equivaler al Ctrl+C de `ejecutar`: termina de forma ordenada, conserva el progreso y deja la cola lista para reanudar desde la aplicación o desde la CLI. La ventana MUST indicar que se está deteniendo hasta que el procesamiento haya terminado. Detener un procesador lanzado desde la CLI: [NEEDS CLARIFICATION: ¿la aplicación puede detener un `ejecutar` lanzado desde una terminal, o solo los procesamientos que ella misma lanzó?].
+- **FR-009**: Detener MUST equivaler al Ctrl+C de `ejecutar`: termina de forma ordenada, conserva el progreso y deja la cola lista para reanudar desde la aplicación o desde la CLI. La ventana MUST indicar que se está deteniendo hasta que el procesamiento haya terminado. La aplicación MUST permitir detener solo los procesamientos que lanzó ella misma, también desde una sesión anterior; MUST NOT detener un `ejecutar` lanzado desde la CLI, y MUST indicar que ese se detiene desde su terminal.
 - **FR-010**: Al cerrar la ventana con un procesamiento lanzado por la aplicación en marcha, la aplicación MUST preguntar si seguir en segundo plano, pausar o cancelar el cierre. Seguir MUST dejar el procesamiento en marcha sin ventana ni consola visibles; pausar MUST detenerlo como en FR-009 y cerrar la ventana al terminar; cancelar MUST dejarlo todo como estaba. Sin procesamiento de la aplicación en marcha, la ventana MUST cerrarse sin preguntar.
 - **FR-011**: Al abrirse con un procesamiento en segundo plano en marcha, la aplicación MUST reconectarse a él, mostrar la cola en directo y permitir detenerlo.
 - **FR-012**: Al terminar un procesamiento, la ventana MUST mostrar cuántas descargas se completaron y cuántas fallaron, con la causa de cada fallo, y los errores fatales con el mismo mensaje que da la CLI.
@@ -139,7 +147,7 @@ Para videos que exigen la sesión del usuario, este activa de forma explícita e
 - **FR-016**: Una descarga fallida por requerir sesión (acceso denegado, contenido que exige iniciar sesión, o la lista de reproducción sin videos de FR-028 de la feature 001) MUST ofrecer reintentarla con cookies eligiendo el navegador; al aceptar, MUST volver a la cola con ese navegador.
 - **FR-017**: La CLI MUST seguir funcionando igual: mismos comandos, opciones, salidas y códigos de salida. La aplicación MUST funcionar sobre la misma cola que la CLI, de modo que lo agregado desde una se vea y se procese desde la otra.
 - **FR-018**: Una segunda apertura de la aplicación con la ventana ya abierta MUST mostrar la ventana existente en lugar de abrir otra independiente.
-- **FR-019**: La aplicación MUST funcionar en Windows 10/11 [NEEDS CLARIFICATION: la constitución (sección Plataformas) exige que toda funcionalidad funcione en Windows y en Linux y que no se fusione si no; ¿la aplicación debe funcionar también en Linux, o se enmienda la constitución para admitir una funcionalidad solo de Windows?].
+- **FR-019**: La ventana y el lanzador sin consola MUST funcionar en Windows 10/11; en Linux no se exigen. El resto de la aplicación (agregar, iniciar, detener, detección del procesador en marcha, segundo plano y reconexión, cookies, rechazo de conexiones desde la red) MUST funcionar y tener tests automatizados en Linux y en Windows, sin depender de la ventana. Esta excepción depende de una enmienda de la sección Plataformas de la constitución limitada a la ventana y el lanzador, que MUST aprobarse antes de fusionar la feature.
 
 ### Key Entities
 
@@ -156,13 +164,15 @@ Para videos que exigen la sesión del usuario, este activa de forma explícita e
 - **SC-002**: Un usuario sin conocimientos de terminal agrega una URL y empieza a descargarla en menos de 1 minuto y con 3 acciones como máximo (pegar, agregar, iniciar).
 - **SC-003**: En 0 casos hay dos procesadores de la cola a la vez, en cualquier combinación de aperturas de la aplicación, cierres en segundo plano y `ejecutar` de la CLI.
 - **SC-004**: Tras Detener o Pausar, el procesamiento termina en 10 segundos como máximo, y el 100 % de las descargas detenidas se reanuda desde su progreso guardado, dentro de los límites de SC-002 de la feature 001 para Ctrl+C.
-- **SC-005**: [NEEDS CLARIFICATION: criterio de memoria medible: memoria máxima de la aplicación (ventana más procesador) y tamaño de cola de referencia, en el equipo de 4 GB de RAM].
+- **SC-005**: Con 500 descargas en cola y una en curso, la memoria usada por todos los procesos de la aplicación juntos (la ventana, lo que necesita para mostrarse y el procesador de la cola) no supera en ningún momento 300 MB en el equipo de referencia de 4 GB de RAM.
 - **SC-006**: El estado mostrado en la ventana (porcentaje, velocidad, tiempo estimado, estado) no va más de 2 segundos por detrás del procesador, sea de la aplicación o de la CLI.
 - **SC-007**: El 100 % de los intentos de conexión a la interfaz desde otro equipo se rechazan.
 - **SC-008**: Tras reabrir la aplicación con un procesamiento en segundo plano, la ventana lo muestra en directo en 5 segundos como máximo, sin acción del usuario.
 - **SC-009**: Los tests de la CLI de la feature 001 pasan sin modificaciones.
 
 ## Assumptions
+
+- La enmienda de la constitución que admite la ventana y el lanzador solo en Windows (FR-019) se tramita con `/speckit-constitution` antes de fusionar esta feature; el CI de Linux sigue ejecutando los tests de la CLI y de la lógica de la aplicación.
 
 - Los usuarios trabajan en un solo equipo y con una sola cuenta: acceso remoto y varios usuarios están fuera de alcance.
 - El lanzador se ejecuta desde un clon del repositorio ya instalado según el README (uv, ffmpeg y ffprobe); instalador y ejecutable propio quedan para la etapa 2, con su propia especificación.
