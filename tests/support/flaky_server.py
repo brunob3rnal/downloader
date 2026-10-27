@@ -86,6 +86,8 @@ class FlakyServer:
         self.peticiones: defaultdict[str, int] = defaultdict(int)
         # Cabecera `Cookie` de cada petición a un archivo registrado (`None` si no la trae).
         self.cookies: defaultdict[str, list[str | None]] = defaultdict(list)
+        # Cabecera `Range` de cada petición a un archivo registrado (`None` si no la trae).
+        self.rangos: defaultdict[str, list[str | None]] = defaultdict(list)
         # Ruta de cada petición, en orden: también páginas y rutas no registradas (404).
         self.pedidas: list[str] = []
         self.puerto = 0
@@ -358,6 +360,7 @@ class _Manejador(BaseHTTPRequestHandler):
             return self._responder_vacio(404)
         self.flaky.peticiones[ruta] += 1
         self.flaky.cookies[ruta].append(self.headers.get("Cookie"))
+        self.flaky.rangos[ruta].append(self.headers.get("Range"))
 
         token = consulta.get("token", [None])[0]
         if archivo.tokens and not self.flaky._token_valido(token):

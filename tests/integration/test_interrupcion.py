@@ -16,6 +16,7 @@ from downloader import ytdl
 from downloader.models import Calidad, Estado
 from downloader.store import Store
 from tests.integration.test_ctrl_c import SALIDA_TRAS_INTERRUPCION, interrumpir
+from tests.support import sc002
 
 LIMITE = 60
 INTERRUMPIDO = 130
@@ -42,6 +43,7 @@ def estado(app_home, id_):
 
 
 @pytest.mark.slow
+@pytest.mark.ytdlp_internals  # R19: dos sondeos del extractor genérico por intento (`sc002`)
 def test_ctrl_c_guarda_el_progreso_y_relanzar_termina(app_home, destino, servidor, medios):
     datos = medios.datos_mp4
     servidor.registrar("lento.mp4", datos, tipo_contenido="video/mp4", velocidad=200_000)
@@ -95,9 +97,10 @@ def test_ctrl_c_guarda_el_progreso_y_relanzar_termina(app_home, destino, servido
     publicados = [p for p in destino.iterdir() if p.is_file()]
     assert len(publicados) == 1
     assert publicados[0].read_bytes() == datos
-    # Ctrl+C no es una terminación abrupta: el 1 % de SC-002, sin la tolerancia de 128 KiB de
-    # un cierre abrupto (R20).
-    assert servidor.bytes_servidos["lento.mp4"] <= 1.01 * len(datos)
+    # Ctrl+C no es una terminación abrupta: el 1 % de SC-002 y los sondeos del extractor
+    # genérico, sin el término de un cierre abrupto (R19, R20).
+    intentos = sc002.intentos(servidor, "lento.mp4")
+    assert servidor.bytes_servidos["lento.mp4"] <= sc002.limite(len(datos), intentos)
 
 
 # Bytes del bloque en curso ya recibidos y aún no escritos en el `.part` cuando se interrumpe:
@@ -113,7 +116,8 @@ def test_ctrl_c_a_mitad_de_bloque_no_pierde_lo_recibido(app_home, destino, servi
     El servidor envía el archivo en trozos de 1 KiB con una pausa entre ellos (200 KB/s), así
     que yt-dlp pide bloques de unos 200 KB que tardan cerca de 1 s en llegar. Se interrumpe
     cuando ya se han recibido `EN_VUELO` bytes del bloque en curso sin escribirlos: lo recibido
-    tiene que acabar en el `.part` y no volver a pedirse (SC-002, 1 % estricto tras Ctrl+C).
+    tiene que acabar en el `.part` y no volver a pedirse. Se comprueba el 1 %, más estricto que
+    SC-002: con los sondeos de dos intentos (64 KiB, R19), perder `EN_VUELO` cabría en el límite.
     """
     datos = medios.datos_mp4
     servidor.registrar("bloque.mp4", datos, tipo_contenido="video/mp4", velocidad=200_000)
@@ -165,7 +169,7 @@ def test_ctrl_c_con_los_ultimos_bytes_y_relanzar_publica_sin_volver_a_descargar(
     """Ctrl+C justo después de recibir los últimos bytes del archivo, antes de que el envoltorio
     de lectura (R18) los entregue: se escriben, yt-dlp termina el archivo sin volver a leer, y la
     interrupción se relanza al final de `dl`. Al relanzar, el archivo se verifica y se publica
-    sin pedirlo otra vez (SC-002, 1 % estricto tras Ctrl+C).
+    sin pedirlo otra vez (SC-002: con el extractor de prueba no hay sondeos, así que el 1 %).
 
     Una señal real no puede caer ahí (tras el último byte, la librería devuelve `b""` sin
     esperar): la lectura de la librería lanza `KeyboardInterrupt`, como lo haría Ctrl+C en ese

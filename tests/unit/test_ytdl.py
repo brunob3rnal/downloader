@@ -231,6 +231,31 @@ def test_sin_corte_entrega_lo_pedido_en_una_llamada():
     assert respuesta.read(1 << 20) == b""
 
 
+BLOQUE_MAXIMO = 4 * 1024 * 1024  # el bloque más grande que pide yt-dlp (research R18, R20)
+
+
+@pytest.mark.ytdlp_internals  # R20: `best_block_size` no pasa de 4 MiB
+def test_yt_dlp_no_pide_bloques_de_mas_de_4_mib():
+    from yt_dlp.downloader.common import FileDownloader
+
+    assert FileDownloader.best_block_size(0.0001, 1 << 30) == BLOQUE_MAXIMO
+    assert FileDownloader.best_block_size(1.0, 1 << 30) == BLOQUE_MAXIMO
+
+
+def test_con_un_bloque_de_4_mib_no_acumula_mas_de_lo_pedido():
+    """Lo acumulado sin entregar no pasa del bloque pedido: es lo más que pierde una
+    terminación abrupta en mitad de un bloque (SC-002, research R20)."""
+    from yt_dlp.networking.exceptions import IncompleteRead
+
+    respuesta = RespuestaCortada(n=BLOQUE_MAXIMO + 100_000, total=2 * BLOQUE_MAXIMO)
+    vigilada(respuesta)
+    assert respuesta.read(BLOQUE_MAXIMO) == respuesta.datos[:BLOQUE_MAXIMO]
+    assert respuesta.posicion == BLOQUE_MAXIMO  # no leyó más de la conexión
+    assert respuesta.read(BLOQUE_MAXIMO) == respuesta.datos[BLOQUE_MAXIMO:]  # corte: lo recibido
+    with pytest.raises(IncompleteRead):
+        respuesta.read(BLOQUE_MAXIMO)
+
+
 # --- Ctrl+C a mitad de un bloque: entregar lo recibido (research R18) ---
 
 

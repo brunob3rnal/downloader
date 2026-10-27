@@ -35,6 +35,13 @@ def test_range_parcial(servidor):
         assert respuesta.read() == DATOS[10:20]
 
 
+def test_registra_la_cabecera_range_de_cada_peticion(servidor):
+    servidor.registrar("a.bin", DATOS)
+    pedir(servidor.url("a.bin")).close()
+    pedir(servidor.url("a.bin"), "bytes=1000-").close()
+    assert servidor.rangos["a.bin"] == [None, "bytes=1000-"]
+
+
 def test_corta_tras_n_bytes_las_veces_indicadas(servidor):
     servidor.registrar("a.bin", DATOS, cortar_tras_bytes=1000, veces=2)
     for _ in range(2):

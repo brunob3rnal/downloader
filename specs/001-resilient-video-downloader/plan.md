@@ -40,10 +40,12 @@ objetivo: nada lo excluye, pero no se verifica.
 
 **Project Type**: CLI de un solo paquete
 
-**Performance Goals**: progreso actualizado ≥ 1 vez/s (SC-007); total servido ≤ 1 % por encima
-del tamaño del archivo, acumulado en todas las reanudaciones, más 128 KiB si alguna fue una
-terminación abrupta del proceso, salvo a velocidades altas, donde puede llegar a un bloque de
-lectura (hasta 4 MiB) (SC-002, R20); error permanente notificado en < 30 s (SC-005)
+**Performance Goals**: progreso actualizado ≥ 1 vez/s (SC-007); total servido, acumulado en
+todas las reanudaciones, ≤ tamaño × 1,01 + 16 KiB × 2 × intentos tras cortes de red y Ctrl+C
+(los sondeos del extractor genérico con URLs directas, medidos hasta 4 MB/s; por encima, no
+acotados ni verificados: R19), más N × max(128 KiB, bloque en vuelo) con N terminaciones
+abruptas (bloque en vuelo ≤ 4 MiB; solo pasa de 128 KiB con bloques de lectura mayores)
+(SC-002, R20); error permanente notificado en < 30 s (SC-005)
 
 **Constraints**: sin servicio en segundo plano; un solo `ejecutar` a la vez; una descarga
 simultánea; ningún secreto en disco ni en logs
@@ -161,11 +163,14 @@ tests/
     (`process_ie_result`), al empezar la descarga (`dl`) y al cerrarse: con URLs directas de
     `Content-Type: video/*`, el extractor genérico de yt-dlp deja abierto un GET completo que
     seguía recibiendo el video durante toda la descarga (R19).
-15. SC-002 enmendado (spec, Clarifications 2026-10-22): tras una interrupción abrupta del
-    proceso se admite un exceso del 1 % más 128 KiB, por lo que no se puede capturar (sondeos
-    del extractor genérico, búfer del archivo, bloque en vuelo); a velocidades altas, hasta un
-    bloque de lectura (4 MiB como mucho; hallazgo H2). Tras un corte de red o un Ctrl+C sigue
-    el 1 % estricto (R20).
+15. SC-002 enmendado (spec, Clarifications 2026-10-22, 2026-10-24 y 2026-10-25): los sondeos
+    del extractor genérico con URLs directas son un coste fijo de 16 KiB por extracción, con dos
+    extracciones por intento (`extraer_plano` y `descargar`), medido hasta 4 MB/s; por encima
+    llega a min(tamaño, ventana de TCP), no acotado ni verificado, y no se puede cerrar desde el
+    cliente (R19). Tras cortes de red y Ctrl+C: tamaño × 1,01 + 16 KiB × 2 × intentos. Cada
+    terminación abrupta suma max(128 KiB, bloque en vuelo), lo que no se puede capturar (búfer
+    del archivo y bloque en vuelo, hasta 4 MiB; pasa de 128 KiB con bloques de lectura mayores
+    de 128 KiB) (R20). Pedir el sondeo con `Range` queda como mejora futura con spec propia.
 16. Vigilante de estancamiento en `YoutubeDLRegistrado`: aborta el intento con `SinDatos`
     (TEMPORAL) tras 30 s sin bytes o con menos de 1 KiB/s sostenido durante 30 s,
     configurables en `config.toml`; reintento tras ~5 s, sin contar para el tope de ambiguos
