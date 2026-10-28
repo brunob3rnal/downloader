@@ -1,26 +1,20 @@
 <!--
-Sync Impact Report (2026-10-24)
-- Versión: 2.1.0 → 3.0.0 (MAJOR)
-- Principio modificado: V. "Sin elusión de DRM ni protecciones técnicas" → "Sin elusión de DRM
-  ni sistemas de licencias".
-- Ajuste del mismo día, antes de fusionarse en `main`: el criterio de rechazo pasa a ser el
-  sistema de licencias, no el transporte de la clave. La clave `identity` en URI `data:` o en
-  `hls_aes` del extractor se acepta (la primera redacción la rechazaba); el PSSH y Widevine se
-  nombran como DRM. Sigue siendo 3.0.0: la 3.0.0 no llegó a ratificarse en `main`, y frente a
-  la 2.1.0 ambas redacciones son el mismo cambio MAJOR.
-- Motivo: la redacción anterior prohibía "descifrar ... cifrado de contenido" sin excepciones,
-  y el diseño descifra HLS AES-128 (research R1, R5; test_hls_aes.py). Hallazgo C1 de
-  /speckit-analyze.
-- Por qué MAJOR: redefine el principio de forma incompatible. El mismo código recibe veredictos
-  distintos con una versión y otra: el descifrado de HLS con clave `identity` estaba prohibido
-  y ahora se permite, y los sistemas de licencias que yt-dlp no reconoce como DRM (Widevine,
-  PSSH, otro `KEYFORMAT`), que el texto anterior no obligaba a detectar, ahora MUST rechazarse.
-  Mismo criterio que la enmienda del Principio IV (v2.0.0).
-- Plan de migración: research R5 (comportamiento verificado de yt-dlp 2026.10.21) y tareas de
-  la Fase 10 de specs/001-resilient-video-downloader/tasks.md (tests de DRM `skd://`, de
-  AES-128 aceptado y de los sistemas de licencias que yt-dlp no rechaza, con un analizador de
-  atributos del manifiesto propio).
-- Plantillas: sin cambios necesarios (.specify/templates no citan el Principio V).
+Sync Impact Report (2026-10-28)
+- Versión: 3.0.0 → 3.1.0 (MINOR)
+- Sección modificada: Plataformas. Se añade una excepción acotada: en una funcionalidad de
+  interfaz gráfica de escritorio, solo la ventana y su lanzador sin consola MAY ser exclusivos de
+  Windows. El resto de su lógica, la CLI, la lógica de descarga, la cola y el trabajador siguen
+  obligados en Windows y Linux. La regla del CI se ajusta a la excepción.
+- Principios: sin cambios (I a VI).
+- Secciones añadidas o eliminadas: ninguna.
+- Motivo: la feature specs/002-desktop-app (FR-019, aclaración de la sesión 2026-10-27) pide una
+  aplicación de escritorio para Windows 10/11; la redacción anterior impedía fusionar una ventana
+  que no funcionara también en Linux.
+- Por qué MINOR: amplía la guía de forma material sin redefinir ningún principio; todo el código
+  que cumplía la 3.0.0 cumple la 3.1.0, y la excepción no alcanza a ningún código existente.
+- Plan de migración: no aplica; no hay código afectado.
+- Plantillas: sin cambios necesarios (.specify/templates no citan la sección Plataformas).
+- TODO: ninguno.
 -->
 # Downloader Constitution
 
@@ -101,7 +95,16 @@ prueba MUST usar valores ficticios.
 - Las rutas MUST construirse con `pathlib` u `os.path`, nunca concatenando `/` a mano, y los
   nombres de archivo que se creen MUST ser válidos en Windows (caracteres, nombres reservados
   y longitud de ruta).
-- El CI MUST ejecutar la suite completa en Linux y en Windows, con ffmpeg instalado en ambos.
+- El CI MUST ejecutar la suite completa en Linux y en Windows, con ffmpeg instalado en ambos;
+  solo los tests de una parte admitida por la excepción siguiente MAY ejecutarse únicamente en
+  Windows.
+- Excepción para interfaces gráficas de escritorio (v3.1.0, feature 002-desktop-app): en una
+  funcionalidad de interfaz gráfica de escritorio, únicamente la ventana y su lanzador sin
+  consola MAY ser exclusivos de Windows. Toda la lógica restante de esa funcionalidad (servidor
+  local, estado de la cola, detección de otro procesador en marcha, segundo plano, cookies,
+  rechazo de conexiones de red) MUST funcionar y tener tests en Linux y en Windows, sin depender
+  de la ventana. La CLI sigue siendo obligatoria en ambos sistemas. La excepción MUST NOT
+  extenderse a la lógica de descarga, la cola ni el trabajador.
 
 Justificación: el usuario principal trabaja en Windows; un descargador que solo funciona en
 Linux no cumple su propósito.
@@ -124,4 +127,4 @@ material, PATCH para aclaraciones y correcciones de redacción. Toda revisión d
 comprobar el cumplimiento; las desviaciones MUST justificarse en la sección de complejidad
 del plan.
 
-**Version**: 3.0.0 | **Ratified**: 2026-10-20 | **Last Amended**: 2026-10-24
+**Version**: 3.1.0 | **Ratified**: 2026-10-20 | **Last Amended**: 2026-10-28
