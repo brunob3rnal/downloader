@@ -19,6 +19,7 @@
 ### Session 2026-10-28
 
 - Q: ¿La interfaz debe aceptar órdenes solo de la propia ventana de la aplicación, o de cualquier programa del mismo equipo? → A: Solo de la propia ventana. Cualquier otro programa del equipo, incluidas las páginas web abiertas en un navegador, se rechaza tanto al consultar como al dar órdenes, y ese rechazo se comprueba con tests (FR-013, SC-007).
+- Q: Cuando las descargas siguen en segundo plano sin ventana, ¿cómo se entera el usuario de un error fatal o de un fallo inesperado del procesamiento? → A: Se guarda el resultado de la última ejecución lanzada por la aplicación (resumen y, si lo hubo, el error fatal o inesperado con su mensaje) y la ventana lo muestra al abrirse. Además, la aplicación escribe un registro de errores en la carpeta de configuración, de tamaño acotado y con los secretos ocultos (FR-012, FR-020).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -91,7 +92,8 @@ Al cerrar la ventana con un procesamiento lanzado por la aplicación en marcha, 
 4. **Given** ese diálogo, **When** elige cancelar el cierre, **Then** la ventana sigue abierta y el procesamiento no se altera.
 5. **Given** un procesamiento en segundo plano, **When** el usuario abre la aplicación, **Then** esta se reconecta, muestra la cola en directo y permite detenerlo.
 6. **Given** la aplicación sin procesamiento en marcha, **When** el usuario cierra la ventana, **Then** se cierra sin preguntar.
-7. **Given** un procesamiento en segundo plano que vacía la cola con la ventana cerrada, **When** el usuario abre la aplicación, **Then** ve el estado final de cada descarga y puede iniciar de nuevo.
+7. **Given** un procesamiento en segundo plano que vacía la cola con la ventana cerrada, **When** el usuario abre la aplicación, **Then** ve el estado final de cada descarga y el resultado de esa ejecución, y puede iniciar de nuevo.
+8. **Given** un procesamiento en segundo plano que se detiene por un error fatal (por ejemplo, disco lleno) o por un fallo inesperado del programa, **When** el usuario abre la aplicación, **Then** ve el mensaje de ese error, y el error consta en el registro de errores.
 
 ---
 
@@ -118,7 +120,9 @@ Para videos que exigen la sesión del usuario, este activa de forma explícita e
 
 - **Texto pegado que no es una URL**: cada línea que no sea una URL válida se señala con su número de línea y no se agrega; las demás sí se agregan.
 - **Carpeta de destino inexistente o sin permiso de escritura**: se rechaza al agregar con un mensaje claro, como `agregar` con una carpeta no válida; no se agrega ninguna URL de ese envío.
-- **ffmpeg o ffprobe ausentes, disco lleno o cola corrupta**: el procesamiento no arranca o se detiene con el mismo mensaje que da la CLI (código 3), conservando el progreso; en la cola corrupta se guarda la copia como hoy.
+- **ffmpeg o ffprobe ausentes, disco lleno o cola corrupta**: el procesamiento no arranca o se detiene con el mismo mensaje que da la CLI (código 3), conservando el progreso; en la cola corrupta se guarda la copia como hoy. Si ocurre en segundo plano, el mensaje se ve al abrir la aplicación (FR-012).
+- **Fallo inesperado del programa sin ventana abierta**: no se pierde; queda en el resultado de la última ejecución y en el registro de errores (FR-012, FR-020).
+- **Registro de errores que no se puede escribir** (disco lleno, sin permiso): la aplicación sigue funcionando y la ventana avisa de que el registro no está disponible.
 - **Procesador terminado de forma abrupta** (cierre forzado del proceso, corte de luz): la aplicación deja de mostrarlo como en marcha en 2 segundos como máximo; al iniciar de nuevo, la cola se recupera igual que tras un cierre abrupto de `ejecutar`.
 - **Reinicio del equipo con un procesamiento en segundo plano**: el procesamiento no se relanza solo; al abrir la aplicación, la cola muestra las descargas pendientes y el usuario pulsa Iniciar.
 - **Segundo doble clic con la ventana ya abierta**: no se abre una segunda ventana independiente; se muestra la existente.
@@ -145,7 +149,7 @@ Para videos que exigen la sesión del usuario, este activa de forma explícita e
 - **FR-009**: Detener MUST equivaler al Ctrl+C de `ejecutar`: termina de forma ordenada, conserva el progreso y deja la cola lista para reanudar desde la aplicación o desde la CLI. La ventana MUST indicar que se está deteniendo hasta que el procesamiento haya terminado. La aplicación MUST permitir detener solo los procesamientos que lanzó ella misma, también desde una sesión anterior; MUST NOT detener un `ejecutar` lanzado desde la CLI, y MUST indicar que ese se detiene desde su terminal.
 - **FR-010**: Al cerrar la ventana con un procesamiento lanzado por la aplicación en marcha, la aplicación MUST preguntar si seguir en segundo plano, pausar o cancelar el cierre. Seguir MUST dejar el procesamiento en marcha sin ventana ni consola visibles; pausar MUST detenerlo como en FR-009 y cerrar la ventana al terminar; cancelar MUST dejarlo todo como estaba. Sin procesamiento de la aplicación en marcha, la ventana MUST cerrarse sin preguntar.
 - **FR-011**: Al abrirse con un procesamiento en segundo plano en marcha, la aplicación MUST reconectarse a él, mostrar la cola en directo y permitir detenerlo.
-- **FR-012**: Al terminar un procesamiento, la ventana MUST mostrar cuántas descargas se completaron y cuántas fallaron, con la causa de cada fallo, y los errores fatales con el mismo mensaje que da la CLI.
+- **FR-012**: Al terminar un procesamiento, la ventana MUST mostrar cuántas descargas se completaron y cuántas fallaron, con la causa de cada fallo, y los errores fatales con el mismo mensaje que da la CLI. El resultado de la última ejecución lanzada por la aplicación (ese resumen y, si lo hubo, el error fatal o inesperado con su mensaje) MUST conservarse aunque la ventana esté cerrada, y la ventana MUST mostrarlo al abrirse hasta que se inicie otra ejecución.
 - **FR-013**: La interfaz MUST aceptar solo conexiones del propio equipo y MUST rechazar cualquier conexión desde la red, en todas las configuraciones de red del equipo. Dentro del propio equipo, MUST atender solo a la ventana de la aplicación: MUST rechazar, sin ejecutar ninguna orden ni revelar el estado de la cola, cualquier petición de otro programa, incluidas las páginas web abiertas en un navegador.
 - **FR-014**: El uso de cookies del navegador MUST ser una opción explícita, desactivada al abrir la aplicación, que obliga a elegir un navegador y muestra la advertencia de la documentación de la CLI (Firefox fiable; Edge solo cerrado del todo; Chrome 127 o posterior no funciona). Las URLs agregadas con la opción activa MUST comportarse como `agregar --cookies-de NAVEGADOR`.
 - **FR-015**: La aplicación MUST NOT guardar cookies ni recordar entre sesiones si el uso de cookies estaba activado; la cola guarda solo el nombre del navegador de cada descarga, como hoy (FR-017 de la feature 001).
@@ -153,12 +157,15 @@ Para videos que exigen la sesión del usuario, este activa de forma explícita e
 - **FR-017**: La CLI MUST seguir funcionando igual: mismos comandos, opciones, salidas y códigos de salida. La aplicación MUST funcionar sobre la misma cola que la CLI, de modo que lo agregado desde una se vea y se procese desde la otra.
 - **FR-018**: Una segunda apertura de la aplicación con la ventana ya abierta MUST mostrar la ventana existente en lugar de abrir otra independiente.
 - **FR-019**: La ventana y el lanzador sin consola MUST funcionar en Windows 10/11; en Linux no se exigen. El resto de la aplicación (agregar, iniciar, detener, detección del procesador en marcha, segundo plano y reconexión, cookies, rechazo de conexiones desde la red) MUST funcionar y tener tests automatizados en Linux y en Windows, sin depender de la ventana. Esta excepción se apoya en la sección Plataformas de la constitución v3.1.0 (enmendada el 2026-10-28), que la limita a la ventana y el lanzador.
+- **FR-020**: La aplicación MUST escribir un registro de errores en la carpeta de configuración de la feature 001 con los errores fatales y los fallos inesperados de la ventana y del procesamiento que lanza, con fecha, qué falló y el detalle técnico. MUST ocultar en él tokens, firmas y cookies (FR-017 de la feature 001) y MUST NOT ocupar más de 2 MB en total: al llenarse, se descartan las entradas más antiguas.
 
 ### Key Entities
 
 - **Cola**: la de la feature 001, compartida sin cambios entre la CLI y la aplicación.
 - **Descarga**: la de la feature 001; la aplicación muestra además su velocidad y tiempo estimado, también cuando la procesa la CLI.
 - **Procesador**: la ejecución que procesa la cola (un `ejecutar` de la CLI o uno lanzado por la aplicación). Atributos visibles: origen (CLI o aplicación), en marcha, deteniéndose o terminado. Como mucho hay uno a la vez.
+- **Resultado de la ejecución**: resumen de la última ejecución lanzada por la aplicación (completadas, fallidas y, si lo hubo, el error fatal o inesperado con su mensaje); persiste con la ventana cerrada.
+- **Registro de errores**: archivo en la carpeta de configuración con los errores fatales e inesperados, acotado a 2 MB y sin secretos.
 - **Envío de URLs**: el texto pegado más la calidad, la carpeta y, si se activó, el navegador de cookies; produce el mismo efecto que un `agregar`.
 
 ## Success Criteria *(mandatory)*
@@ -184,6 +191,7 @@ Para videos que exigen la sesión del usuario, este activa de forma explícita e
 - Se procesa una sola descarga a la vez, como en la CLI; las descargas simultáneas quedan fuera de alcance.
 - El procesamiento en segundo plano no sobrevive a un reinicio del equipo ni se relanza solo al iniciar sesión; el usuario abre la aplicación y pulsa Iniciar, igual que relanza `ejecutar` en la CLI.
 - Para mostrar velocidad y tiempo estimado de un procesador lanzado desde la CLI, el trabajador puede necesitar publicar esos datos además del progreso; eso es un cambio interno que no altera el comportamiento visible de la CLI (FR-017).
+- El límite de 2 MB del registro de errores (FR-020) es un valor por defecto razonable para un equipo de 4 GB; no es configurable.
 - La ventana de la aplicación sigue el idioma de la CLI (español).
 - Mientras la ventana está cerrada no hay icono en la bandeja del sistema ni notificaciones; reabrir la aplicación es la forma de ver el estado.
 - Borrar descargas de la cola, reordenarla o cambiar la calidad de una ya agregada quedan fuera de alcance: la CLI tampoco lo permite.
