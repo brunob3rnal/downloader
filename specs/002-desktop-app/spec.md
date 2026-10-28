@@ -20,6 +20,7 @@
 
 - Q: ¿La interfaz debe aceptar órdenes solo de la propia ventana de la aplicación, o de cualquier programa del mismo equipo? → A: Solo de la propia ventana. Cualquier otro programa del equipo, incluidas las páginas web abiertas en un navegador, se rechaza tanto al consultar como al dar órdenes, y ese rechazo se comprueba con tests (FR-013, SC-007).
 - Q: Cuando las descargas siguen en segundo plano sin ventana, ¿cómo se entera el usuario de un error fatal o de un fallo inesperado del procesamiento? → A: Se guarda el resultado de la última ejecución lanzada por la aplicación (resumen y, si lo hubo, el error fatal o inesperado con su mensaje) y la ventana lo muestra al abrirse. Además, la aplicación escribe un registro de errores en la carpeta de configuración, de tamaño acotado y con los secretos ocultos (FR-012, FR-020).
+- Q: ¿Con qué medida de memoria se comprueba el límite de 300 MB de SC-005? → A: Memoria privada (la que solo usa cada proceso), sumada en todos los procesos de la aplicación y medida en su punto más alto durante la prueba (SC-005).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -176,7 +177,7 @@ Para videos que exigen la sesión del usuario, este activa de forma explícita e
 - **SC-002**: Un usuario sin conocimientos de terminal agrega una URL y empieza a descargarla en menos de 1 minuto y con 3 acciones como máximo (pegar, agregar, iniciar).
 - **SC-003**: En 0 casos hay dos procesadores de la cola a la vez, en cualquier combinación de aperturas de la aplicación, cierres en segundo plano y `ejecutar` de la CLI.
 - **SC-004**: Tras Detener o Pausar, el procesamiento termina en 10 segundos como máximo, y el 100 % de las descargas detenidas se reanuda desde su progreso guardado, dentro de los límites de SC-002 de la feature 001 para Ctrl+C.
-- **SC-005**: Con 500 descargas en cola y una en curso, la memoria usada por todos los procesos de la aplicación juntos (la ventana, lo que necesita para mostrarse y el procesador de la cola) no supera en ningún momento 300 MB en el equipo de referencia de 4 GB de RAM.
+- **SC-005**: Con 500 descargas en cola y una en curso, la memoria privada (la que solo usa cada proceso, sin la compartida con otros programas) sumada en todos los procesos de la aplicación (la ventana, lo que necesita para mostrarse y el procesador de la cola) no supera 300 MB en su punto más alto, medido durante toda la prueba, desde que se abre la aplicación hasta que termina la descarga en curso, en el equipo de referencia de 4 GB de RAM.
 - **SC-006**: El estado mostrado en la ventana (porcentaje, velocidad, tiempo estimado, estado) no va más de 2 segundos por detrás del procesador, sea de la aplicación o de la CLI.
 - **SC-007**: El 100 % de los intentos de acceso a la interfaz desde otro equipo, desde otro programa del propio equipo o desde una página web abierta en el navegador se rechazan sin efecto sobre la cola ni revelar su contenido.
 - **SC-008**: Tras reabrir la aplicación con un procesamiento en segundo plano, la ventana lo muestra en directo en 5 segundos como máximo, sin acción del usuario.
