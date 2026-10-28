@@ -147,7 +147,7 @@ Para videos que exigen la sesión del usuario, este activa de forma explícita e
 - **FR-016**: Una descarga fallida por requerir sesión (acceso denegado, contenido que exige iniciar sesión, o la lista de reproducción sin videos de FR-028 de la feature 001) MUST ofrecer reintentarla con cookies eligiendo el navegador; al aceptar, MUST volver a la cola con ese navegador.
 - **FR-017**: La CLI MUST seguir funcionando igual: mismos comandos, opciones, salidas y códigos de salida. La aplicación MUST funcionar sobre la misma cola que la CLI, de modo que lo agregado desde una se vea y se procese desde la otra.
 - **FR-018**: Una segunda apertura de la aplicación con la ventana ya abierta MUST mostrar la ventana existente en lugar de abrir otra independiente.
-- **FR-019**: La ventana y el lanzador sin consola MUST funcionar en Windows 10/11; en Linux no se exigen. El resto de la aplicación (agregar, iniciar, detener, detección del procesador en marcha, segundo plano y reconexión, cookies, rechazo de conexiones desde la red) MUST funcionar y tener tests automatizados en Linux y en Windows, sin depender de la ventana. Esta excepción depende de una enmienda de la sección Plataformas de la constitución limitada a la ventana y el lanzador, que MUST aprobarse antes de fusionar la feature.
+- **FR-019**: La ventana y el lanzador sin consola MUST funcionar en Windows 10/11; en Linux no se exigen. El resto de la aplicación (agregar, iniciar, detener, detección del procesador en marcha, segundo plano y reconexión, cookies, rechazo de conexiones desde la red) MUST funcionar y tener tests automatizados en Linux y en Windows, sin depender de la ventana. Esta excepción se apoya en la sección Plataformas de la constitución v3.1.0 (enmendada el 2026-10-28), que la limita a la ventana y el lanzador.
 
 ### Key Entities
 
@@ -172,7 +172,7 @@ Para videos que exigen la sesión del usuario, este activa de forma explícita e
 
 ## Assumptions
 
-- La enmienda de la constitución que admite la ventana y el lanzador solo en Windows (FR-019) se tramita con `/speckit-constitution` antes de fusionar esta feature; el CI de Linux sigue ejecutando los tests de la CLI y de la lógica de la aplicación.
+- La sección Plataformas de la constitución v3.1.0 (enmendada el 2026-10-28) admite la ventana y el lanzador solo en Windows (FR-019); el CI de Linux sigue ejecutando los tests de la CLI y de la lógica de la aplicación.
 
 - Los usuarios trabajan en un solo equipo y con una sola cuenta: acceso remoto y varios usuarios están fuera de alcance.
 - El lanzador se ejecuta desde un clon del repositorio ya instalado según el README (uv, ffmpeg y ffprobe); instalador y ejecutable propio quedan para la etapa 2, con su propia especificación.
