@@ -26,13 +26,13 @@ comprobar sin un escritorio interactivo (research R19).
 ```bash
 uv run pytest                                  # suite completa: CLI de 001 sin cambios + app
 uv run pytest tests -k "app_"                  # solo los de la aplicación
-uv run pytest -m ventana -rs                   # capa de Windows; en Linux, omitidos con motivo
+uv run pytest -m solo_windows -rs              # exclusivos de Windows; en Linux, omitidos con motivo
 uv run pytest tests/integration/test_app_seguridad.py   # rechazos de FR-013 (SC-007)
 ```
 
 Resultado esperado:
 - todo pasa en los dos sistemas;
-- en Linux, los tests `ventana` y `pywebview_internals` aparecen como omitidos ("solo
+- en Linux, los tests `solo_windows` y `pywebview_internals` aparecen como omitidos ("solo
   Windows");
 - los tests de la feature 001 pasan sin modificaciones (SC-009).
 

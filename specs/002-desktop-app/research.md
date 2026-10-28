@@ -549,11 +549,12 @@ el enganche al evento de pywebview es exclusivo de Windows.
 - `tests/unit/test_plataforma.py` admite importaciones de un solo sistema sin proteger solo
   dentro de `app/ventana/`. Fuera de ahí, mantiene la regla de la feature 001.
 - Marcadores nuevos de pytest:
-  - `ventana`: tests de la capa de Windows, que se omiten en Linux con el motivo;
+  - `solo_windows`: todo test exclusivo de Windows (la capa de la ventana, el lanzador y las
+    comprobaciones de R7, R8 y R11 que solo existen allí), que se omite en Linux con el motivo;
   - `pywebview_internals`: comprueba los internos de pywebview (R2).
 - El CI no cambia de estructura: la misma matriz Linux y Windows. En Windows se ejecutan
-  además los tests `ventana`. Los runners de GitHub Actions no garantizan un escritorio
-  interactivo, así que los tests `ventana` no abren una ventana real: comprueban la detección
+  además los tests `solo_windows`. Los runners de GitHub Actions no garantizan un escritorio
+  interactivo, así que los tests `solo_windows` no abren una ventana real: comprueban la detección
   de WebView2, el lanzador (R11) y el enganche de eventos con objetos simulados. La ventana
   real, el doble clic y la maqueta se validan a mano (quickstart.md).
 - La interfaz web (`app.js`) se mantiene delgada: pinta lo que devuelve la API y envía

@@ -50,7 +50,7 @@ Detalle en [data-model.md](data-model.md) y [contracts/archivos.md](contracts/ar
 - pytest, como en 001: servidor HTTP local con cortes simulados y sin internet.
 - La API se prueba con `http.client` contra el servidor real y una ventana falsa.
 - Los subprocesos del trabajador se prueban de verdad: se lanzan, se paran y se matan.
-- Marcadores nuevos: `ventana` (capa de Windows) y `pywebview_internals` (R2, R19).
+- Marcadores nuevos: `solo_windows` (todo test exclusivo de Windows: la capa de la ventana y el lanzador, y las comprobaciones de R7, R8 y R11 que solo existen allí) y `pywebview_internals` (R2, R19).
 - La memoria se mide con un script aparte en Windows (R14).
 
 **Target Platform**:
@@ -91,7 +91,7 @@ descarga a la vez
 | V. Sin DRM | Sin cambios: el trabajador es el de 001. | Pasa |
 | VI. Sin credenciales ni cookies | Cookies desactivadas por defecto y no recordadas (FR-015). La cola guarda solo el nombre del navegador, como en 001. El secreto de sesión vive solo en memoria. El registro y las respuestas pasan por `ocultar_secretos`. WebView2 en modo privado (R4, R10). | Pasa |
 | Restricciones legales y de seguridad | Licencias revisadas (R1, R6). Servidor solo en `127.0.0.1` con 4 controles y tests de rechazo (R4). | Pasa |
-| Plataformas (v3.1.0) | Lo exclusivo de Windows se limita a `app/ventana/`, `gestor.pyw` y `Gestor de descargas.vbs`. `test_plataforma.py` solo admite importaciones de Windows sin proteger en `app/ventana/`. El resto de `app/`, la CLI, la cola y el trabajador, en Linux y en Windows. El CI ejecuta la suite completa en los dos sistemas y los tests `ventana` solo en Windows, como permite la excepción. | Pasa |
+| Plataformas (v3.1.0) | Lo exclusivo de Windows se limita a `app/ventana/`, `gestor.pyw` y `Gestor de descargas.vbs`. `test_plataforma.py` solo admite importaciones de Windows sin proteger en `app/ventana/`. El resto de `app/`, la CLI, la cola y el trabajador, en Linux y en Windows. El CI ejecuta la suite completa en los dos sistemas y los tests `solo_windows` solo en Windows, como permite la excepción. | Pasa |
 
 **Re-check post-diseño**: pasa. No hay violaciones que justificar en Complexity Tracking. Los
 puntos marcados **[a verificar]** en research no son incumplimientos, sino hipótesis con su
@@ -137,6 +137,8 @@ src/downloader/
 ├── mensajes.py                # NUEVO: CONSEJO_SESION, mensaje de lista vacía, requiere_sesion (R17)
 ├── models.py                  # + NAVEGADORES como constante (R15)
 ├── progress.py                # + Publicador (progreso-vivo.json) y Observadores (R9)
+├── archivos_json.py           # NUEVO: escritura atómica y lectura tolerante de los JSON
+│                              #   compartidos (contracts/archivos.md); lo usan ejecutar y la app
 ├── errors.py, store.py, worker.py, ytdl.py   # reexportan lo movido; sin cambios de comportamiento
 └── app/
     ├── __init__.py
@@ -156,7 +158,6 @@ src/downloader/
     ├── resultado.py           # ultima-ejecucion.json (R10)
     ├── registro.py            # RotatingFileHandler, filtro de secretos, excepthooks (R10)
     ├── cierre.py              # decidir(estado) y flujo de Pausar y cerrar (R18)
-    ├── archivos_json.py       # escritura atómica y lectura tolerante (contracts/archivos.md)
     ├── web/
     │   ├── index.html         # maqueta (contracts/ventana.md)
     │   ├── app.css
@@ -175,13 +176,13 @@ tests/
 │   ├── test_plataforma.py     # + excepción acotada a app/ventana/
 │   ├── test_app_vista.py, test_app_cierre.py, test_app_urls.py, test_mensajes.py
 │   ├── test_app_archivos_json.py, test_app_registro.py
-│   └── test_app_ventana_windows.py   # @ventana, @pywebview_internals (solo Windows)
+│   └── test_app_ventana_windows.py   # @solo_windows, @pywebview_internals
 └── integration/
     ├── test_app_seguridad.py  # SC-007 (R4)
     ├── test_app_agregar.py, test_app_procesador.py, test_app_parada.py
     ├── test_app_segundo_plano.py (slow), test_app_vivo.py, test_app_resultado.py
     ├── test_app_cookies.py, test_app_instancia.py, test_app_sin_ytdlp.py
-    └── test_lanzador.py       # @ventana: wscript //B con DOWNLOADER_HOME temporal (R11)
+    └── test_lanzador.py       # @solo_windows: wscript //B con DOWNLOADER_HOME temporal (R11)
 ```
 
 **Structure Decision**: un solo paquete, como en 001, con el subpaquete `downloader.app`. La
