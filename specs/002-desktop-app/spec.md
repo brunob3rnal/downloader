@@ -16,6 +16,10 @@
 - Q: ¿La aplicación debe funcionar también en Linux? → A: Solo la ventana y el lanzador son exclusivos de Windows 10/11, mediante una enmienda de la sección Plataformas de la constitución limitada a ellos. La lógica de la aplicación sigue exigiendo funcionar y probarse en Linux y en Windows (FR-019).
 - Q: ¿Cuál es el criterio de memoria? → A: 300 MB como máximo con 500 descargas en cola y una en curso, sumando todos los procesos de la aplicación: la ventana, lo que necesita para mostrarse y el procesador de la cola (SC-005).
 
+### Session 2026-10-28
+
+- Q: ¿La interfaz debe aceptar órdenes solo de la propia ventana de la aplicación, o de cualquier programa del mismo equipo? → A: Solo de la propia ventana. Cualquier otro programa del equipo, incluidas las páginas web abiertas en un navegador, se rechaza tanto al consultar como al dar órdenes, y ese rechazo se comprueba con tests (FR-013, SC-007).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Agregar URLs y descargar desde una ventana (Priority: P1)
@@ -124,6 +128,7 @@ Para videos que exigen la sesión del usuario, este activa de forma explícita e
 - **URL con tokens o firmas**: la ventana la muestra con los secretos ocultos, igual que `estado`.
 - **Lista de reproducción**: se expande en sus videos al procesarse, como en la CLI; la ventana muestra cada video como una descarga.
 - **Un programa de otro equipo intenta conectarse a la interfaz**: la conexión se rechaza siempre, también con el cortafuegos de Windows desactivado (FR-013).
+- **Otro programa del propio equipo o una página web abierta en el navegador envía peticiones a la interfaz**: se rechazan sin agregar URLs, iniciar, detener ni mostrar la cola (FR-013).
 
 ## Requirements *(mandatory)*
 
@@ -141,7 +146,7 @@ Para videos que exigen la sesión del usuario, este activa de forma explícita e
 - **FR-010**: Al cerrar la ventana con un procesamiento lanzado por la aplicación en marcha, la aplicación MUST preguntar si seguir en segundo plano, pausar o cancelar el cierre. Seguir MUST dejar el procesamiento en marcha sin ventana ni consola visibles; pausar MUST detenerlo como en FR-009 y cerrar la ventana al terminar; cancelar MUST dejarlo todo como estaba. Sin procesamiento de la aplicación en marcha, la ventana MUST cerrarse sin preguntar.
 - **FR-011**: Al abrirse con un procesamiento en segundo plano en marcha, la aplicación MUST reconectarse a él, mostrar la cola en directo y permitir detenerlo.
 - **FR-012**: Al terminar un procesamiento, la ventana MUST mostrar cuántas descargas se completaron y cuántas fallaron, con la causa de cada fallo, y los errores fatales con el mismo mensaje que da la CLI.
-- **FR-013**: La interfaz MUST aceptar solo conexiones del propio equipo y MUST rechazar cualquier conexión desde la red, en todas las configuraciones de red del equipo.
+- **FR-013**: La interfaz MUST aceptar solo conexiones del propio equipo y MUST rechazar cualquier conexión desde la red, en todas las configuraciones de red del equipo. Dentro del propio equipo, MUST atender solo a la ventana de la aplicación: MUST rechazar, sin ejecutar ninguna orden ni revelar el estado de la cola, cualquier petición de otro programa, incluidas las páginas web abiertas en un navegador.
 - **FR-014**: El uso de cookies del navegador MUST ser una opción explícita, desactivada al abrir la aplicación, que obliga a elegir un navegador y muestra la advertencia de la documentación de la CLI (Firefox fiable; Edge solo cerrado del todo; Chrome 127 o posterior no funciona). Las URLs agregadas con la opción activa MUST comportarse como `agregar --cookies-de NAVEGADOR`.
 - **FR-015**: La aplicación MUST NOT guardar cookies ni recordar entre sesiones si el uso de cookies estaba activado; la cola guarda solo el nombre del navegador de cada descarga, como hoy (FR-017 de la feature 001).
 - **FR-016**: Una descarga fallida por requerir sesión (acceso denegado, contenido que exige iniciar sesión, o la lista de reproducción sin videos de FR-028 de la feature 001) MUST ofrecer reintentarla con cookies eligiendo el navegador; al aceptar, MUST volver a la cola con ese navegador.
@@ -166,7 +171,7 @@ Para videos que exigen la sesión del usuario, este activa de forma explícita e
 - **SC-004**: Tras Detener o Pausar, el procesamiento termina en 10 segundos como máximo, y el 100 % de las descargas detenidas se reanuda desde su progreso guardado, dentro de los límites de SC-002 de la feature 001 para Ctrl+C.
 - **SC-005**: Con 500 descargas en cola y una en curso, la memoria usada por todos los procesos de la aplicación juntos (la ventana, lo que necesita para mostrarse y el procesador de la cola) no supera en ningún momento 300 MB en el equipo de referencia de 4 GB de RAM.
 - **SC-006**: El estado mostrado en la ventana (porcentaje, velocidad, tiempo estimado, estado) no va más de 2 segundos por detrás del procesador, sea de la aplicación o de la CLI.
-- **SC-007**: El 100 % de los intentos de conexión a la interfaz desde otro equipo se rechazan.
+- **SC-007**: El 100 % de los intentos de acceso a la interfaz desde otro equipo, desde otro programa del propio equipo o desde una página web abierta en el navegador se rechazan sin efecto sobre la cola ni revelar su contenido.
 - **SC-008**: Tras reabrir la aplicación con un procesamiento en segundo plano, la ventana lo muestra en directo en 5 segundos como máximo, sin acción del usuario.
 - **SC-009**: Los tests de la CLI de la feature 001 pasan sin modificaciones.
 
