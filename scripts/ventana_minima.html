@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Gestor de descargas (medición)</title>
+<style>
+  body { margin: 0; font-family: "Segoe UI", system-ui, sans-serif; background: #f3f4f6; color: #111827; }
+  main { padding: 24px; }
+  .panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  textarea { width: 100%; height: 60px; box-sizing: border-box; }
+  .fila { display: grid; grid-template-columns: 1fr 1fr 160px; gap: 16px; align-items: center;
+          background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px 20px; margin-bottom: 8px; }
+  .titulo { font-weight: 600; }
+  .sitio { color: #4b5563; font-size: 13px; }
+  .cabecera { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; }
+  .barra { height: 6px; background: #e5e7eb; border-radius: 3px; margin: 6px 0; }
+  .barra > div { height: 100%; background: #1d4ed8; border-radius: 3px; }
+  .detalle { color: #4b5563; font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <section class="panel">
+    <label>Pegar enlaces, uno por línea</label>
+    <textarea></textarea>
+  </section>
+  <h2>Cola</h2>
+  <div id="lista"></div>
+</main>
+<script>
+  const filas = new Map();
+
+  function crear(f) {
+    const el = document.createElement("div");
+    el.className = "fila";
+    el.innerHTML =
+      '<div><div class="titulo"></div><div class="sitio"></div></div>' +
+      '<div><div class="cabecera"><span class="etiqueta"></span><span class="pct"></span></div>' +
+      '<div class="barra"><div></div></div><div class="detalle"></div></div><div></div>';
+    document.getElementById("lista").appendChild(el);
+    return el;
+  }
+
+  function pintar(el, f) {
+    el.querySelector(".titulo").textContent = f.titulo;
+    el.querySelector(".sitio").textContent = f.sitio;
+    el.querySelector(".etiqueta").textContent = f.etiqueta;
+    el.querySelector(".pct").textContent = f.porcentaje + " %";
+    el.querySelector(".barra > div").style.width = f.porcentaje + "%";
+    el.querySelector(".detalle").textContent = f.detalle;
+  }
+
+  async function actualizar() {
+    try {
+      const respuesta = await fetch("filas.json", { cache: "no-store" });
+      for (const f of await respuesta.json()) {
+        const clave = JSON.stringify(f);
+        const actual = filas.get(f.id);
+        if (actual && actual.clave === clave) continue;  // solo se repintan las que cambian
+        const el = actual ? actual.el : crear(f);
+        pintar(el, f);
+        filas.set(f.id, { el, clave });
+      }
+    } catch (e) {
+      // el servidor aún no responde o ya se cerró
+    }
+  }
+
+  actualizar();
+  setInterval(actualizar, 1000);
+</script>
+</body>
+</html>

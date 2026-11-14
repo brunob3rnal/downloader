@@ -93,14 +93,14 @@ el trabajador caben en 300 MB de memoria privada (USS) (regla 1; research R14).
 **⚠️ PUERTA**: si el máximo medido supera los 300 MB con las mitigaciones de R14 aplicadas,
 **parar y consultar al usuario** con las cifras antes de empezar la Fase 3.
 
-- [ ] T008 [P] Escribir `tests/unit/test_medir_memoria.py`. Prueba las funciones puras de `scripts/medir_memoria.py` (cargado con `importlib` desde su ruta) con objetos de proceso falsos:
+- [X] T008 [P] Escribir `tests/unit/test_medir_memoria.py`. Prueba las funciones puras de `scripts/medir_memoria.py` (cargado con `importlib` desde su ruta) con objetos de proceso falsos:
   - `procesos_de_la_aplicacion(ventana, trabajador)` incluye el proceso de la ventana, sus descendientes, sus ascendientes de la cadena del lanzador (`uv.exe` y el lanzador del entorno virtual, por nombre de ejecutable), el trabajador y sus descendientes; excluye los demás;
   - `suma_uss(procesos)` ignora los procesos que terminan durante la muestra (`psutil.NoSuchProcess`);
   - `maximo(muestras)` devuelve el máximo y el desglose en ese instante.
 
   Corre en Linux y en Windows
-- [ ] T009 [P] Crear `scripts/ventana_minima.py` y `scripts/ventana_minima.html` (solo Windows, herramienta de medición). La ventana se abre con pywebview `gui="edgechromium"` y `private_mode=True`, y carga la página desde un `ThreadingHTTPServer` en `127.0.0.1:0`. La página tiene 500 filas con la estructura de contracts/ventana.md (título, sitio, etiqueta, barra, cifras), sin la interfaz real. Cada segundo pide un JSON estático de 500 filas y actualiza las que cambian
-- [ ] T010 Crear `scripts/medir_memoria.py` con estas opciones: `--cola-de-prueba N` (500 por defecto), `--limite MB` (300), `--ventana minima|app`, `--sin-uv` y `--importar-store`. El script:
+- [X] T009 [P] Crear `scripts/ventana_minima.py` y `scripts/ventana_minima.html` (solo Windows, herramienta de medición). La ventana se abre con pywebview `gui="edgechromium"` y `private_mode=True`, y carga la página desde un `ThreadingHTTPServer` en `127.0.0.1:0`. La página tiene 500 filas con la estructura de contracts/ventana.md (título, sitio, etiqueta, barra, cifras), sin la interfaz real. Cada segundo pide un JSON estático de 500 filas y actualiza las que cambian
+- [X] T010 Crear `scripts/medir_memoria.py` con estas opciones: `--cola-de-prueba N` (500 por defecto), `--limite MB` (300), `--ventana minima|app`, `--sin-uv` y `--importar-store`. El script:
   1. crea un `DOWNLOADER_HOME` temporal con N descargas en cola que apuntan al servidor independiente de T005: un archivo de 200 MB a 2 MB/s;
   2. arranca la ventana por la misma cadena que el lanzador (`uv run --gui-script scripts/ventana_minima.py`), o directamente con `pythonw` si se pasa `--sin-uv`;
   3. arranca el trabajador con `python -m downloader ejecutar` y `creationflags=CREATE_NO_WINDOW`, que en esta fase es la CLI;
