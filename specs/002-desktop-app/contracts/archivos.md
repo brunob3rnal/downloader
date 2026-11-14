@@ -100,5 +100,6 @@ registro/procesador.log   registro/procesador.log.1
 ## Compatibilidad con la CLI
 
 - `ejecutar` escribe `procesador.json` y `progreso-vivo.json` y los borra al terminar. No
-  cambia ninguna salida, opción ni código de salida (FR-017).
+  cambia ninguna salida, opción ni código de salida (FR-017), tampoco si la escritura o el
+  borrado fallan: el fallo va al logger `downloader.vivo` (R9).
 - `agregar` y `estado` no leen ni escriben ninguno de estos archivos.

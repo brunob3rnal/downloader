@@ -61,7 +61,7 @@ segundo cualquier procesador, también el de la CLI. Es informativo y desechable
 | Campo | Tipo | Regla |
 |-------|------|-------|
 | `pid`, `creado` | | los del procesador que lo escribe; uno de otro procesador se ignora |
-| `actualizado` | fecha ISO 8601 UTC | si tiene más de 5 s, la ventana no muestra velocidad ni tiempo estimado |
+| `actualizado` | fecha ISO 8601 UTC | si tiene más de 5 s, la ventana no muestra velocidad ni tiempo estimado: muestra "Sin datos en directo" (R9) |
 | `en_linea` | booleano | estado de la red según el monitor del trabajador (pie de la ventana) |
 | `activa` | objeto \| null | la descarga en curso |
 | `activa.id` | entero | id en `cola.db` |

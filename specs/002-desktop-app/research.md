@@ -320,6 +320,22 @@ URLs, solo identificadores, y las causas pasan por `ocultar_secretos`. Contenido
 **Retraso máximo**: hasta 1 s de escritura más hasta 1 s de consulta de la página, 2 s en
 total, como pide SC-006.
 
+**Si la escritura falla** (disco lleno, directorio sin permiso, error de `psutil`): ni
+`progreso-vivo.json` ni `procesador.json` alteran nunca la salida ni el código de salida de
+`ejecutar`, porque son informativos y la verdad sigue en `cola.db`. Pero el fallo no se
+silencia (Principio III):
+- se anota en el logger `downloader.vivo` al empezar a fallar y al recuperarse, no una vez por
+  segundo. En el procesador de la aplicación ese logger va a `registro/procesador.log`; en la
+  CLI no tiene manejador (`cli.principal` solo instala un `NullHandler`), así que su salida no
+  cambia;
+- la ventana no muestra datos viejos: sin un `progreso-vivo.json` válido (ausente, de otro
+  proceso o de más de 5 s) mientras hay un procesador en marcha, `api/estado` devuelve
+  `en_directo: false` y la fila activa muestra "Sin datos en directo" en lugar de velocidad y
+  tiempo estimado.
+
+Lo prueban `test_publicador.py` y `test_ejecutar_sin_archivos_vivos.py`, que compara la salida y
+los códigos de `ejecutar` con las referencias de `test_cli_caracterizacion.py`.
+
 **Alternativas**: *calcular la velocidad en la aplicación a partir de los bytes de `cola.db`*:
 cambia de 2 s en 2 s, y con la consulta de 1 s el retraso llegaría a 3 s, por encima de SC-006.
 *Escribir velocidad y tiempo estimado en `cola.db` cada segundo*: con `synchronous=FULL`,
@@ -369,14 +385,18 @@ lo ejecuta con `wscript.exe`, que no abre consola. El script:
    pueda estar en cualquier ruta, también con espacios;
 2. comprueba que `uv` está en el `PATH`. Si no, muestra un `MsgBox` con la instrucción de
    instalación del README y termina;
-3. ejecuta `uv run --gui-script src\downloader\app\gestor.pyw` con
+3. sincroniza el entorno con `uv sync`, oculto (`WScript.Shell.Run(..., 0, True)`), y espera
+   a que termine. Si falla (por ejemplo, sin red tras un cambio de `uv.lock`), muestra un
+   `MsgBox` con la causa probable y qué hacer, y termina sin abrir la ventana: el usuario nunca
+   se queda con un doble clic sin respuesta;
+4. ejecuta `uv run --gui-script src\downloader\app\gestor.pyw` con
    `WScript.Shell.Run(..., 0, False)`. El estilo 0 oculta la consola de `uv.exe`, y
    `--gui-script` hace que uv use `pythonw.exe`, que no crea consola. No queda ninguna
    ventana de consola visible en ningún momento (SC-001).
 
-`uv run` sincroniza el entorno si `uv.lock` cambió, como en la CLI. La primera apertura tras
-un `git pull` puede tardar más que los 5 s de SC-001, que se mide con el entorno ya
-sincronizado (quickstart.md).
+La primera apertura tras instalar o actualizar puede tardar más que los 5 s de SC-001, que se
+mide con el entorno ya sincronizado (spec, Assumptions; quickstart.md V1). Con el entorno al
+día, `uv sync` solo comprueba y termina enseguida.
 
 **Alternativa añadida como respaldo**: `[project.gui-scripts] gestor-descargas =
 "downloader.app.principal:main"`. `uv sync` crea `.venv\Scripts\gestor-descargas.exe`, un
@@ -488,7 +508,13 @@ de construir la interfaz completa. Mitigaciones, en este orden, si se pasa de 30
 - `ocultar_secretos` y los mensajes de consejo (`CONSEJO_SESION`, el de FR-028) pasan a
   `secretos.py` y `mensajes.py`;
 - `NAVEGADORES` se fija como constante en `models.py`, y un test comprueba que coincide con
-  `yt_dlp.cookies.SUPPORTED_BROWSERS`.
+  `yt_dlp.cookies.SUPPORTED_BROWSERS`;
+- `publish.py`, que `config.py` importa, deja de cargar yt-dlp en el nivel del módulo:
+  `sanitize_filename` se importa dentro de `nombre_publicado`. `escribible` y la validación de
+  la plantilla siguen en `publish` con sus nombres, porque `test_cli_agregar.py` sustituye
+  `publish.escribible` y los tests de 001 no se modifican;
+- `operaciones.py` importa `worker`, `network` y `ytdl` dentro de `ejecutar_cola`, de modo que
+  la ventana puede usar sus validaciones sin cargar yt-dlp.
 
 `errors.py`, `ytdl.py` y `worker.py` los reexportan, así que su API no cambia. Un test
 (`test_app_sin_ytdlp.py`) importa los módulos de la aplicación en un intérprete limpio y
@@ -549,8 +575,11 @@ el enganche al evento de pywebview es exclusivo de Windows.
 - `tests/unit/test_plataforma.py` admite importaciones de un solo sistema sin proteger solo
   dentro de `app/ventana/`. Fuera de ahí, mantiene la regla de la feature 001.
 - Marcadores nuevos de pytest:
-  - `solo_windows`: todo test exclusivo de Windows (la capa de la ventana, el lanzador y las
-    comprobaciones de R7, R8 y R11 que solo existen allí), que se omite en Linux con el motivo;
+  - `solo_windows`: solo tests de la ventana y del lanzador, la única parte que la
+    constitución v3.1.0 admite exclusiva de Windows; se omite en Linux con el motivo. Un
+    comportamiento de la lógica que difiere por sistema (el tiempo de parada de R7, la salida
+    del objeto de trabajo de R8) se prueba con un test sin marcador y condiciones por sistema;
+    lo exclusivo de la cadena del lanzador (`uv run --gui-script`) sí lleva el marcador;
   - `pywebview_internals`: comprueba los internos de pywebview (R2).
 - El CI no cambia de estructura: la misma matriz Linux y Windows. En Windows se ejecutan
   además los tests `solo_windows`. Los runners de GitHub Actions no garantizan un escritorio

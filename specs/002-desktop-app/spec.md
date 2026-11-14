@@ -43,19 +43,19 @@ El usuario hace doble clic en el lanzador del repositorio y se abre una ventana 
 
 ---
 
-### User Story 2 - Detener y reanudar (Priority: P1)
+### User Story 2 - Pausar y reanudar (Priority: P1)
 
-El usuario pulsa Detener durante una descarga. El procesamiento termina de forma ordenada, como con Ctrl+C en la CLI: se conserva el progreso y la cola queda lista para reanudar. Al pulsar Iniciar de nuevo, o al lanzar `ejecutar` desde la CLI, la descarga continúa donde se quedó.
+El usuario pulsa Pausar durante una descarga. El procesamiento termina de forma ordenada, como con Ctrl+C en la CLI: se conserva el progreso y la cola queda lista para reanudar. Al pulsar Iniciar de nuevo, o al lanzar `ejecutar` desde la CLI, la descarga continúa donde se quedó.
 
 **Why this priority**: Sin una forma segura de parar, el usuario cerraría el proceso a la fuerza; el Principio IV de la constitución exige no perder progreso reanudable.
 
-**Independent Test**: Iniciar una descarga grande desde la aplicación, pulsar Detener a mitad, comprobar que el procesamiento termina y que el progreso guardado se conserva; pulsar Iniciar y comprobar que reanuda desde ese punto y no desde cero.
+**Independent Test**: Iniciar una descarga grande desde la aplicación, pulsar Pausar a mitad, comprobar que el procesamiento termina y que el progreso guardado se conserva; pulsar Iniciar y comprobar que reanuda desde ese punto y no desde cero.
 
 **Acceptance Scenarios**:
 
-1. **Given** una descarga al 40 %, **When** el usuario pulsa Detener, **Then** la ventana indica que se está deteniendo, el procesamiento termina sin perder progreso y la descarga queda pendiente en la cola.
+1. **Given** una descarga al 40 %, **When** el usuario pulsa Pausar, **Then** la ventana indica que se está deteniendo, el procesamiento termina sin perder progreso y la descarga queda pendiente en la cola.
 2. **Given** una descarga detenida desde la aplicación, **When** el usuario pulsa Iniciar o lanza `ejecutar` en la CLI, **Then** la descarga se reanuda desde el progreso guardado.
-3. **Given** una descarga en "esperando red", **When** el usuario pulsa Detener, **Then** el procesamiento termina sin esperar a que vuelva la conexión.
+3. **Given** una descarga en "esperando red", **When** el usuario pulsa Pausar, **Then** el procesamiento termina sin esperar a que vuelva la conexión.
 
 ---
 
@@ -73,7 +73,7 @@ Si ya hay un procesador de la cola en marcha, lanzado desde la CLI o por una ses
 2. **Given** un procesador ajeno en marcha, **When** el usuario intenta iniciar el procesamiento, **Then** no se lanza otro y la ventana explica por qué.
 3. **Given** el procesamiento iniciado desde la aplicación, **When** el usuario lanza `ejecutar` en una terminal, **Then** `ejecutar` sale con el código 2 sin procesar nada, igual que hoy.
 4. **Given** un procesador ajeno que termina mientras la ventana está abierta, **When** termina, **Then** la ventana lo refleja en 2 segundos como máximo y vuelve a permitir Iniciar.
-5. **Given** un `ejecutar` de la CLI en marcha y la aplicación abierta, **When** el usuario pulsa Detener, **Then** la aplicación no lo detiene y explica que un procesamiento de la CLI se detiene desde su terminal con Ctrl+C.
+5. **Given** un `ejecutar` de la CLI en marcha y la aplicación abierta, **When** el usuario pulsa Pausar, **Then** la aplicación no lo detiene y explica que un procesamiento de la CLI se detiene desde su terminal con Ctrl+C.
 
 ---
 
@@ -83,7 +83,7 @@ Al cerrar la ventana con un procesamiento lanzado por la aplicación en marcha, 
 
 **Why this priority**: Permite dejar descargas largas en marcha sin ocupar la pantalla, pero el uso básico (US1-US3) funciona sin ello.
 
-**Independent Test**: Iniciar una descarga, cerrar la ventana eligiendo seguir en segundo plano, comprobar que la descarga avanza sin ventana ni consola visibles; abrir la aplicación con doble clic y comprobar que muestra esa ejecución en directo y que Detener la termina de forma ordenada.
+**Independent Test**: Iniciar una descarga, cerrar la ventana eligiendo seguir en segundo plano, comprobar que la descarga avanza sin ventana ni consola visibles; abrir la aplicación con doble clic y comprobar que muestra esa ejecución en directo y que Pausar la termina de forma ordenada.
 
 **Acceptance Scenarios**:
 
@@ -91,7 +91,7 @@ Al cerrar la ventana con un procesamiento lanzado por la aplicación en marcha, 
 2. **Given** ese diálogo, **When** elige seguir en segundo plano, **Then** la ventana se cierra, las descargas continúan y no queda visible ninguna ventana ni consola.
 3. **Given** ese diálogo, **When** elige pausar, **Then** el procesamiento se detiene como en US2 y la ventana se cierra cuando ha terminado de detenerse, con la cola lista para reanudar.
 4. **Given** ese diálogo, **When** elige cancelar el cierre, **Then** la ventana sigue abierta y el procesamiento no se altera.
-5. **Given** un procesamiento en segundo plano, **When** el usuario abre la aplicación, **Then** esta se reconecta, muestra la cola en directo y permite detenerlo.
+5. **Given** un procesamiento en segundo plano, **When** el usuario abre la aplicación, **Then** esta se reconecta, muestra la cola en directo y permite pausarlo.
 6. **Given** la aplicación sin procesamiento en marcha, **When** el usuario cierra la ventana, **Then** se cierra sin preguntar.
 7. **Given** un procesamiento en segundo plano que vacía la cola con la ventana cerrada, **When** el usuario abre la aplicación, **Then** ve el estado final de cada descarga y el resultado de esa ejecución, y puede iniciar de nuevo.
 8. **Given** un procesamiento en segundo plano que se detiene por un error fatal (por ejemplo, disco lleno) o por un fallo inesperado del programa, **When** el usuario abre la aplicación, **Then** ve el mensaje de ese error, y el error consta en el registro de errores.
@@ -128,12 +128,12 @@ Para videos que exigen la sesión del usuario, este activa de forma explícita e
 - **Reinicio del equipo con un procesamiento en segundo plano**: el procesamiento no se relanza solo; al abrir la aplicación, la cola muestra las descargas pendientes y el usuario pulsa Iniciar.
 - **Segundo doble clic con la ventana ya abierta**: no se abre una segunda ventana independiente; se muestra la existente.
 - **Cerrar la ventana mientras procesa un `ejecutar` de la CLI**: se cierra sin preguntar; la ejecución de la CLI no se ve afectada.
-- **Detener cuando el procesador ya está terminando o terminó**: no produce error; la ventana refleja el estado real.
+- **Pausar cuando el procesador ya está terminando o terminó**: no produce error; la ventana refleja el estado real.
 - **Cola con cientos de descargas** (por ejemplo, una lista de reproducción grande): la ventana sigue respondiendo y dentro del límite de memoria de SC-005.
 - **URL con tokens o firmas**: la ventana la muestra con los secretos ocultos, igual que `estado`.
 - **Lista de reproducción**: se expande en sus videos al procesarse, como en la CLI; la ventana muestra cada video como una descarga.
 - **Un programa de otro equipo intenta conectarse a la interfaz**: la conexión se rechaza siempre, también con el cortafuegos de Windows desactivado (FR-013).
-- **Otro programa del propio equipo o una página web abierta en el navegador envía peticiones a la interfaz**: se rechazan sin agregar URLs, iniciar, detener ni mostrar la cola (FR-013).
+- **Otro programa del propio equipo o una página web abierta en el navegador envía peticiones a la interfaz**: se rechazan sin agregar URLs, iniciar, pausar ni mostrar la cola (FR-013).
 
 ## Requirements *(mandatory)*
 
@@ -147,9 +147,9 @@ Para videos que exigen la sesión del usuario, este activa de forma explícita e
 - **FR-006**: La aplicación MUST permitir iniciar el procesamiento de la cola cuando no hay ningún procesador en marcha. El procesamiento MUST comportarse como `ejecutar`: procesa una descarga a la vez, recoge las URLs que se agreguen mientras corre y termina cuando no quedan pendientes.
 - **FR-007**: La aplicación MUST NOT reimplementar la lógica de descarga: MUST usar la misma cola persistente y el mismo trabajador que la CLI, de modo que todo lo garantizado por la feature 001 (reanudación, reintentos, verificación, publicación, rechazo de DRM) valga igual.
 - **FR-008**: Nunca MUST haber dos procesadores de la misma cola a la vez, sea cual sea su origen (CLI, aplicación o una sesión anterior de la aplicación). Al abrirse y antes de iniciar, la aplicación MUST detectar un procesador en marcha; si lo hay, MUST mostrar la cola en directo e indicar su origen, y MUST NOT lanzar otro.
-- **FR-009**: Detener MUST equivaler al Ctrl+C de `ejecutar`: termina de forma ordenada, conserva el progreso y deja la cola lista para reanudar desde la aplicación o desde la CLI. La ventana MUST indicar que se está deteniendo hasta que el procesamiento haya terminado. La aplicación MUST permitir detener solo los procesamientos que lanzó ella misma, también desde una sesión anterior; MUST NOT detener un `ejecutar` lanzado desde la CLI, y MUST indicar que ese se detiene desde su terminal.
+- **FR-009**: Pausar MUST equivaler al Ctrl+C de `ejecutar`: termina de forma ordenada, conserva el progreso y deja la cola lista para reanudar desde la aplicación o desde la CLI. La ventana MUST indicar que se está deteniendo hasta que el procesamiento haya terminado. La aplicación MUST permitir pausar solo los procesamientos que lanzó ella misma, también desde una sesión anterior; MUST NOT detener un `ejecutar` lanzado desde la CLI, y MUST indicar que ese se detiene desde su terminal.
 - **FR-010**: Al cerrar la ventana con un procesamiento lanzado por la aplicación en marcha, la aplicación MUST preguntar si seguir en segundo plano, pausar o cancelar el cierre. Seguir MUST dejar el procesamiento en marcha sin ventana ni consola visibles; pausar MUST detenerlo como en FR-009 y cerrar la ventana al terminar; cancelar MUST dejarlo todo como estaba. Sin procesamiento de la aplicación en marcha, la ventana MUST cerrarse sin preguntar.
-- **FR-011**: Al abrirse con un procesamiento en segundo plano en marcha, la aplicación MUST reconectarse a él, mostrar la cola en directo y permitir detenerlo.
+- **FR-011**: Al abrirse con un procesamiento en segundo plano en marcha, la aplicación MUST reconectarse a él, mostrar la cola en directo y permitir pausarlo.
 - **FR-012**: Al terminar un procesamiento, la ventana MUST mostrar cuántas descargas se completaron y cuántas fallaron, con la causa de cada fallo, y los errores fatales con el mismo mensaje que da la CLI. El resultado de la última ejecución lanzada por la aplicación (ese resumen y, si lo hubo, el error fatal o inesperado con su mensaje) MUST conservarse aunque la ventana esté cerrada, y la ventana MUST mostrarlo al abrirse hasta que se inicie otra ejecución.
 - **FR-013**: La interfaz MUST aceptar solo conexiones del propio equipo y MUST rechazar cualquier conexión desde la red, en todas las configuraciones de red del equipo. Dentro del propio equipo, MUST atender solo a la ventana de la aplicación: MUST rechazar, sin ejecutar ninguna orden ni revelar el estado de la cola, cualquier petición de otro programa, incluidas las páginas web abiertas en un navegador.
 - **FR-014**: El uso de cookies del navegador MUST ser una opción explícita, desactivada al abrir la aplicación, que obliga a elegir un navegador y muestra la advertencia de la documentación de la CLI (Firefox fiable; Edge solo cerrado del todo; Chrome 127 o posterior no funciona). Las URLs agregadas con la opción activa MUST comportarse como `agregar --cookies-de NAVEGADOR`.
@@ -157,7 +157,7 @@ Para videos que exigen la sesión del usuario, este activa de forma explícita e
 - **FR-016**: Una descarga fallida por requerir sesión (acceso denegado, contenido que exige iniciar sesión, o la lista de reproducción sin videos de FR-028 de la feature 001) MUST ofrecer reintentarla con cookies eligiendo el navegador; al aceptar, MUST volver a la cola con ese navegador.
 - **FR-017**: La CLI MUST seguir funcionando igual: mismos comandos, opciones, salidas y códigos de salida. La aplicación MUST funcionar sobre la misma cola que la CLI, de modo que lo agregado desde una se vea y se procese desde la otra.
 - **FR-018**: Una segunda apertura de la aplicación con la ventana ya abierta MUST mostrar la ventana existente en lugar de abrir otra independiente.
-- **FR-019**: La ventana y el lanzador sin consola MUST funcionar en Windows 10/11; en Linux no se exigen. El resto de la aplicación (agregar, iniciar, detener, detección del procesador en marcha, segundo plano y reconexión, cookies, rechazo de conexiones desde la red) MUST funcionar y tener tests automatizados en Linux y en Windows, sin depender de la ventana. Esta excepción se apoya en la sección Plataformas de la constitución v3.1.0 (enmendada el 2026-10-28), que la limita a la ventana y el lanzador.
+- **FR-019**: La ventana y el lanzador sin consola MUST funcionar en Windows 10/11; en Linux no se exigen. El resto de la aplicación (agregar, iniciar, pausar, detección del procesador en marcha, segundo plano y reconexión, cookies, rechazo de conexiones desde la red) MUST funcionar y tener tests automatizados en Linux y en Windows, sin depender de la ventana. Esta excepción se apoya en la sección Plataformas de la constitución v3.1.0 (enmendada el 2026-10-28), que la limita a la ventana y el lanzador.
 - **FR-020**: La aplicación MUST escribir un registro de errores en la carpeta de configuración de la feature 001 con los errores fatales y los fallos inesperados de la ventana y del procesamiento que lanza, con fecha, qué falló y el detalle técnico. MUST ocultar en él tokens, firmas y cookies (FR-017 de la feature 001) y MUST NOT ocupar más de 2 MB en total: al llenarse, se descartan las entradas más antiguas.
 
 ### Key Entities
@@ -176,7 +176,7 @@ Para videos que exigen la sesión del usuario, este activa de forma explícita e
 - **SC-001**: Desde el doble clic en el lanzador hasta la ventana lista para pegar URLs pasan como mucho 5 segundos en el equipo de referencia (4 GB de RAM, Windows 10/11), sin que aparezca ninguna consola en ningún momento.
 - **SC-002**: Un usuario sin conocimientos de terminal agrega una URL y empieza a descargarla en menos de 1 minuto y con 3 acciones como máximo (pegar, agregar, iniciar).
 - **SC-003**: En 0 casos hay dos procesadores de la cola a la vez, en cualquier combinación de aperturas de la aplicación, cierres en segundo plano y `ejecutar` de la CLI.
-- **SC-004**: Tras Detener o Pausar, el procesamiento termina en 10 segundos como máximo, y el 100 % de las descargas detenidas se reanuda desde su progreso guardado, dentro de los límites de SC-002 de la feature 001 para Ctrl+C.
+- **SC-004**: Tras Pausar, o Pausar y cerrar, el procesamiento termina en 10 segundos como máximo, y el 100 % de las descargas detenidas se reanuda desde su progreso guardado, dentro de los límites de SC-002 de la feature 001 para Ctrl+C.
 - **SC-005**: Con 500 descargas en cola y una en curso, la memoria privada (la que solo usa cada proceso, sin la compartida con otros programas) sumada en todos los procesos de la aplicación (la ventana, lo que necesita para mostrarse y el procesador de la cola) no supera 300 MB en su punto más alto, medido durante toda la prueba, desde que se abre la aplicación hasta que termina la descarga en curso, en el equipo de referencia de 4 GB de RAM.
 - **SC-006**: El estado mostrado en la ventana (porcentaje, velocidad, tiempo estimado, estado) no va más de 2 segundos por detrás del procesador, sea de la aplicación o de la CLI.
 - **SC-007**: El 100 % de los intentos de acceso a la interfaz desde otro equipo, desde otro programa del propio equipo o desde una página web abierta en el navegador se rechazan sin efecto sobre la cola ni revelar su contenido.
@@ -186,6 +186,7 @@ Para videos que exigen la sesión del usuario, este activa de forma explícita e
 ## Assumptions
 
 - La sección Plataformas de la constitución v3.1.0 (enmendada el 2026-10-28) admite la ventana y el lanzador solo en Windows (FR-019); el CI de Linux sigue ejecutando los tests de la CLI y de la lógica de la aplicación.
+- SC-001 se mide con el entorno ya sincronizado. La primera apertura tras instalar o actualizar puede tardar más, porque el lanzador sincroniza el entorno antes de abrir la ventana. Si la sincronización falla (por ejemplo, sin red), el usuario ve un mensaje claro con la causa y qué hacer, nunca un doble clic sin respuesta.
 
 - Los usuarios trabajan en un solo equipo y con una sola cuenta: acceso remoto y varios usuarios están fuera de alcance.
 - El lanzador se ejecuta desde un clon del repositorio ya instalado según el README (uv, ffmpeg y ffprobe); instalador y ejecutable propio quedan para la etapa 2, con su propia especificación.

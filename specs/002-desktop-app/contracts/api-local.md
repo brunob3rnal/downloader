@@ -70,6 +70,7 @@ si nada cambió, la respuesta es **304** sin cuerpo (R13).
     "motivo": "texto que explica por qué no se puede iniciar o detener, o null"
   },
   "en_linea": true,
+  "en_directo": true,
   "cola": {
     "total": 5,
     "filas": [
@@ -94,6 +95,9 @@ si nada cambió, la respuesta es **304** sin cuerpo (R13).
   viene vacío y `cola_corrupta` lleva el mensaje (Edge Cases).
 - `en_linea` es null si no hay un procesador en marcha o si `progreso-vivo.json` tiene más de
   5 s.
+- `en_directo` es `false` si hay un procesador en marcha y no hay un `progreso-vivo.json` válido
+  (ausente, de otro proceso o de más de 5 s). Entonces la fila activa no lleva `velocidad`,
+  `eta` ni el porcentaje del vivo: nunca se muestran datos viejos (R9). Sin procesador, `null`.
 - `puede_detener` solo es verdadero con origen `app` y estado `en_marcha`. Con origen `cli`,
   `motivo` dice: "Este procesamiento se lanzó desde la terminal; deténgalo allí con Ctrl+C."
   (FR-009, US3 escenario 5).

@@ -14,6 +14,10 @@ final.
 - Sin `uv` en el `PATH`, muestra un cuadro de mensaje: "No se encuentra uv. Instálelo con
   `winget install --id=astral-sh.uv -e`, abra una terminal nueva, ejecute `uv sync` en la
   carpeta del repositorio y vuelva a abrir el Gestor de descargas."
+- Sincroniza el entorno antes de abrir la ventana (R11). Si la sincronización falla, muestra
+  un cuadro de mensaje: "No se pudo preparar el entorno del Gestor de descargas. Compruebe la
+  conexión a internet y vuelva a intentarlo. Si el problema sigue, ejecute `uv sync` en una
+  terminal, en la carpeta del repositorio, para ver el error." y no abre la ventana.
 - Respaldo: `.venv\Scripts\gestor-descargas.exe`, que crea `uv sync` (R11).
 
 ## Arranque
@@ -40,7 +44,7 @@ final.
 2. **Cabecera de la cola**:
    - título "Cola", subtítulo "N descargas · una a la vez" y el origen del procesamiento si
      no es de la ventana ("En marcha desde la terminal");
-   - botones **Iniciar** y **Pausar** (Pausar es el Detener de la spec), activos según
+   - botones **Iniciar** y **Pausar** (la parada ordenada de FR-009), activos según
      `puede_iniciar` y `puede_detener`, con el `motivo` como explicación al pasar el cursor y
      al pulsar.
 3. **Lista**: una fila por descarga.
@@ -48,7 +52,8 @@ final.
    - en el centro, la etiqueta de estado con su color (Descargando, azul; En cola, gris;
      Completada, verde; Esperando red o "Sin datos hace N s, reintentando", naranja;
      Falló, rojo), el porcentaje a la derecha, la barra de progreso y una línea de detalle:
-     velocidad y "quedan …", el aviso, el destino o la causa del fallo;
+     velocidad y "quedan …", el aviso, el destino o la causa del fallo; con `en_directo: false`,
+     "Sin datos en directo" en lugar de velocidad y tiempo estimado (R9);
    - a la derecha, **Reintentar con cookies** si `reintentar_con_cookies`. Al pulsarlo se elige
      el navegador con su advertencia y se confirma.
 4. **Resultado de la última ejecución** (FR-012): una franja sobre la lista, que se puede
@@ -87,7 +92,6 @@ Solo con un procesador de origen `app` en marcha. Es un diálogo modal dentro de
 | Maqueta | Ventana | Motivo |
 |---------|---------|--------|
 | Sin opción de cookies | Casilla, navegador y advertencia en el panel de enlaces | FR-014 y la entrada del plan |
-| Botón "Pausar" | Se mantiene "Pausar", con el comportamiento de Detener | FR-009; mismo término que "Pausar y cerrar" |
 | Sin resultado de la última ejecución | Franja sobre la lista | FR-012 |
 | Sin indicación del origen del procesamiento | Subtítulo en la cabecera de la cola | US3 escenario 1, FR-008 |
 | "Con conexión" siempre visible | Solo con un procesador; si no, "Sin procesamiento en marcha" | El estado de la red lo mide el trabajador (R9); la ventana no sondea la red por su cuenta |

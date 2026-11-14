@@ -50,7 +50,7 @@ Detalle en [data-model.md](data-model.md) y [contracts/archivos.md](contracts/ar
 - pytest, como en 001: servidor HTTP local con cortes simulados y sin internet.
 - La API se prueba con `http.client` contra el servidor real y una ventana falsa.
 - Los subprocesos del trabajador se prueban de verdad: se lanzan, se paran y se matan.
-- Marcadores nuevos: `solo_windows` (todo test exclusivo de Windows: la capa de la ventana y el lanzador, y las comprobaciones de R7, R8 y R11 que solo existen allí) y `pywebview_internals` (R2, R19).
+- Marcadores nuevos: `solo_windows` (solo tests de la ventana y del lanzador, la única parte exclusiva de Windows según la constitución v3.1.0) y `pywebview_internals` (R2, R19).
 - La memoria se mide con un script aparte en Windows (R14).
 
 **Target Platform**:
@@ -144,8 +144,9 @@ src/downloader/
     ├── __init__.py
     ├── __main__.py            # python -m downloader.app → principal.main
     ├── gestor.pyw             # [Windows] punto de entrada de uv run --gui-script
-    ├── principal.py           # arranque: instancia única, registro, servidor, ventana
-    │                          #   (importa ventana/ solo en win32)
+    ├── principal.py           # arrancar(crear_ventana, comprobar_motor): instancia única →
+    │                          #   WebView2 (Windows) → servidor → ventana; main() importa
+    │                          #   ventana/ solo en win32; en otro sistema sale con 2 y un mensaje
     ├── instancia.py           # ventana.lock y activar.solicitud (R12)
     ├── servidor.py            # ThreadingHTTPServer en 127.0.0.1:0; controles de R4; estáticos
     ├── api.py                 # rutas de contracts/api-local.md sobre una Ventana abstracta
@@ -202,9 +203,9 @@ duplicarlo (`operaciones.py`, `bloqueo.py`) y que la ventana no cargue yt-dlp (`
 2. **`procesador.json` y `progreso-vivo.json` los escribe también la CLI**: es un cambio
    interno de `ejecutar`, invisible en su salida, necesario para FR-005 y FR-008 con un
    procesador de la CLI (R6, R9).
-3. **Botón "Pausar" en lugar de "Detener"**: lo dicen la entrada y la maqueta. El
-   comportamiento es el Detener de la spec (FR-009), y el término coincide con "Pausar y
-   cerrar".
+3. **Botón "Pausar"**: lo dicen la entrada y la maqueta, y la spec usa ya ese nombre
+   (hallazgo S1 de `/speckit-analyze`). El comportamiento es la parada ordenada de FR-009, y el
+   término coincide con "Pausar y cerrar".
 4. **Pie "Con conexión"**: solo se muestra con un procesador en marcha, porque el estado de la
    red lo mide el trabajador. La ventana no sondea la red por su cuenta (contracts/ventana.md).
 5. **Opción de cookies y franja del resultado**: se añaden a la maqueta, que no los tiene

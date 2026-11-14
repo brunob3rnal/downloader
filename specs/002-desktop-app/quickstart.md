@@ -42,9 +42,9 @@ Qué cubren, por escenario de la spec:
 |-----------|------|-----------|
 | US1 agregar | `test_app_agregar.py` | líneas vacías ignoradas, inválidas con su número, duplicados como `agregar`, carpeta inválida rechaza todo |
 | US1 y US3 un procesador | `test_app_procesador.py` | Iniciar con un `ejecutar` de la CLI en marcha da 409; con la app procesando, `ejecutar` sale con 2; la carrera por el bloqueo (R6) |
-| US2 detener | `test_app_parada.py` | parada con datos llegando y en `waiting_network`: termina con 130, progreso guardado, reanuda sin empezar de cero; mide el tiempo frente a SC-004 |
+| US2 Pausar | `test_app_parada.py` | parada con datos llegando, en `waiting_network` y con la conexión estancada: termina con 130, progreso guardado, reanuda sin empezar de cero; con la conexión estancada, Linux ≤ 10 s y Windows registra el tiempo y falla solo por encima de 25 s (SC-004) |
 | US3 escenario 5 | `test_app_procesador.py` | detener un `ejecutar` de la CLI da 409 con el motivo |
-| US4 segundo plano | `test_app_segundo_plano.py` (`slow`) | el trabajador sigue vivo al terminar la cadena de la ventana (R8); al reabrir, `api/estado` lo muestra y `api/detener` funciona |
+| US4 segundo plano | `test_app_segundo_plano.py` (`slow`), `test_lanzador_segundo_plano.py` (`solo_windows`) | el trabajador sigue vivo al terminar el proceso de la ventana y, en Windows, la cadena del lanzador (R8); al reabrir, `api/estado` lo muestra y `api/detener` funciona |
 | US4 cierre | `test_app_cierre.py` | `cierre.decidir` y `api/cerrar` con una ventana falsa |
 | US5 cookies | `test_app_cookies.py` | opción desactivada por defecto, reintento con navegador (navegador falso de 001), nada de cookies en disco |
 | FR-005, SC-006 | `test_app_vivo.py` | velocidad y tiempo estimado también con un `ejecutar` de la CLI; retraso ≤ 2 s |
@@ -52,6 +52,9 @@ Qué cubren, por escenario de la spec:
 | FR-013, SC-007 | `test_app_seguridad.py` | todos los rechazos de research R4 |
 | FR-018 | `test_app_instancia.py` | la segunda apertura escribe `activar.solicitud` y termina |
 | R15 | `test_app_sin_ytdlp.py` | los módulos de la ventana no cargan yt-dlp |
+| FR-003 | `test_app_examinar.py` | `api/examinar` con la ventana falsa: ruta elegida, cancelado y 501 sin diálogo |
+| FR-017, SC-009 | `test_cli_caracterizacion.py`, `test_ejecutar_sin_archivos_vivos.py` | salida y códigos de `agregar`, `ejecutar` y `estado` iguales a las referencias tomadas antes de cambiar la CLI, también si fallan los archivos informativos |
+| R8 | `test_lanzar_desacoplado.py` | un hijo lanzado fuera del objeto de trabajo (Windows) o en otra sesión (Linux) sobrevive a su padre bajo `uv run pytest` |
 
 ## B. Escenarios manuales **[manual, Windows]**
 
@@ -71,6 +74,11 @@ Esperado:
 - no aparece ninguna consola en ningún momento;
 - la ventana coincide con la maqueta (contracts/ventana.md);
 - con el entorno ya sincronizado, tarda 5 s o menos.
+
+**V1b. Sincronización fallida (spec, Assumptions)**: con un cambio pendiente en `uv.lock` (por
+ejemplo, tras un `git pull`) y sin red, doble clic en el lanzador. Esperado: el cuadro de
+mensaje de contracts/ventana.md ("No se pudo preparar el entorno…"), sin ventana a medias y
+nunca un doble clic sin respuesta.
 
 ### V2. Agregar, iniciar y ver el progreso (US1)
 
@@ -155,6 +163,14 @@ Con la ventana abierta, doble clic otra vez en el lanzador.
 
 Esperado: no se abre otra; la existente pasa al frente o parpadea en la barra de tareas
 (R12).
+
+### V10. Agregar y empezar a descargar sin terminal (SC-002)
+
+Una persona que no use la terminal, con la ventana abierta y una URL del servidor local
+copiada, agrega la URL y empieza a descargarla. Cronometre y cuente las acciones.
+
+Esperado: menos de 1 minuto y 3 acciones como máximo (pegar, **Agregar a la cola**,
+**Iniciar**).
 
 ## C. Memoria (SC-005) **[manual, Windows, equipo de referencia de 4 GB]**
 
