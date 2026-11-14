@@ -9,8 +9,16 @@ limitar la velocidad; y, para todo el servidor, exigir una cookie de sesión.
 También sirve las páginas que consulta `fake_extractor`: `/watch/<id>` y `/playlist/<id>`
 devuelven JSON con la URL de medios (con un token nuevo en cada consulta) o las entradas de
 la lista. Así, con el servidor detenido, la extracción también falla por la red.
+
+Modo independiente, para quickstart.md y `scripts/medir_memoria.py` de la feature 002::
+
+    python -m tests.support.flaky_server --servir PUERTO --limite BYTES_POR_S \
+        --archivo NOMBRE --tamano BYTES
+
+Sirve en `127.0.0.1:PUERTO` un archivo de `--tamano` bytes a `--limite` bytes/s hasta Ctrl+C.
 """
 
+import argparse
 import json
 import sys
 import re
@@ -70,7 +78,7 @@ class FlakyServer:
         servidor.cerrar()
     """
 
-    def __init__(self):
+    def __init__(self, puerto=0):
         self._archivos: dict[str, _Archivo] = {}
         self._videos: dict[str, _Video] = {}
         self._listas: dict[str, tuple[str, list[str]]] = {}
@@ -90,7 +98,7 @@ class FlakyServer:
         self.rangos: defaultdict[str, list[str | None]] = defaultdict(list)
         # Ruta de cada petición, en orden: también páginas y rutas no registradas (404).
         self.pedidas: list[str] = []
-        self.puerto = 0
+        self.puerto = puerto
         self._httpd = None
         self._hilo = None
         self._arrancar()
@@ -529,3 +537,31 @@ class _Manejador(BaseHTTPRequestHandler):
             return self._responder_vacio(404)
         titulo, entradas = self.flaky._listas[id_lista]
         self._responder_json({"id": id_lista, "titulo": titulo, "entradas": entradas})
+
+
+def main(argv=None):
+    """Modo independiente: un archivo generado, servido a velocidad limitada hasta Ctrl+C."""
+    parser = argparse.ArgumentParser(prog="python -m tests.support.flaky_server")
+    parser.add_argument("--servir", type=int, required=True, metavar="PUERTO",
+                        help="puerto en 127.0.0.1 (0: uno libre)")
+    parser.add_argument("--limite", type=int, default=None, metavar="BYTES_POR_S",
+                        help="velocidad máxima por conexión; sin límite si se omite")
+    parser.add_argument("--archivo", default="video.mp4", metavar="NOMBRE")
+    parser.add_argument("--tamano", type=int, default=200_000_000, metavar="BYTES")
+    args = parser.parse_args(argv)
+
+    servidor = FlakyServer(puerto=args.servir)
+    servidor.registrar(args.archivo, bytes(args.tamano), tipo_contenido="video/mp4",
+                       velocidad=args.limite)
+    print(f"sirviendo {servidor.url(args.archivo)}", flush=True)
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        servidor.cerrar()
+
+
+if __name__ == "__main__":
+    main()

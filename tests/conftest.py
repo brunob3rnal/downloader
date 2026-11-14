@@ -2,6 +2,7 @@ import dataclasses
 import functools
 import shutil
 import subprocess
+import sys
 import threading
 from types import SimpleNamespace
 
@@ -15,6 +16,8 @@ FFMPEG_DISPONIBLE = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 def pytest_runtest_setup(item):
     if item.get_closest_marker("ffmpeg") and not FFMPEG_DISPONIBLE:
         pytest.skip("requiere ffmpeg y ffprobe en el PATH")
+    if item.get_closest_marker("solo_windows") and sys.platform != "win32":
+        pytest.skip("solo Windows (constitución v3.1.0)")
 
 
 class MonitorFalso:

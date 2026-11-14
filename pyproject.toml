@@ -7,6 +7,8 @@ license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
+    "psutil>=7.2.2",
+    "pywebview>=6.2.1 ; sys_platform == 'win32'",
     "typer>=0.27.3",
     "yt-dlp[default]>=2026.8.19",
 ]
@@ -30,4 +32,6 @@ markers = [
     "ffmpeg: requiere ffmpeg y ffprobe en el PATH",
     "slow: tarda más de unos 5 s; los tests rápidos se ejecutan con -m \"not slow\"",
     "ytdlp_internals: depende del comportamiento interno de yt-dlp; `downloader actualizar` los ejecuta antes de aceptar una versión nueva",
+    "solo_windows: test de la ventana o del lanzador, la única parte exclusiva de Windows (constitución v3.1.0); se omite en Linux",
+    "pywebview_internals: depende de internos de pywebview; ver specs/002-desktop-app/research.md R2",
 ]

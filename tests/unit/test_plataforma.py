@@ -12,6 +12,10 @@ import pytest
 
 RAIZ = Path(__file__).resolve().parents[2]
 PAQUETE = RAIZ / "src" / "downloader"
+# La ventana de la aplicación de escritorio: la única parte que la constitución v3.1.0 admite
+# exclusiva de Windows. Sus módulos pueden usar APIs de Windows sin proteger y no se importan
+# en Linux.
+VENTANA = ("src", "downloader", "app", "ventana")
 
 # Módulos que solo existen en POSIX o solo en Windows.
 SOLO_POSIX = {"fcntl", "termios", "tty", "pty", "resource", "pwd", "grp", "posix", "syslog"}
@@ -40,7 +44,10 @@ def _modulos_del_paquete() -> list[str]:
         if partes[-1] == "__init__":
             partes = partes[:-1]
         if partes[-1] != "__main__":  # importarlo ejecutaría la CLI
-            nombres.append(".".join(partes))
+            nombre = ".".join(partes)
+            if nombre.startswith(".".join(VENTANA[1:])):
+                nombre = pytest.param(nombre, marks=pytest.mark.solo_windows)
+            nombres.append(nombre)
     return nombres
 
 
@@ -112,11 +119,39 @@ def _usos_sin_proteger(ruta: Path) -> list[str]:
     return usos
 
 
+def _usos_no_admitidos(ruta: Path) -> list[str]:
+    """Los usos sin proteger, salvo dentro de la ventana (constitución v3.1.0)."""
+    if ruta.relative_to(RAIZ).parts[: len(VENTANA)] == VENTANA:
+        return []
+    return _usos_sin_proteger(ruta)
+
+
 def test_sin_usos_de_un_solo_sistema_sin_proteger():
     """`import fcntl`, `signal.SIGKILL`, `os.fork`… solo bajo `if os.name …`/`sys.platform`,
-    `hasattr(...)` o `try: … except ImportError`."""
-    usos = [uso for ruta in _archivos_python() for uso in _usos_sin_proteger(ruta)]
+    `hasattr(...)` o `try: … except ImportError`, salvo en la ventana."""
+    usos = [uso for ruta in _archivos_python() for uso in _usos_no_admitidos(ruta)]
     assert usos == []
+
+
+@pytest.mark.parametrize(
+    ("carpeta", "admitido"),
+    [
+        (("src", "downloader", "app", "ventana"), True),
+        (("src", "downloader", "app", "ventana", "sub"), True),
+        (("src", "downloader", "app"), False),
+        (("src", "downloader", "app", "ventanas"), False),
+        (("src", "downloader"), False),
+    ],
+)
+def test_solo_la_ventana_admite_usos_de_windows_sin_proteger(tmp_path, monkeypatch, carpeta,
+                                                             admitido):
+    monkeypatch.setattr(f"{__name__}.RAIZ", tmp_path)
+    directorio = tmp_path.joinpath(*carpeta)
+    directorio.mkdir(parents=True)
+    ruta = directorio / "m.py"
+    ruta.write_text("import winreg\nimport ctypes\nimport subprocess\n"
+                    "f = subprocess.CREATE_NO_WINDOW", encoding="utf-8")
+    assert (_usos_no_admitidos(ruta) == []) is admitido
 
 
 @pytest.mark.parametrize(
