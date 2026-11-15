@@ -60,11 +60,21 @@ def _esperar(condicion, que):
 
 
 def _terminar(proceso):
+    """Mata el proceso y sus descendientes y espera a que salgan: en Windows, `kill` vuelve
+    antes de que el proceso haya terminado."""
     if proceso.poll() is None:
-        for p in psutil.Process(proceso.pid).children(recursive=True):
-            p.kill()
+        try:
+            hijos = psutil.Process(proceso.pid).children(recursive=True)
+        except psutil.NoSuchProcess:
+            hijos = []
+        for p in hijos:
+            try:
+                p.kill()
+            except psutil.NoSuchProcess:
+                pass
         proceso.kill()
         proceso.wait()
+        psutil.wait_procs(hijos, timeout=10)
 
 
 @pytest.fixture

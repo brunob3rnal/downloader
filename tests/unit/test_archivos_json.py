@@ -78,15 +78,17 @@ def test_sin_reintentar_devuelve_false_sin_lanzar(tmp_path, monkeypatch):
     assert list(tmp_path.iterdir()) == []  # sin temporales ni destino
 
 
-def test_otros_errores_se_lanzan_sin_dejar_temporales(tmp_path):
+def test_un_destino_imposible_no_se_escribe_ni_deja_temporales(tmp_path):
     ruta = tmp_path / "x.json"
     ruta.mkdir()  # un directorio en su lugar: no se puede reemplazar
+    # Linux lanza `IsADirectoryError`; Windows da `PermissionError`, que se trata como un
+    # destino en uso y devuelve `False`. En ninguno de los dos se escribe nada.
     try:
-        archivos_json.escribir_atomico(ruta, {"a": 1})
+        resultado = archivos_json.escribir_atomico(ruta, {"a": 1})
     except OSError:
-        pass
-    else:
-        raise AssertionError("debía fallar")
+        resultado = None
+    assert resultado in (None, False)
+    assert ruta.is_dir()
     assert [p.name for p in tmp_path.iterdir()] == ["x.json"]
 
 
