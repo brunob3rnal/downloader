@@ -143,7 +143,7 @@ cambiar el comportamiento de la CLI.
 - [X] T018 Hacer que `errors.py`, `worker.py` y `ytdl.py` importen y reexporten desde esos módulos, con los mismos nombres (`errors.ErrorFatal`, `errors.ocultar_secretos`, `errors.CONSEJO_SESION`…). Cambiar `store.py` para que importe `ErrorFatal` de `excepciones.py`. Añadir `NAVEGADORES` como `frozenset` en `src/downloader/models.py` y hacer que `ytdl.NAVEGADORES` la reexporte
 - [X] T019 [P] Mover `_bloquear` y `_desbloquear` (con su import condicional `msvcrt`/`fcntl`) de `src/downloader/store.py` a `src/downloader/bloqueo.py`, con las funciones públicas `bloquear(descriptor) -> bool` y `desbloquear(descriptor)`. `store.py` las usa desde ahí, sin cambiar su comportamiento (R12). *(Hecho de otra forma: `tests/unit/test_store.py::test_bloqueo_con_msvcrt_simulado`, de la 001, vuelve a ejecutar el código de `store.py` simulando Windows, así que la implementación se queda en `store.py` y `bloqueo.py` es su interfaz pública; test en `tests/unit/test_bloqueo.py`.)*
 - [X] T020 Quitar de `src/downloader/publish.py` la carga de yt-dlp en el nivel de módulo (R15): importar `ErrorFatal` y `ErrorPermanente` de `excepciones.py`, y mover `from yt_dlp.utils import sanitize_filename` dentro de `nombre_publicado`. `escribible`, `PLANTILLA_NOMBRE`, `CAMPOS_PLANTILLA` y `validar_plantilla` siguen en `publish` con los mismos nombres, porque `tests/integration/test_cli_agregar.py` sustituye `publish.escribible` y debe seguir funcionando sin modificarse
-- [ ] T021 Commit `002 Fase 3: módulos sin yt-dlp para la ventana (R15, R17)`
+- [X] T021 Commit `002 Fase 3: módulos sin yt-dlp para la ventana (R15, R17)`
 
 **Aceptación**:
 - `test_app_sin_ytdlp.py` y `test_mensajes.py` en verde;
@@ -176,7 +176,7 @@ idéntica (FR-017).
   - `validar_carpeta` llama a `publish.escribible` a través del módulo, para que la sustitución de `test_cli_agregar.py` siga aplicándose;
   - los tiempos se crean con `worker.Tiempos` a través del módulo (lo sustituye `tests/conftest.py`), y `cli.ejecutar` conserva `_comprobar_ffmpeg` y el uso de `MonitorRed` que sustituye `tests/unit/test_config.py`
 - [X] T026 Cambiar `src/downloader/cli.py` para que `agregar` y `ejecutar` deleguen en `operaciones`: convertir `ValueError` en `_error(..., USO_INVALIDO)` y `EjecucionEnCurso` en código 2, y conservar los mensajes, el orden de las comprobaciones y los códigos 0, 1, 2, 3 y 130
-- [ ] T027 Commit `002 Fase 4b: operaciones compartidas entre la CLI y la aplicación`
+- [X] T027 Commit `002 Fase 4b: operaciones compartidas entre la CLI y la aplicación`
 
 **Aceptación**:
 - `test_operaciones.py` en verde;
@@ -229,7 +229,7 @@ progreso en directo, sin cambiar nada visible de la CLI (R6, R9; contracts/archi
   - un fallo al escribir o borrar `procesador.json` (también de `psutil`) se captura y se anota en el logger `downloader.vivo`; nunca cambia la salida ni el código de `ejecutar` (R9).
 
   El `Presentador` de la CLI no cambia
-- [ ] T035 Commit `002 Fase 5: ejecutar publica procesador.json y progreso-vivo.json`
+- [X] T035 Commit `002 Fase 5: ejecutar publica procesador.json y progreso-vivo.json`
 
 **Aceptación**:
 - T028–T031 en verde en Linux y en Windows;
