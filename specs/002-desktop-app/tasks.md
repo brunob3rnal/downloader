@@ -56,6 +56,7 @@ capa de Windows. US4 también: segundo plano, y cierre con instancia única.
   su criterio de aceptación con
   `git diff --name-only --diff-filter=M HEAD -- tests/unit tests/integration`, que debe salir
   vacío.
+- **Sin el marcador `slow` en tests nuevos**: `tests/unit/test_marcadores.py` (001) fija la lista exacta de tests lentos y no se puede modificar. Las tareas que piden `slow` (T086, T087, T062) lo omiten.
 - Al cerrar cada fase: `uv run pytest` en verde (en Linux en local y en Linux y Windows en el
   CI), y un commit con el mensaje indicado.
 
@@ -162,19 +163,19 @@ idéntica (FR-017).
   - `estado`: cola vacía, con filas y cola corrupta (3).
 
   Para cada camino guarda la salida estándar, la de error y el código de salida, normalizados: ids, rutas temporales, separadores de ruta, puertos, fechas y las líneas de progreso con velocidad o tiempo estimado. Los compara con referencias en `tests/integration/referencias_cli/`. Con `DOWNLOADER_GENERAR_REFERENCIAS=1`, las escribe en lugar de compararlas. Las referencias se generan **sobre el código sin modificar**, antes de T025
-- [ ] T023 Generar las referencias con `DOWNLOADER_GENERAR_REFERENCIAS=1 uv run pytest tests/integration/test_cli_caracterizacion.py` sobre el código sin modificar, comprobar que el test pasa en Linux y en Windows sin la variable y hacer commit `002 Fase 4a: referencias de la salida de la CLI`. Si en Windows difiere, ajustar la normalización (nunca las referencias a mano) antes de tocar `cli.py`
-- [ ] T024 [P] Escribir `tests/unit/test_operaciones.py` con estos casos:
+- [X] T023 Generar las referencias con `DOWNLOADER_GENERAR_REFERENCIAS=1 uv run pytest tests/integration/test_cli_caracterizacion.py` sobre el código sin modificar, comprobar que el test pasa en Linux y en Windows sin la variable y hacer commit `002 Fase 4a: referencias de la salida de la CLI`. Si en Windows difiere, ajustar la normalización (nunca las referencias a mano) antes de tocar `cli.py`
+- [X] T024 [P] Escribir `tests/unit/test_operaciones.py` con estos casos:
   - `validar_calidad`, `validar_navegador` y `validar_carpeta` lanzan `ValueError` con los mismos textos que hoy imprime la CLI ("calidad desconocida «x»; admitidas: …", "navegador no admitido en --cookies-de: «x»; admitidos: …", "la carpeta de destino X no existe", "sin permiso de escritura en la carpeta de destino X");
   - `agregar_urls(store, urls, calidad, carpeta, navegador)` devuelve la lista de `ResultadoAgregar` con las acciones `agregada`, `ya_en_cola` y `reencolada`;
   - `ejecutar_cola(origen="cli", ...)` devuelve el `worker.Resultado` y lanza `EjecucionEnCurso` si `ejecutar.lock` está tomado;
   - importar `downloader.operaciones` en un intérprete limpio no carga yt-dlp (R15).
 
   Debe fallar (rojo)
-- [ ] T025 Crear `src/downloader/operaciones.py` con `validar_calidad`, `validar_navegador`, `validar_carpeta`, `agregar_urls` y `ejecutar_cola(origen, ejecucion=None, navegador=None, presentador=None)`. `ejecutar_cola` toma el bloqueo, llama a `recuperar()`, arranca `MonitorRed`, llama a `worker.ejecutar` y devuelve el `Resultado`. La comprobación de ffmpeg y la configuración siguen siendo responsabilidad del llamador, como hoy. Para que los tests de 001 pasen sin modificarse:
+- [X] T025 Crear `src/downloader/operaciones.py` con `validar_calidad`, `validar_navegador`, `validar_carpeta`, `agregar_urls` y `ejecutar_cola(origen, ejecucion=None, navegador=None, presentador=None)`. `ejecutar_cola` toma el bloqueo, llama a `recuperar()`, arranca `MonitorRed`, llama a `worker.ejecutar` y devuelve el `Resultado`. La comprobación de ffmpeg y la configuración siguen siendo responsabilidad del llamador, como hoy. Para que los tests de 001 pasen sin modificarse:
   - `worker`, `network` y `ytdl` se importan dentro de `ejecutar_cola`, no en el nivel del módulo (R15);
   - `validar_carpeta` llama a `publish.escribible` a través del módulo, para que la sustitución de `test_cli_agregar.py` siga aplicándose;
   - los tiempos se crean con `worker.Tiempos` a través del módulo (lo sustituye `tests/conftest.py`), y `cli.ejecutar` conserva `_comprobar_ffmpeg` y el uso de `MonitorRed` que sustituye `tests/unit/test_config.py`
-- [ ] T026 Cambiar `src/downloader/cli.py` para que `agregar` y `ejecutar` deleguen en `operaciones`: convertir `ValueError` en `_error(..., USO_INVALIDO)` y `EjecucionEnCurso` en código 2, y conservar los mensajes, el orden de las comprobaciones y los códigos 0, 1, 2, 3 y 130
+- [X] T026 Cambiar `src/downloader/cli.py` para que `agregar` y `ejecutar` deleguen en `operaciones`: convertir `ValueError` en `_error(..., USO_INVALIDO)` y `EjecucionEnCurso` en código 2, y conservar los mensajes, el orden de las comprobaciones y los códigos 0, 1, 2, 3 y 130
 - [ ] T027 Commit `002 Fase 4b: operaciones compartidas entre la CLI y la aplicación`
 
 **Aceptación**:

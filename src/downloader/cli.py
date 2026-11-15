@@ -11,11 +11,11 @@ from typing import Annotated
 
 import typer
 
-from downloader import actualizacion, config, publish, worker, ytdl
+from downloader import actualizacion, config, operaciones
 from downloader.errors import ErrorFatal, ocultar_secretos
 from downloader.models import Calidad
-from downloader.network import MonitorRed
-from downloader.progress import Presentador, linea_estado
+from downloader.network import MonitorRed  # noqa: F401  (lo sustituyen los tests de la 001)
+from downloader.progress import linea_estado
 from downloader.store import BaseCorrupta, EjecucionEnCurso, Store
 
 # Códigos de salida (contracts/cli.md).
@@ -72,37 +72,25 @@ def _abrir_cola() -> Store:
         raise _error(str(error), FATAL) from None
 
 
-def _calidad(valor: str | None, por_defecto: Calidad) -> Calidad:
-    if valor is None:
-        return por_defecto
+def _validado(validar, *argumentos):
+    """Las validaciones de `operaciones` (compartidas con la aplicación) como uso inválido."""
     try:
-        return Calidad(valor)
-    except ValueError:
-        admitidas = ", ".join(c.value for c in Calidad)
-        raise _error(f"calidad desconocida «{valor}»; admitidas: {admitidas}", USO_INVALIDO) from None
+        return validar(*argumentos)
+    except ValueError as error:
+        raise _error(str(error), USO_INVALIDO) from None
+
+
+def _calidad(valor: str | None, por_defecto: Calidad) -> Calidad:
+    return _validado(operaciones.validar_calidad, valor, por_defecto)
 
 
 def _navegador(valor: str | None) -> str | None:
     """El nombre del navegador, si es uno de los que admite yt-dlp."""
-    if valor is None:
-        return None
-    navegador = valor.strip().lower()
-    if navegador not in ytdl.NAVEGADORES:
-        admitidos = ", ".join(sorted(ytdl.NAVEGADORES))
-        raise _error(
-            f"navegador no admitido en --cookies-de: «{valor}»; admitidos: {admitidos}",
-            USO_INVALIDO,
-        )
-    return navegador
+    return _validado(operaciones.validar_navegador, valor)
 
 
 def _carpeta(valor: Path | None, por_defecto: Path) -> Path:
-    carpeta = (valor or por_defecto).expanduser().resolve()
-    if not carpeta.is_dir():
-        raise _error(f"la carpeta de destino {carpeta} no existe", USO_INVALIDO)
-    if not publish.escribible(carpeta):
-        raise _error(f"sin permiso de escritura en la carpeta de destino {carpeta}", USO_INVALIDO)
-    return carpeta
+    return _validado(operaciones.validar_carpeta, valor, por_defecto)
 
 
 @app.command()
@@ -126,10 +114,10 @@ def agregar(
 
     store = _abrir_cola()
     try:
-        for url in urls:
-            resultado = store.agregar(
-                url.strip(), calidad_elegida, str(carpeta_elegida), navegador_cookies=navegador
-            )
+        resultados = operaciones.agregar_urls(
+            store, urls, calidad_elegida, carpeta_elegida, navegador
+        )
+        for resultado in resultados:
             descarga = resultado.descarga
             url_visible = ocultar_secretos(descarga.url)
             if resultado.accion == "agregada":
@@ -176,30 +164,14 @@ def ejecutar(cookies_de: CookiesDe = None) -> None:
     _comprobar_ffmpeg()  # antes de abrir la cola: sin ffmpeg no se toca (ni se recupera)
     store = _abrir_cola()
     try:
-        try:
-            store.bloquear_ejecucion()
-        except EjecucionEnCurso as error:
-            raise _error(str(error), USO_INVALIDO) from None
-        # Lo que un cierre abrupto dejó en `downloading` o `waiting_network` vuelve a la cola;
-        # el bloqueo garantiza que no es de otro `ejecutar` en marcha (R11).
-        store.recuperar()
-        monitor = MonitorRed(ajustes.sondas_red)
-        monitor.iniciar()
-        try:
-            tiempos = worker.Tiempos(
-                estancamiento=ajustes.estancamiento_segundos,
-                velocidad_minima=ajustes.estancamiento_velocidad_minima,
-            )
-            resultado = worker.ejecutar(
-                store, monitor, Presentador(), tiempos, navegador, ajustes.plantilla_nombre
-            )
-        except ErrorFatal as error:
-            raise _error(f"{error}. El progreso se ha conservado.", FATAL) from None
-        except KeyboardInterrupt:
-            typer.echo("interrumpido; progreso guardado", err=True)
-            raise typer.Exit(INTERRUMPIDO) from None
-        finally:
-            monitor.detener()
+        resultado = operaciones.ejecutar_cola(store, ajustes, origen="cli", navegador=navegador)
+    except EjecucionEnCurso as error:
+        raise _error(str(error), USO_INVALIDO) from None
+    except ErrorFatal as error:
+        raise _error(f"{error}. El progreso se ha conservado.", FATAL) from None
+    except KeyboardInterrupt:
+        typer.echo("interrumpido; progreso guardado", err=True)
+        raise typer.Exit(INTERRUMPIDO) from None
     finally:
         store.cerrar()
     if resultado.fallidas:  # la cola se vació, pero no todo se completó (FR-021)
