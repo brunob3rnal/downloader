@@ -20,7 +20,7 @@ from downloader.secretos import ocultar_secretos
 VIGENCIA_VIVO = 5  # s; un `progreso-vivo.json` más antiguo no se muestra
 SIN_DATOS_EN_DIRECTO = "Sin datos en directo"
 
-__all__ = ["NINGUNO", "filas", "en_directo", "etag", "sitio", "url_visible", "velocidad",
+__all__ = ["NINGUNO", "filas", "en_directo", "etag", "sitio", "direccion", "url_visible", "velocidad",
            "tiempo"]
 
 
@@ -30,6 +30,18 @@ def sitio(url: str) -> str:
         return (urlsplit(url).hostname or "").lower()
     except ValueError:
         return ""
+
+
+def direccion(url: str) -> str:
+    """Sitio y ruta, como bajo el título en la maqueta: sin esquema, usuario, puerto ni consulta."""
+    try:
+        partes = urlsplit(url)
+        host = (partes.hostname or "").lower()
+    except ValueError:
+        return ""
+    if not host:
+        return ""
+    return ocultar_secretos(host + partes.path.rstrip("/"))
 
 
 def url_visible(url: str) -> str:
@@ -101,6 +113,7 @@ def _fila(descarga, hijas: int, activa, sin_directo: bool) -> dict:
         "titulo": ocultar_secretos(descarga.titulo) if descarga.titulo else url_visible(
             descarga.url),
         "sitio": sitio(descarga.url),
+        "direccion": direccion(descarga.url),
         "estado": descarga.estado.value,
         "etiqueta": etiqueta[:1].upper() + etiqueta[1:],
         "porcentaje": _porcentaje(descarga.bytes_descargados, descarga.bytes_totales),

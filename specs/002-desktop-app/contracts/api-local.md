@@ -76,6 +76,7 @@ si nada cambió, la respuesta es **304** sin cuerpo (R13).
     "filas": [
       {
         "id": 12, "titulo": "Entrevista completa, parte 1", "sitio": "ejemplo.com",
+        "direccion": "ejemplo.com/video/entrevista-1",
         "estado": "downloading", "etiqueta": "Descargando",
         "porcentaje": 43.1, "velocidad": 2400000, "eta": 72,
         "sin_datos": null, "espera": null,
@@ -95,6 +96,8 @@ si nada cambió, la respuesta es **304** sin cuerpo (R13).
 - `detalle` es el texto ya formateado de la línea bajo la barra ("2,4 MB/s · quedan 1 min 12 s",
   "Esperando red · reintento en 40 s", "lista (2 videos)", "Sin datos en directo"), o null; el
   título muestra la URL sin usuario ni contraseña si no hay título (research R13).
+- `direccion` es la línea bajo el título de la maqueta: sitio y ruta, sin esquema, usuario,
+  contraseña, puerto ni consulta.
 - Las filas van en el orden de `cola.db` (id ascendente). Con una cola corrupta, `filas`
   viene vacío y `cola_corrupta` lleva el mensaje (Edge Cases).
 - `en_linea` es null si no hay un procesador en marcha o si `progreso-vivo.json` tiene más de

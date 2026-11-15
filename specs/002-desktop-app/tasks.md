@@ -386,21 +386,21 @@ mensaje claro con el código 3.
 
 ### Tests for User Story 1 (primero, en rojo)
 
-- [ ] T061 [P] [US1] Escribir `tests/unit/test_app_ventana_windows.py` (`@pytest.mark.solo_windows`) con estos casos, comprobando cada uno de ellos que no se crea ninguna ventana:
+- [X] T061 [P] [US1] Escribir `tests/unit/test_app_ventana_windows.py` (`@pytest.mark.solo_windows`) con estos casos, comprobando cada uno de ellos que no se crea ninguna ventana:
   - con `webview.platforms.winforms.renderer` parcheado a `"mshtml"`, `ventana.webview2.comprobar()` devuelve `False`; `principal.main()` llama a `MessageBoxW` (parcheado) con el texto exacto de R2, escribe una entrada en `registro/ventana.log` y termina con el código 3 **[a verificar R2: mensaje y código 3]**;
   - con la importación de `webview.platforms.winforms` parcheada para lanzar `Exception`, el mismo mensaje con la causa y el código 3;
   - con `@pytest.mark.pywebview_internals`, el atributo `renderer` existe y vale `edgechromium`, `mshtml` o `cef`.
-- [ ] T062 [P] [US1] Escribir `tests/integration/test_lanzador.py` (`@pytest.mark.solo_windows`, `slow`) (R11):
+- [X] T062 [P] [US1] Escribir `tests/integration/test_lanzador.py` (`@pytest.mark.solo_windows`, `slow`) (R11):
   1. ejecuta `wscript.exe //B "Gestor de descargas.vbs"` con `DOWNLOADER_HOME` temporal;
   2. espera hasta 30 s un proceso `pythonw.exe` cuya línea de órdenes contenga `gestor.pyw`;
   3. comprueba con `EnumWindows` (por `ctypes`) que ningún proceso de la cadena (`wscript`, `uv`, `pythonw` y sus hijos) tiene una ventana visible de clase `ConsoleWindowClass`;
   4. termina la cadena.
 
-- [ ] T063 [P] [US1] Escribir `tests/integration/test_app_examinar.py`, sin marcador, con `app_local` y `VentanaFalsa`: si `examinar_carpeta` devuelve una ruta, `POST api/examinar` → 200 `{"carpeta": ruta}`; si devuelve `None` (cancelado) → 200 `{"carpeta": null}`; con una `VentanaFalsa` sin diálogo de carpeta → 501, y `api/opciones` da `examinar_disponible: false`
+- [X] T063 [P] [US1] Escribir `tests/integration/test_app_examinar.py`, sin marcador, con `app_local` y `VentanaFalsa`: si `examinar_carpeta` devuelve una ruta, `POST api/examinar` → 200 `{"carpeta": ruta}`; si devuelve `None` (cancelado) → 200 `{"carpeta": null}`; con una `VentanaFalsa` sin diálogo de carpeta → 501, y `api/opciones` da `examinar_disponible: false`
 
 ### Implementation for User Story 1
 
-- [ ] T064 [P] [US1] Crear `src/downloader/app/web/index.html`, `app.css` y `app.js` según contracts/ventana.md y la maqueta:
+- [X] T064 [P] [US1] Crear `src/downloader/app/web/index.html`, `app.css` y `app.js` según contracts/ventana.md y la maqueta:
   - panel de enlaces (área de texto, Calidad, Guardar en con Examinar, Agregar a la cola, resumen y líneas inválidas);
   - cabecera Cola con su subtítulo, Iniciar y Pausar (Pausar desactivado hasta la Fase 9);
   - filas con título, sitio, etiqueta coloreada, porcentaje, barra y detalle;
@@ -408,11 +408,11 @@ mensaje claro con el código 3.
   - pie.
 
   `app.js` toma el secreto de `location.pathname`, envía `X-Gestor: 1`, consulta `api/estado` cada segundo con `If-None-Match` y actualiza solo las filas que cambian, por id. Si `en_directo` es `false`, muestra "Sin datos en directo" en la fila activa en lugar de velocidad y tiempo estimado (P2). Sin dependencias externas ni recursos de otros orígenes (CSP)
-- [ ] T065 [US1] Crear `src/downloader/app/ventana/webview2.py`:
+- [X] T065 [US1] Crear `src/downloader/app/ventana/webview2.py`:
   - `comprobar() -> str | None` (None si el motor es `edgechromium`; si no, la causa);
   - `mostrar_error(texto)` con `ctypes.windll.user32.MessageBoxW`;
   - el texto de R2.
-- [ ] T066 [US1] Crear `src/downloader/app/ventana/ventana.py`, una implementación de `Ventana` con pywebview:
+- [X] T066 [US1] Crear `src/downloader/app/ventana/ventana.py`, una implementación de `Ventana` con pywebview:
   - `webview.create_window("Gestor de descargas", url, width=1100, height=760, min_size=(720, 520))`;
   - `webview.start(gui="edgechromium", private_mode=True)`;
   - `examinar_carpeta` con `create_file_dialog(webview.FileDialog.FOLDER)`;
@@ -422,8 +422,8 @@ mensaje claro con el código 3.
   - las mitigaciones de memoria que T012 hizo obligatorias (research R14, "Decisión de la puerta"): fijar al arrancar `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--renderer-process-limit=1 --disable-gpu --disable-extensions"` **solo en el entorno del proceso de la aplicación** (`os.environ`, antes de `webview.start`), sumándolos a un valor que ya tuviera la variable, y **nunca** como variable persistente del usuario o del sistema (ni `setx` ni el registro). Con un test que lo compruebe, incluido que no se escribe nada fuera del proceso.
 
   Y `src/downloader/app/ventana/__init__.py`
-- [ ] T067 [US1] Completar `principal.main()` para Windows: comprobar WebView2 (si falla: mensaje, registro y código 3), arrancar el servidor y abrir la ventana. Implementar `POST api/examinar` (501 sin ventana real)
-- [ ] T068 [P] [US1] Crear `src/downloader/app/gestor.pyw`, que llama a `downloader.app.principal.main()`, y `Gestor de descargas.vbs` (R11). El `.vbs`:
+- [X] T067 [US1] Completar `principal.main()` para Windows: comprobar WebView2 (si falla: mensaje, registro y código 3), arrancar el servidor y abrir la ventana. Implementar `POST api/examinar` (501 sin ventana real)
+- [X] T068 [P] [US1] Crear `src/downloader/app/gestor.pyw`, que llama a `downloader.app.principal.main()`, y `Gestor de descargas.vbs` (R11). El `.vbs`:
   - fija el directorio de trabajo en su propia carpeta;
   - comprueba `uv` en el `PATH`; si falta, muestra un `MsgBox` con el texto de contracts/ventana.md;
   - sincroniza el entorno con `uv sync`, oculto (`WScript.Shell.Run(..., 0, True)`), y espera a que termine. Si sale con un código distinto de 0 (por ejemplo, sin red), muestra un `MsgBox` con el texto de contracts/ventana.md y termina, sin abrir la ventana;
@@ -716,3 +716,8 @@ Cada fase termina con la suite en verde y un commit:
 - Ninguna tarea enmienda la spec. Si una medición contradice un criterio (SC-004, SC-005), se
   comunica al usuario con la cifra y se espera su decisión.
 - Los archivos de test de la feature 001 no se modifican, salvo `test_plataforma.py` (T004).
+
+## Pendiente después de la feature (no forma parte de ninguna fase)
+
+- [ ] Corregir el defecto D1 de la 001 (research R21): `agregar` y `estado` de la CLI muestran el
+  usuario y la contraseña de las URLs. Por decisión del usuario, se hace al terminar la 002.

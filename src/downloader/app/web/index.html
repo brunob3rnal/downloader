@@ -2,9 +2,58 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Gestor de descargas</title>
+<link rel="stylesheet" href="app.css">
+<script src="app.js" defer></script>
 </head>
 <body>
-<p>Gestor de descargas</p>
+<main class="contenido">
+  <section class="panel" aria-labelledby="rotulo-enlaces">
+    <label id="rotulo-enlaces" class="rotulo" for="enlaces">Pegar enlaces, uno por línea</label>
+    <textarea id="enlaces" rows="2" spellcheck="false" autocomplete="off"></textarea>
+    <div class="fila-formulario">
+      <div class="campo campo-calidad">
+        <label for="calidad">Calidad</label>
+        <select id="calidad"></select>
+      </div>
+      <div class="campo campo-carpeta">
+        <label for="carpeta">Guardar en</label>
+        <input id="carpeta" type="text" spellcheck="false" autocomplete="off">
+      </div>
+      <button id="examinar" type="button" class="boton">Examinar</button>
+      <button id="agregar" type="button" class="boton principal">Agregar a la cola</button>
+    </div>
+    <p id="aviso-config" class="aviso" hidden></p>
+    <p id="error-agregar" class="error" role="alert" hidden></p>
+    <div id="resumen" class="resumen" role="status" hidden></div>
+  </section>
+
+  <section class="cola" aria-labelledby="titulo-cola">
+    <header class="cabecera-cola">
+      <h2 id="titulo-cola">Cola</h2>
+      <span id="subtitulo" class="subtitulo"></span>
+      <span id="origen" class="origen" hidden></span>
+      <div class="acciones">
+        <span id="motivo" class="motivo" role="status" hidden></span>
+        <button id="iniciar" type="button" class="boton principal">Iniciar</button>
+        <button id="pausar" type="button" class="boton">Pausar</button>
+      </div>
+    </header>
+    <div id="resultado" class="resultado" role="status" hidden>
+      <span id="resultado-texto"></span>
+      <button id="cerrar-resultado" type="button" class="cerrar" aria-label="Cerrar">×</button>
+    </div>
+    <p id="sin-conexion-app" class="error" role="alert" hidden>Se perdió la conexión con la aplicación</p>
+    <p id="cola-corrupta" class="error bloque" role="alert" hidden></p>
+    <ol id="lista" class="lista"></ol>
+    <p id="vacia" class="vacia" hidden>La cola está vacía. Pegue enlaces arriba y pulse Agregar a la cola.</p>
+  </section>
+</main>
+<footer class="pie">
+  <span>La cola se guarda en este equipo. Si se cierra el programa, continúa al abrirlo.</span>
+  <span id="registro-no-disponible" class="aviso" hidden>El registro de errores no está disponible.</span>
+  <span id="conexion" class="conexion"><span class="punto"></span><span id="conexion-texto">Sin procesamiento en marcha</span></span>
+</footer>
 </body>
 </html>

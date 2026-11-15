@@ -706,3 +706,15 @@ anterior a la feature (`0d0170e`), con 30 minutos por lado (no caben 200 iteraci
 
 **Reintentos del CI**: desde el 2026-11-15, todo reintento se anota aquí, con test, sistema y
 exceso. Fases 6 y 7: ninguno.
+
+## R21. Defectos de la 001 pendientes (no se corrigen en esta feature)
+
+- **D1, credenciales de las URLs en la salida de la CLI** (anotado el 2026-11-15): `agregar` y
+  `estado` muestran el usuario y la contraseña de una URL con `usuario:clave@`. Reproducido:
+  `downloader agregar "https://usuario:clave@ejemplo.com/v/1"` imprime
+  `agregada #1  https://usuario:clave@ejemplo.com/v/1  (mejor)`, y `estado` imprime
+  `#1 en cola  —  https://usuario:clave@ejemplo.com/v/1`. `ocultar_secretos` oculta tokens de
+  la consulta, pero no la parte `userinfo`. La ventana no lo tiene (`vista.url_visible`,
+  `vista.direccion`). Se corrige después de esta feature, por decisión del usuario, con su
+  test; cambia la salida de la CLI, así que también las referencias de caracterización
+  (`tests/integration/referencias_cli/`) que contengan una URL con credenciales.

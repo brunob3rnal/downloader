@@ -50,7 +50,11 @@ def main() -> int:
             # Solo aquí y solo en Windows: la capa de la ventana (constitución v3.1.0).
             from downloader.app import ventana
 
-            return arrancar(ventana.crear, ventana.comprobar_motor)
+            try:
+                return arrancar(ventana.crear, ventana.comprobar_motor)
+            except Exception as error:  # noqa: BLE001 — sin consola, nadie vería la traza (R2)
+                ventana.fallo_al_abrir(error)
+                return SIN_MOTOR
         print(SOLO_WINDOWS, file=sys.stderr)
         return 2
     finally:

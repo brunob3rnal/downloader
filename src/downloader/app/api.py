@@ -30,6 +30,7 @@ AVISO_CHROMIUM = "Usa el mismo código que Chrome y Edge."
 MOTIVO_CLI = "Este procesamiento se lanzó desde la terminal; deténgalo allí con Ctrl+C."
 MOTIVO_EN_MARCHA = "Ya hay un procesamiento en marcha."
 MOTIVO_ARRANCANDO = "El procesamiento está arrancando."
+SIN_DIALOGO = "El diálogo de carpeta no está disponible; escriba la ruta"
 SIN_ENLACES = "Pegue al menos un enlace"
 _registro = logging.getLogger("downloader.app")
 
@@ -66,6 +67,7 @@ class Api:
             ("GET", "estado"): self._estado,
             ("POST", "agregar"): self._agregar,
             ("POST", "iniciar"): self._iniciar,
+            ("POST", "examinar"): self._examinar,
         }
 
     def atender(self, metodo: str, ruta: str, cuerpo: bytes, cabeceras) -> Respuesta:
@@ -90,10 +92,19 @@ class Api:
             navegadores=[{"id": n, "nombre": n.capitalize(),
                           "aviso": AVISOS_NAVEGADOR.get(n, AVISO_CHROMIUM)}
                          for n in sorted(NAVEGADORES)],
-            examinar_disponible=self.ventana is not None and getattr(
-                self.ventana, "con_dialogo", True),
+            examinar_disponible=self._con_dialogo(),
         )
         return Respuesta(200, datos)
+
+    def _con_dialogo(self) -> bool:
+        return self.ventana is not None and getattr(self.ventana, "con_dialogo", True)
+
+    # --- examinar ----------------------------------------------------------------------
+
+    def _examinar(self, cuerpo, cabeceras) -> Respuesta:
+        if not self._con_dialogo():
+            return Respuesta(501, {"error": SIN_DIALOGO})
+        return Respuesta(200, {"carpeta": self.ventana.examinar_carpeta()})
 
     # --- estado ------------------------------------------------------------------------
 

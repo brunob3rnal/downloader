@@ -166,3 +166,14 @@ def test_etag():
 def test_url_visible_quita_usuario_y_contrasena():
     assert vista.url_visible("https://ana:clave@x.ejemplo:8443/v?token=t1") == (
         "https://x.ejemplo:8443/v?token=***")
+
+
+@pytest.mark.parametrize("url, esperado", [
+    ("https://ejemplo.com/video/entrevista-1", "ejemplo.com/video/entrevista-1"),
+    ("https://usuario:clave@ejemplo.com:8443/v/1?token=abc#t=3", "ejemplo.com/v/1"),
+    ("https://EJEMPLO.com", "ejemplo.com"),
+    ("no es una url", ""),
+])
+def test_direccion_sitio_con_ruta_sin_secretos(url, esperado):
+    """La línea bajo el título de la maqueta: sitio y ruta, sin usuario, puerto ni consulta."""
+    assert vista.direccion(url) == esperado
