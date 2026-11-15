@@ -257,7 +257,8 @@ def _descargar(store, presentador, tiempos, navegador, plantilla, seguimiento):
 
     avisos = [
         a for a in (ytdl.aviso_calidad(descarga.calidad, info),
-                    aviso_omitidas(info.get(ytdl.OMITIDAS, 0)), publicacion.aviso)
+                    aviso_omitidas(info.get(ytdl.OMITIDAS, 0)),
+                    ytdl.aviso_sin_analizar(info.get(ytdl.SIN_ANALIZAR, [])), publicacion.aviso)
         if a
     ]
     for aviso in avisos:

@@ -268,6 +268,28 @@ esquivan `ydl.urlopen` de R4, verificados en 2026.10.21.
       crean los formatos solo a partir de esos bytes, un formato por `Representation`
       (`InfoExtractor._parse_mpd_periods`); y la descarga DASH (`DashSegmentsFD`) no vuelve a
       pedir el MPD.
+- **Corrección D2 (2026-11-15): qué cuerpos retiene `_vigilar_xml` y cuánto.** Defecto
+  diagnosticado durante la feature 002 (specs/002-desktop-app/research.md, R20): la envoltura
+  se aplicaba a todas las respuestas, también al archivo de video. Una reanudación
+  (`Range: bytes=N-`) empieza en un byte cualquiera; si era `<` (1 de cada 256), el resto del
+  archivo se retenía entero en memoria sin llegar a yt-dlp, y un corte lo perdía (Principio IV;
+  causa del intermitente de `test_cortes_en_tres_momentos_distintos`), además de poder llenar
+  la memoria con un video real. Desde la corrección:
+  - no se envuelven las respuestas 206, el archivo que descarga `HttpFD` (lo anota `dl`) ni los
+    cuerpos con `Content-Type` `video/*` o `audio/*`. Sí se siguen envolviendo, en las dos
+    fases, los demás: los manifiestos que pide `F4mFD` al descargar y los de la extracción;
+  - nunca se retienen más de `TOPE_XML` (16 MB). Por encima, lo retenido y el resto se
+    entregan en orden, sin analizar; si la raíz es `MPD`, `SmoothStreamingMedia` o `manifest`,
+    o no se puede leer, queda el aviso "manifiesto de más de 16 MB entregado sin comprobar si
+    tiene DRM: URL" en `ultimo_aviso` y en la salida (Principio III). Un `read()` sin tamaño ya
+    trae el cuerpo entero a memoria, así que ese cuerpo se analiza siempre: el tope solo actúa
+    cuando el que lee pide trozos (el extractor genérico lee 512 bytes antes que el resto);
+  - corregido de paso: tras entregar lo retenido de un cuerpo que no se terminó de leer, un
+    `read()` sin tamaño devolvía solo lo retenido y no el resto.
+  - Tests nuevos: `tests/unit/test_vigilar_xml.py`, `tests/integration/test_reanudar_en_byte_xml.py`
+    (regresión: reanudar en un `<` y cortar de nuevo; antes fallaba siempre) y
+    `tests/integration/test_manifiesto_sin_analizar.py`. Los tests de DRM existentes no se
+    modificaron y pasan.
 - **Defecto observado con la regla anterior** (rechazar solo lo que yt-dlp marca): con el video
   protegido y el audio sin proteger, yt-dlp descarta el video y descarga solo el audio, sin
   ningún aviso, con las cuatro calidades; era lo que hacía el programa hasta T096. Con la regla

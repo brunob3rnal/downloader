@@ -263,6 +263,30 @@ def posible_xml(prefijo: bytes, final: bool) -> bool | None:
     return False if final else None
 
 
+def raiz_xml(prefijo: bytes) -> str | None:
+    """El nombre local de la raíz, en minúsculas, a partir del comienzo de un cuerpo XML.
+
+    `None` si el comienzo no basta o no se puede leer. Para decidir si un cuerpo que pasó del
+    tope de `_vigilar_xml` podía ser un manifiesto (`RAICES`).
+    """
+    analizador = expat.ParserCreate(namespace_separator=" ")
+    raiz: list[str] = []
+
+    def inicio(nombre, atributos):
+        if not raiz:
+            raiz.append(_local(nombre).lower())
+            raise StopIteration
+
+    analizador.StartElementHandler = inicio
+    try:
+        analizador.Parse(prefijo, False)
+    except StopIteration:
+        pass
+    except expat.ExpatError:
+        return None
+    return raiz[0] if raiz else None
+
+
 def _local(nombre: str) -> str:
     return nombre.rpartition(" ")[2]  # expat con `namespace_separator=" "`: "uri local"
 

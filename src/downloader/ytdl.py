@@ -3,6 +3,7 @@
 import io
 import logging
 import re
+import urllib.parse
 import threading
 import time
 import weakref
@@ -15,6 +16,7 @@ from typing import NamedTuple
 from yt_dlp import YoutubeDL
 from yt_dlp.downloader import get_suitable_downloader
 from yt_dlp.downloader.external import ExternalFD
+from yt_dlp.downloader.http import HttpFD
 from yt_dlp.networking.common import Response
 from yt_dlp.networking.exceptions import HTTPError, IncompleteRead, TransportError
 from yt_dlp.utils import DownloadError
@@ -50,6 +52,11 @@ _RANGO_416 = re.compile(r"bytes \*/(\d+)$")  # `Content-Range` de un 416: tamañ
 CABECERA_M3U = b"#EXTM3U"  # así empieza todo manifiesto HLS (RFC 8216 §4.3.1.1)
 # Clave del resultado de `descargar`: representaciones protegidas excluidas de un MPD (R5).
 OMITIDAS = "downloader_omitidas"
+# Lo máximo que `_vigilar_xml` retiene de un cuerpo antes de entregarlo (R5, defecto D2): un
+# manifiesto real cabe con holgura; por encima, se entrega sin analizar y con un aviso.
+TOPE_XML = 16 * 1024 * 1024
+# Parámetro y clave del resultado de `descargar`: URLs de los manifiestos que pasaron del tope.
+SIN_ANALIZAR = "downloader_sin_analizar"
 
 DIRECTO = (
     "Es una transmisión en directo: no se descargan directos. Vuelva a agregar la URL cuando "
@@ -165,6 +172,7 @@ class YoutubeDLRegistrado(YoutubeDL):
         self._muestras: deque[tuple[float, int]] = deque()  # (instante, bytes recibidos)
         self._estancado: SinDatos | None = None
         self._tras_416: _Tras416 | None = None
+        self._archivo_directo = False  # lo fija `dl`: la descarga en curso es de `HttpFD`
         self._reinicios: list[str] | None = self.params.get("downloader_reinicios")
         # El primer manifiesto rechazado (R5): `process_info` vuelve a lanzarlo por si el
         # extractor capturó el error de la lectura.
@@ -297,6 +305,8 @@ class YoutubeDLRegistrado(YoutubeDL):
             descargador = get_suitable_downloader(info, self.params, to_stdout=(name == "-"))
             self.registro.fase = Fase.DESCARGA
             self.registro.externo = issubclass(descargador, ExternalFD)
+            # `HttpFD` solo pide el archivo de medios: su cuerpo nunca es un manifiesto (D2).
+            self._archivo_directo = issubclass(descargador, HttpFD)
         try:
             return super().dl(name, info, subtitle, test)
         finally:
@@ -370,7 +380,16 @@ class YoutubeDLRegistrado(YoutubeDL):
         manifiesto, se lanza el rechazo o se entrega lo que decida `drm.filtrar_xml`, antes de
         que el extractor lo analice; si no, se entrega tal cual. El resto de los cuerpos no se
         copia.
+
+        No se envuelven los cuerpos que no pueden ser un manifiesto (defecto D2): una respuesta
+        206 (una reanudación), el archivo que descarga `HttpFD` y los de tipo vídeo o audio. Si
+        no, una reanudación que empezara por `<` se retendría entera en memoria y un corte la
+        perdería. Y nunca se retienen más de `TOPE_XML` bytes: por encima, lo retenido y el
+        resto se entregan en orden sin analizar, con un aviso si podía ser un manifiesto
+        (Principio III).
         """
+        if not self._puede_ser_manifiesto(respuesta):
+            return
         leer = respuesta.read
         leido = bytearray()
         pendiente: memoryview | None = None  # decidido: lo que falta por entregar
@@ -382,11 +401,23 @@ class YoutubeDLRegistrado(YoutubeDL):
             datos, pendiente = bytes(pendiente[:cantidad]), pendiente[cantidad:]
             return datos
 
+        def soltar(amt):
+            """Pasó del tope: entrega lo retenido y después lee sin copiar."""
+            nonlocal pendiente, directo
+            raiz = drm.raiz_xml(bytes(leido))
+            if raiz is None or raiz in drm.RAICES:
+                self._anotar_sin_analizar(url)
+            pendiente, directo = memoryview(bytes(leido)), True
+            leido.clear()
+            return entregar(amt)
+
         def read(amt=None):
             nonlocal pendiente, directo
             if amt == 0:
                 return b""
             if pendiente is not None:
+                if pendiente and directo and (amt is None or amt < 0):
+                    return entregar(amt) + leer(amt)  # lo retenido y todo lo que queda
                 if pendiente or not directo:
                     return entregar(amt)
                 return leer(amt)
@@ -394,6 +425,8 @@ class YoutubeDLRegistrado(YoutubeDL):
             leido.extend(datos)
             final = not datos or amt is None or amt < 0
             while (xml := drm.posible_xml(leido, final)) is None:
+                if len(leido) > TOPE_XML:
+                    return soltar(amt)
                 datos = leer(TROZO_LECTURA)
                 leido.extend(datos)
                 final = not datos
@@ -407,6 +440,8 @@ class YoutubeDLRegistrado(YoutubeDL):
                 pendiente = memoryview(retenido)
                 return entregar(amt)
             while not final:
+                if len(leido) > TOPE_XML:
+                    return soltar(amt)
                 datos = leer(TROZO_LECTURA)
                 leido.extend(datos)
                 final = not datos
@@ -414,6 +449,21 @@ class YoutubeDLRegistrado(YoutubeDL):
             return entregar(amt)
 
         respuesta.read = read
+
+    def _puede_ser_manifiesto(self, respuesta) -> bool:
+        """Si `_vigilar_xml` debe mirar este cuerpo (defecto D2)."""
+        if getattr(respuesta, "status", None) == 206:
+            return False
+        if self.registro.fase is Fase.DESCARGA and self._archivo_directo:
+            return False
+        tipo = (respuesta.headers.get("Content-Type") or "").split("/", 1)[0].strip().lower()
+        return tipo not in ("video", "audio")
+
+    def _anotar_sin_analizar(self, url: str) -> None:
+        lista = self.params.get(SIN_ANALIZAR)
+        if lista is not None and url not in lista:
+            lista.append(url)
+        self.report_warning(aviso_sin_analizar([url]))
 
     def _filtrar_xml(self, url: str, cuerpo: bytes) -> bytes:
         """Lo que se entrega de un cuerpo XML; lanza `ErrorPermanente` si es un rechazo (R5)."""
@@ -637,6 +687,7 @@ def descargar(
     """
     reinicios: list[str] = []  # los anota `YoutubeDLRegistrado` (R23)
     omitidas: dict[str, int] = {}  # también los anota, por URL de cada MPD (R5)
+    sin_analizar: list[str] = []  # manifiestos que pasaron de `TOPE_XML` (D2)
 
     def hook(evento: dict) -> None:
         al_progresar(
@@ -655,11 +706,33 @@ def descargar(
 
     info = _ejecutar(
         opciones(descarga, directorio_trabajo, navegador, hook, socket_timeout, vigilancia)
-        | {"downloader_reinicios": reinicios, "downloader_omitidas": omitidas},
+        | {"downloader_reinicios": reinicios, "downloader_omitidas": omitidas,
+           SIN_ANALIZAR: sin_analizar},
         descarga.url,
         download=True,
     )
-    return info | {OMITIDAS: sum(omitidas.values())}
+    return info | {OMITIDAS: sum(omitidas.values()), SIN_ANALIZAR: list(sin_analizar)}
+
+
+def aviso_sin_analizar(urls: list[str]) -> str | None:
+    """El aviso de los manifiestos que pasaron de `TOPE_XML` sin analizar (D2, Principio III).
+
+    Las URLs van sin usuario ni contraseña y con los tokens ocultos (Principio VI).
+    """
+    if not urls:
+        return None
+    limpias = []
+    for url in urls:
+        try:
+            partes = urllib.parse.urlsplit(url)
+            if partes.username is not None or partes.password is not None:
+                host = partes.hostname or ""
+                url = partes._replace(netloc=f"{host}:{partes.port}" if partes.port else host).geturl()
+        except ValueError:
+            pass
+        limpias.append(ocultar_secretos(url))
+    return ("manifiesto de más de 16 MB entregado sin comprobar si tiene DRM: "
+            + ", ".join(limpias))
 
 
 _ALTURAS = {Calidad.P1080: 1080, Calidad.P720: 720}
