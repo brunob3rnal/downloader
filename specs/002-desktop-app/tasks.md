@@ -244,8 +244,8 @@ progreso en directo, sin cambiar nada visible de la CLI (R6, R9; contracts/archi
 **Purpose**: servidor local seguro, registro, resultado y detección básica del procesador.
 Todas las historias dependen de esta fase.
 
-- [ ] T036 [P] Crear `tests/support/cliente_app.py` (cliente `http.client` que añade el secreto, `Host`, `Origin` y `X-Gestor`, cada uno con opción de quitarlo o falsearlo). En `tests/integration/conftest.py`, crear el fixture `app_local`, que arranca `principal.arrancar_servidor(VentanaFalsa())` en un hilo con `app_home` y lo cierra al terminar
-- [ ] T037 [P] Escribir `tests/integration/test_app_seguridad.py` (SC-007, R4). Debe responder 403, sin cuerpo y sin cabeceras `Access-Control-*`, en cada uno de estos casos:
+- [X] T036 [P] Crear `tests/support/cliente_app.py` (cliente `http.client` que añade el secreto, `Host`, `Origin` y `X-Gestor`, cada uno con opción de quitarlo o falsearlo). Crear el fixture `app_local` en `tests/support/app_local.py` (no en `tests/integration/conftest.py`, de la 001, que no se modifica; decisión del usuario), que arranca `principal.arrancar_servidor(VentanaFalsa())` en un hilo con `app_home` y lo cierra al terminar
+- [X] T037 [P] Escribir `tests/integration/test_app_seguridad.py` (SC-007, R4). Debe responder 403, sin cuerpo y sin cabeceras `Access-Control-*`, en cada uno de estos casos:
   - sin secreto;
   - con un secreto incorrecto de la misma longitud;
   - con el secreto correcto y `Host` igual a `localhost:<p>`, a `evil.example:<p>` o ausente;
@@ -256,15 +256,15 @@ Todas las historias dependen de esta fase.
   - `/<secreto>/../pyproject.toml` y `/<secreto>/%2e%2e/pyproject.toml`.
 
   En cada caso, comprobar además que `cola.db` no cambió y que el cuerpo no contiene datos de la cola. Comprobar también que el servidor escucha en `127.0.0.1` (`server_address[0]`) y que conectar a la IP no local del equipo (obtenida con un socket UDP hacia `192.0.2.1`) se rechaza; si el equipo no tiene IP no local, el caso se omite con el motivo. Con todo correcto, `GET /<secreto>/` responde 200 con `Content-Security-Policy`. Debe fallar (rojo)
-- [ ] T038 [P] Escribir `tests/unit/test_app_registro.py` (FR-020, R10):
+- [X] T038 [P] Escribir `tests/unit/test_app_registro.py` (FR-020, R10):
   - tras escribir 5 MB de errores en `ventana` y en `procesador`, existen como mucho `ventana.log`, `ventana.log.1`, `procesador.log` y `procesador.log.1`, cada uno de 500 000 bytes o menos y 2 000 000 bytes en total;
   - un mensaje y una traza con `?token=abc&sig=def` y una cookie ficticia quedan con los secretos ocultos;
   - con la carpeta `registro/` sin permiso de escritura, `registro.disponible()` devuelve `False` y no se lanza nada;
   - `sys.excepthook` y `threading.excepthook` escriben la traza.
 
   Debe fallar (rojo)
-- [ ] T039 [P] Escribir `tests/unit/test_app_resultado.py`: `resultado.escribir(...)` y `resultado.leer(...)` con el formato de contracts/archivos.md (`codigo` de 0, 1, 3 o 130, o null; `error.tipo` de `fatal`, `inesperado`, `detenida` o `abrupto`), con los nombres y causas de `fallidas` pasados por `ocultar_secretos`. Debe fallar (rojo)
-- [ ] T040 [P] Escribir `tests/unit/test_app_procesos_estado.py` para `procesos.estado_procesador(directorio)`:
+- [X] T039 [P] Escribir `tests/unit/test_app_resultado.py`: `resultado.escribir(...)` y `resultado.leer(...)` con el formato de contracts/archivos.md (`codigo` de 0, 1, 3 o 130, o null; `error.tipo` de `fatal`, `inesperado`, `detenida` o `abrupto`), con los nombres y causas de `fallidas` pasados por `ocultar_secretos`. Debe fallar (rojo)
+- [X] T040 [P] Escribir `tests/unit/test_app_procesos_estado.py` para `procesos.estado_procesador(directorio)`:
   - sin `procesador.json` → `ninguno`;
   - con el `pid` del propio test y su `creado` real → `en_marcha` con el origen del archivo;
   - con un `pid` vivo y un `creado` distinto (pid reutilizado) → `ninguno`;
@@ -272,16 +272,16 @@ Todas las historias dependen de esta fase.
   - con JSON inválido → `ninguno`.
 
   Debe fallar (rojo)
-- [ ] T041 Ampliar `tests/unit/test_app_sin_ytdlp.py` con `downloader.app.servidor`, `downloader.app.api`, `downloader.app.vista`, `downloader.app.registro`, `downloader.app.resultado`, `downloader.app.procesos` y `downloader.app.principal` (R15)
-- [ ] T042 Crear `src/downloader/app/registro.py`:
+- [X] T041 Ampliar `tests/unit/test_app_sin_ytdlp.py` con `downloader.app.servidor`, `downloader.app.api`, `downloader.app.vista` *(se añade en la Fase 7, cuando existe)*, `downloader.app.registro`, `downloader.app.resultado`, `downloader.app.procesos` y `downloader.app.principal` (R15)
+- [X] T042 Crear `src/downloader/app/registro.py`:
   - `configurar(origen)`, con `origen` igual a `ventana` o `procesador`: `RotatingFileHandler(registro/<origen>.log, maxBytes=500_000, backupCount=1, encoding="utf-8")`;
   - un `Formatter` que aplica `ocultar_secretos` al mensaje y a la traza ya formateada, con el formato de contracts/archivos.md;
   - `handleError` que activa el indicador de no disponible;
   - `disponible()`;
   - la instalación de `sys.excepthook` y `threading.excepthook`.
-- [ ] T043 [P] Crear `src/downloader/app/resultado.py` (`escribir`, `leer` y `escribir_abrupto(ejecucion)`) con `archivos_json`
-- [ ] T044 [P] Crear `src/downloader/app/procesos.py` con `estado_procesador(directorio)` (lee `procesador.json` con `archivos_json.leer` y comprueba el proceso y su creación con `psutil`) y el tipo `EstadoProcesador(estado, origen, ejecucion, pid, abrupto)` (R6)
-- [ ] T045 Crear `src/downloader/app/servidor.py`:
+- [X] T043 [P] Crear `src/downloader/app/resultado.py` (`escribir`, `leer` y `escribir_abrupto(ejecucion)`) con `archivos_json`
+- [X] T044 [P] Crear `src/downloader/app/procesos.py` con `estado_procesador(directorio)` (lee `procesador.json` con `archivos_json.leer` y comprueba el proceso y su creación con `psutil`) y el tipo `EstadoProcesador(estado, origen, ejecucion, pid, abrupto)` (R6)
+- [X] T045 Crear `src/downloader/app/servidor.py`:
   - `ThreadingHTTPServer` en `("127.0.0.1", 0)` con `daemon_threads = True`;
   - un manejador con los 5 controles de contracts/api-local.md, en orden, con `hmac.compare_digest`;
   - `log_message` vacío;
@@ -290,7 +290,7 @@ Todas las historias dependen de esta fase.
   - el despacho de `api/*` a `api.py`.
 
   Crear también `src/downloader/app/api.py` con el protocolo `Ventana` (`examinar_carpeta`, `enfocar`, `ejecutar_js`, `destruir`) y el enrutado vacío, más `src/downloader/app/web/index.html` provisional
-- [ ] T046 Crear `src/downloader/app/principal.py` con:
+- [X] T046 Crear `src/downloader/app/principal.py` con:
   - `arrancar_servidor(ventana) -> (servidor, url)`: secreto `secrets.token_urlsafe(32)`, guardado solo en memoria;
   - `arrancar(crear_ventana, comprobar_motor=None)`, el único camino de arranque, con este orden: 1) instancia única (se añade en la Fase 12); 2) `comprobar_motor` si se pasa (WebView2 en Windows); 3) servidor; 4) `crear_ventana(url)`; 5) ciclo de un segundo hasta que la ventana se cierra;
   - `main()`: configura el registro de `ventana`. En Windows, importa `downloader.app.ventana` dentro de la función (nunca en el nivel del módulo) y llama a `arrancar` con la ventana de pywebview y la comprobación de WebView2. En otro sistema, tras la instancia única, escribe en la salida de error "La ventana solo está disponible en Windows; use la CLI: uv run downloader" y termina con el código 2;

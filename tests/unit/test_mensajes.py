@@ -100,3 +100,17 @@ def test_secretos_oculta_lo_mismo_que_errors(texto, secreto):
 
 def test_secretos_es_la_misma_funcion_que_errors():
     assert errors.ocultar_secretos is secretos.ocultar_secretos
+
+
+@pytest.mark.parametrize("metodo", ["cookies", "any", "session_cookies"])
+def test_el_texto_de_yt_dlp_que_reconoce_requiere_sesion_no_ha_cambiado(metodo):
+    """Vigía de R17: `requiere_sesion` reconoce el contenido que exige iniciar sesión por un
+    texto de yt-dlp (`MARCAS_YTDLP_SESION`). Si una versión nueva de yt-dlp lo cambia, este test
+    falla y hay que actualizar la marca; si no, la ventana dejaría de ofrecer "Reintentar con
+    cookies" en esos casos sin que nada avisara."""
+    extractor = FalsoIE(YoutubeDL({"quiet": True}))
+    with pytest.raises(ExtractorError) as error:
+        extractor.raise_login_required(method=metodo)
+    mensaje = worker._mensaje(error.value)
+    assert any(marca in mensaje for marca in mensajes.MARCAS_YTDLP_SESION), mensaje
+    assert mensajes.requiere_sesion(mensaje) is True

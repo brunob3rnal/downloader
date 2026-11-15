@@ -19,6 +19,14 @@ MODULOS = [
     "downloader.excepciones",
     "downloader.secretos",
     "downloader.mensajes",
+    "downloader.operaciones",
+    "downloader.archivos_json",
+    "downloader.app.servidor",
+    "downloader.app.api",
+    "downloader.app.registro",
+    "downloader.app.resultado",
+    "downloader.app.procesos",
+    "downloader.app.principal",
 ]
 
 
