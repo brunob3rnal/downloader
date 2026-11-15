@@ -704,8 +704,95 @@ anterior a la feature (`0d0170e`), con 30 minutos por lado (no caben 200 iteraci
 - **La tolerancia no se ha cambiado.** Averiguar cuál de las dos causas es requiere una tarea
   propia sobre la feature 001, fuera de esta.
 
+### Diagnóstico de la causa del exceso de bytes (2026-11-15)
+
+**Método** (petición del usuario): una copia fija del código (`335186a`) en un árbol de trabajo
+aparte, instrumentada y sin commits ni cambios en los tests de la 001. Cada evento va a un
+JSONL con su instante (`time.monotonic`) y su test:
+- servidor de prueba: los bytes que cuenta como enviados, la `Range` pedida y el corte;
+- cliente: lo que lee de la red la envoltura de lectura de la 001 (`_vigilar_cuerpo`) en
+  cada respuesta; y, desde la segunda tanda, cada bloque leído con su pila de llamadas;
+- yt-dlp: cada apertura del `.part` (modo y tamaño antes), cada cierre (bytes escritos y
+  tamaño después) y cada reintento interno;
+- trabajador: el tamaño del `.part` al empezar cada intento.
+
+`test_network_cuts.py` repetido en bucle, en Linux, de 04:05 a 05:07 (62 min de los 90
+permitidos): 337 ejecuciones, **3 fallos**, todos en `test_cortes_en_tres_momentos_distintos`.
+
+| Ejecución | Servidos / archivo | Exceso | Tramos leídos y no escritos |
+|-----------|--------------------|--------|-----------------------------|
+| 18 (1.ª tanda) | 2 478 661 / 2 065 551 | 413 110 | 1 tramo de 413 110 bytes |
+| 141 | 2 891 759 / 2 065 543 | 826 216 | 2 tramos de 413 108 bytes |
+| 282 | 2 888 207 / 2 063 005 | 825 202 | 2 tramos de 412 601 bytes |
+
+**Datos**: en cada tramo perdido, el servidor cuenta N bytes enviados y corta; el cliente
+lee de la red exactamente esos N bytes; pero yt-dlp **no abre el `.part`** en ese intento y
+el `.part` sigue con el tamaño anterior, así que la reanudación vuelve a pedir el mismo
+`Range`. Ejemplo (ejecución 282): intento con `.part` de 412 601 bytes, `Range:
+bytes=412601-`, servidos 412 601 y corte, cliente con 412 601 leídos, ninguna apertura del
+`.part`, y el siguiente intento empieza otra vez con 412 601 bytes. En la ejecución buena final,
+el `.part` se abre **después** de haber leído y cerrado la respuesta entera.
+
+**Conclusión**: el cliente leyó más de lo que quedó en el `.part`. **No es un artefacto del
+servidor de prueba: es progreso perdido (Principio IV) en la 001.**
+
+**Causa**: la pila de cada bloque leído en esos intentos termina en
+`YoutubeDLRegistrado._vigilar_xml` (research R5 de la 001), en el bucle que lee el cuerpo
+entero:
+
+```python
+if not xml: ...                 # no parece XML: se entrega tal cual
+while not final:                # parece XML: no se entrega nada hasta tenerlo entero
+    datos = leer(TROZO_LECTURA)
+```
+
+`_vigilar_xml` envuelve **todas** las respuestas, también la del archivo de video. Si el
+cuerpo empieza por `<` (tras un BOM o espacios, `drm.posible_xml`), lo retiene en memoria hasta
+el final para analizarlo como manifiesto. Una descarga nueva empieza por la cabecera del MP4,
+pero una **reanudación** (`Range: bytes=N-`) empieza en un byte cualquiera del archivo: si es
+`<` (0x3C, 1 de cada 256), el resto del archivo se retiene sin llegar a yt-dlp. Si la conexión
+se corta antes del final, todo lo retenido se pierde y se vuelve a descargar. Encaja con la
+frecuencia observada (el test reanuda varias veces por ejecución sobre un MP4 que ffmpeg genera
+de nuevo en cada sesión, así que el byte del punto de corte cambia) y con que el exceso sea
+siempre un tramo entero.
+
+**Efectos fuera del test**:
+- progreso perdido en cualquier reanudación de un archivo directo cuyo primer byte sea `<`
+  (Principio IV);
+- **memoria**: en esa reanudación, el resto del archivo entero se guarda en memoria del
+  trabajador antes de escribirse. Con un video real de varios GB, puede agotar la memoria
+  del equipo de 4 GB y rompe el presupuesto de SC-005 (la medición de la Fase 2 no lo cubre:
+  su descarga no se reanudaba).
+
+**Arreglo propuesto (no aplicado, pendiente de decisión del usuario)**, en la 001:
+1. `_vigilar_xml` solo retiene cuerpos que pueden ser un manifiesto: no las respuestas 206
+   (una reanudación nunca es un manifiesto que lea el extractor), ni las de la fase de
+   descarga del archivo de medios, ni las de `Content-Type` de video o audio;
+2. además, un límite de lo retenido (por ejemplo, 16 MB): por encima, se entrega como
+   no-XML, para que ningún cuerpo pueda ocupar memoria sin límite;
+3. un test nuevo de regresión (sin tocar los existentes): reanudar una descarga cuyo byte
+   en el punto de corte es `<`, cortar de nuevo y comprobar que el `.part` crece y que los
+   bytes servidos no pasan del 1 % de exceso. Hoy fallaría siempre; con el arreglo, el
+   intermitente de `test_cortes_en_tres_momentos_distintos` desaparece sin cambiar su
+   tolerancia.
+
+La copia instrumentada se ha borrado; los registros de los tres fallos se conservan fuera del
+repositorio mientras dure la sesión.
+
 **Reintentos del CI**: desde el 2026-11-15, todo reintento se anota aquí, con test, sistema y
-exceso. Fases 6 y 7: ninguno.
+exceso. Fases 6 y 7: ninguno. Fase 8: ninguno (ejecución 98, verde en los dos sistemas).
+
+**Fallo sin reintento, no detectado a tiempo** (2026-11-15): la ejecución 97 del CI, la del
+commit `335186a` (solo documentación: research R20 y tasks), terminó en rojo en Linux y no lo
+vi hasta después de subir la Fase 8. No hubo reintento: el siguiente commit (`387a521`, Fase 8)
+pasó en los dos sistemas. Es un tercer test intermitente de la 001, distinto de los dos
+anteriores:
+- test: `tests/integration/test_reanudaciones_directas.py::test_corte_de_red_ctrl_c_y_cierre_abrupto_cumplen_sc002`;
+- sistema: `ubuntu-latest`;
+- error: `ejecutar terminó antes de reanudar tras Ctrl+C` (el segundo `ejecutar` salió con 0);
+- exceso de bytes: no aplica. Lectura probable (sin repetición propia): tras el Ctrl+C, el segundo
+  `ejecutar` terminó la descarga entera antes de que `esperar` viera el avance del 15 %
+  pedido, es decir, una carrera del sondeo del test y no progreso perdido. No se ha cambiado.
 
 ## R21. Defectos de la 001 pendientes (no se corrigen en esta feature)
 
@@ -718,3 +805,8 @@ exceso. Fases 6 y 7: ninguno.
   `vista.direccion`). Se corrige después de esta feature, por decisión del usuario, con su
   test; cambia la salida de la CLI, así que también las referencias de caracterización
   (`tests/integration/referencias_cli/`) que contengan una URL con credenciales.
+- **D2, progreso perdido y memoria sin límite al reanudar** (anotado el 2026-11-15; diagnóstico
+  en R20): `_vigilar_xml` retiene entera en memoria una reanudación cuyo primer byte es `<` y,
+  si la conexión se corta, la pierde. Arreglo propuesto en R20, pendiente de decisión del
+  usuario. Afecta a la puerta final de memoria (T106): hasta que se corrija, una reanudación
+  así puede pasar de 300 MB.

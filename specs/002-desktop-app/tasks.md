@@ -721,3 +721,6 @@ Cada fase termina con la suite en verde y un commit:
 
 - [ ] Corregir el defecto D1 de la 001 (research R21): `agregar` y `estado` de la CLI muestran el
   usuario y la contraseña de las URLs. Por decisión del usuario, se hace al terminar la 002.
+- [ ] Defecto D2 de la 001 (research R20 y R21): `_vigilar_xml` retiene en memoria y pierde
+  las reanudaciones cuyo primer byte es `<`. Arreglo propuesto en research R20; **pendiente
+  de la decisión del usuario** (no se corrige nada de la 001 sin consultarlo).
