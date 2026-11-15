@@ -1,0 +1,6 @@
+código: 0
+--- salida estándar ---
+#1 completada  <TMP>/destino/Video v1.mp4
+Resumen: 1 completada, 0 fallidas
+--- salida de error ---
+

@@ -1,0 +1,5 @@
+código: 0
+--- salida estándar ---
+reencolada #1  http://127.0.0.1:<PUERTO>/watch/a  (antes: failed)
+--- salida de error ---
+

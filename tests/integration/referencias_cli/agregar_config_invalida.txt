@@ -1,0 +1,5 @@
+código: 2
+--- salida estándar ---
+
+--- salida de error ---
+error: <TMP>/app/config.toml: calidad desconocida '480p'; admitidas: mejor, 1080p, 720p, audio

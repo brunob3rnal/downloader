@@ -1,0 +1,8 @@
+código: 1
+--- salida estándar ---
+#1 completada  <TMP>/destino/Video v1.mp4
+#2 fallida  [falso] privado: Video privado: el propietario restringió el acceso
+Resumen: 1 completada, 1 fallida
+  #2 http://127.0.0.1:<PUERTO>/watch/privado: [falso] privado: Video privado: el propietario restringió el acceso
+--- salida de error ---
+

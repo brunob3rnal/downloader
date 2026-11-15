@@ -1,0 +1,5 @@
+código: 2
+--- salida estándar ---
+
+--- salida de error ---
+error: Ya hay otro `downloader ejecutar` en marcha; espere a que termine. Puede seguir agregando URLs con `downloader agregar` y las recogerá.

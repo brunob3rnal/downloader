@@ -1,0 +1,5 @@
+código: 130
+--- salida estándar ---
+
+--- salida de error ---
+interrumpido; progreso guardado

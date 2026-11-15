@@ -1,0 +1,5 @@
+código: 0
+--- salida estándar ---
+ya en cola #1  http://127.0.0.1:<PUERTO>/watch/a  (mejor, queued)
+--- salida de error ---
+

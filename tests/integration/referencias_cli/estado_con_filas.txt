@@ -1,0 +1,6 @@
+código: 0
+--- salida estándar ---
+#1 descargando  43.1%  http://127.0.0.1:<PUERTO>/watch/a
+#2 fallida  —  http://127.0.0.1:<PUERTO>/watch/b?token=***  Video privado: el propietario restringió
+--- salida de error ---
+

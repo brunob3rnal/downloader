@@ -1,0 +1,5 @@
+código: 2
+--- salida estándar ---
+
+--- salida de error ---
+error: sin permiso de escritura en la carpeta de destino <TMP>/destino

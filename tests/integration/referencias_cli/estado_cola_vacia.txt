@@ -1,0 +1,5 @@
+código: 0
+--- salida estándar ---
+cola vacía
+--- salida de error ---
+

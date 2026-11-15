@@ -1,0 +1,5 @@
+código: 3
+--- salida estándar ---
+
+--- salida de error ---
+error: El archivo de estado de la cola (<TMP>/app/cola.db) está corrupto (file is not a database). Se guardó una copia en <TMP>/app/cola.db.corrupta-<FECHA>. No se ha creado una cola nueva ni se ha tocado ningún archivo descargado; mueva o borre <TMP>/app/cola.db para empezar una cola vacía.

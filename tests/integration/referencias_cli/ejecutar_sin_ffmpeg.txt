@@ -1,0 +1,9 @@
+código: 3
+--- salida estándar ---
+
+--- salida de error ---
+error: no se encuentra ffmpeg ni ffprobe en el PATH. Instale ffmpeg, que incluye ffprobe, y vuelva a ejecutar:
+  Windows: winget install Gyan.FFmpeg  (o: choco install ffmpeg)
+  macOS:   brew install ffmpeg
+  Linux:   sudo apt install ffmpeg  (Debian, Ubuntu; o el gestor de su distribución)
+La cola no se ha modificado.

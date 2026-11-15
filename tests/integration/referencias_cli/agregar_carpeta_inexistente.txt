@@ -1,0 +1,5 @@
+código: 2
+--- salida estándar ---
+
+--- salida de error ---
+error: la carpeta de destino <TMP>/no-existe no existe

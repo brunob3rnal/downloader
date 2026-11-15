@@ -1,0 +1,5 @@
+código: 2
+--- salida estándar ---
+
+--- salida de error ---
+error: navegador no admitido en --cookies-de: «netscape»; admitidos: brave, chrome, chromium, edge, firefox, opera, safari, vivaldi, whale

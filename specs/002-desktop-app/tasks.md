@@ -156,7 +156,7 @@ cambiar el comportamiento de la CLI.
 `operaciones.py`, para que la aplicación use el mismo código (FR-007), con la salida de la CLI
 idéntica (FR-017).
 
-- [ ] T022 **[caracterización, P1]** Escribir `tests/integration/test_cli_caracterizacion.py` con el fixture `cli` de 001 (y subprocesos para Ctrl+C). Recorre cada camino de `agregar`, `ejecutar` y `estado` de `specs/001-resilient-video-downloader/contracts/cli.md`:
+- [X] T022 **[caracterización, P1]** Escribir `tests/integration/test_cli_caracterizacion.py` con el fixture `cli` de 001 (y subprocesos para Ctrl+C). Recorre cada camino de `agregar`, `ejecutar` y `estado` de `specs/001-resilient-video-downloader/contracts/cli.md`:
   - `agregar`: agregada, ya en cola, reencolada, URL vacía, calidad desconocida, navegador no admitido, carpeta inexistente, carpeta sin permiso (sustituyendo `publish.escribible`, como `test_cli_agregar.py`) y `config.toml` inválido;
   - `ejecutar`: todas completadas (0), con fallidas (1), otro `ejecutar` en marcha (2), navegador no admitido (2), ffmpeg ausente (3), cola corrupta (3) y Ctrl+C (130);
   - `estado`: cola vacía, con filas y cola corrupta (3).
