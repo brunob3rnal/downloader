@@ -418,7 +418,7 @@ mensaje claro con el código 3.
   - `enfocar` con `restore`, `show` y traer al frente;
   - `ejecutar_js` con `evaluate_js`;
   - `destruir`;
-  - las mitigaciones de memoria que T012 hizo obligatorias (research R14, "Decisión de la puerta"): fijar al arrancar `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--renderer-process-limit=1 --disable-gpu --disable-extensions"` en el entorno del proceso, antes de `webview.start`, sumándolos a un valor que ya tuviera la variable. Con un test que lo compruebe.
+  - las mitigaciones de memoria que T012 hizo obligatorias (research R14, "Decisión de la puerta"): fijar al arrancar `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--renderer-process-limit=1 --disable-gpu --disable-extensions"` **solo en el entorno del proceso de la aplicación** (`os.environ`, antes de `webview.start`), sumándolos a un valor que ya tuviera la variable, y **nunca** como variable persistente del usuario o del sistema (ni `setx` ni el registro). Con un test que lo compruebe, incluido que no se escribe nada fuera del proceso.
 
   Y `src/downloader/app/ventana/__init__.py`
 - [ ] T067 [US1] Completar `principal.main()` para Windows: comprobar WebView2 (si falla: mensaje, registro y código 3), arrancar el servidor y abrir la ventana. Implementar `POST api/examinar` (501 sin ventana real)
@@ -430,7 +430,7 @@ mensaje claro con el código 3.
 
   Añadir `[project.gui-scripts] gestor-descargas = "downloader.app.principal:main"` en `pyproject.toml`
 - [ ] T069 [US1] **[manual, Windows]** Quickstart V1: con el entorno sincronizado, doble clic desde el Explorador. Comprobar que no aparece ninguna consola y medir el tiempo hasta la ventana lista (SC-001: 5 s o menos). Comprobar que `.venv\Scripts\gestor-descargas.exe` también abre la ventana sin consola. Comprobar el paso V1b: con un cambio pendiente en `uv.lock` y sin red, el doble clic muestra el mensaje de error de la sincronización, nunca nada. Anotar los resultados en quickstart.md (nuevo apartado "Resultados")
-- [ ] T070 [US1] **[manual, Windows]** Quickstart V2 y comparación con la maqueta (contracts/ventana.md, incluida la tabla de diferencias)
+- [ ] T070 [US1] **[manual, Windows]** Quickstart V2 y comparación con la maqueta (contracts/ventana.md, incluida la tabla de diferencias), y V11 en el equipo de 4 GB: con `--disable-gpu`, la ventana sigue respondiendo con 500 filas actualizándose
 - [ ] T071 [US1] **[manual, Windows]** Quickstart V10 (SC-002): una persona que no use la terminal agrega una URL y empieza a descargarla. Medir el tiempo y contar las acciones desde la ventana abierta con la URL copiada. Esperado: menos de 1 minuto y 3 acciones como máximo (pegar, Agregar a la cola, Iniciar). Anotar el resultado en quickstart.md
 - [ ] T072 [US1] **[manual, Windows] [a verificar R2]** Quickstart V7: en una máquina virtual sin WebView2, comprobar el cuadro de mensaje de R2, el código 3 (`echo %ERRORLEVEL%` tras `start /wait`) y la entrada en `registro\ventana.log`. Anotar el resultado en research R2
 - [ ] T073 [US1] Commit `002 Fase 8: ventana, interfaz y lanzador en Windows (US1)`
@@ -613,7 +613,7 @@ navegador, y "Reintentar con cookies" en las descargas que requieren sesión.
 
 ## Phase 14: Polish & Cross-Cutting Concerns
 
-- [ ] T106 **[manual, Windows, equipo de 4 GB] PUERTA FINAL SC-005**: `uv run python scripts/medir_memoria.py --ventana app` con 500 descargas en cola y la aplicación real (quickstart C). Anotar el resultado en research R14. Si pasa de 300 MB, **parar y consultar al usuario** antes de dar la feature por terminada
+- [ ] T106 **[manual, Windows, equipo de 4 GB] PUERTA FINAL SC-005**: `uv run python scripts/medir_memoria.py --ventana app` con 500 descargas en cola y la aplicación real (quickstart C), en dos escenarios: la descarga directa de la Fase 2 y **una descarga que une audio y video** (condición del usuario, research R14). Para la segunda, ampliar antes `scripts/medir_memoria.py` con `--union`: el trabajador se lanza con el extractor de prueba de 001 (`tests/support/fake_extractor.py`) instalado y descarga un video con pistas de video y audio separadas, que ffmpeg une al terminar; la medición sigue hasta que termina la unión, y **la suma incluye `ffmpeg` y `ffprobe`** como procesos de la aplicación (descendientes del trabajador), con un test en `tests/unit/test_medir_memoria.py`. Anotar los dos resultados en research R14. Si alguno pasa de 300 MB, **parar y consultar al usuario** antes de dar la feature por terminada
 - [ ] T107 [P] Añadir al `README.md` la sección "Aplicación de escritorio (Windows)":
   - requisitos (WebView2, cómo instalarlo si falta);
   - el lanzador `Gestor de descargas.vbs` y su respaldo `gestor-descargas.exe`;

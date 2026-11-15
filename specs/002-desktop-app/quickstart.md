@@ -172,16 +172,30 @@ copiada, agrega la URL y empieza a descargarla. Cronometre y cuente las acciones
 Esperado: menos de 1 minuto y 3 acciones como máximo (pegar, **Agregar a la cola**,
 **Iniciar**).
 
+### V11. La ventana responde con `--disable-gpu` (research R14) **[equipo de 4 GB]**
+
+Con la aplicación arrancada normalmente (fija `--disable-gpu` en su propio proceso) y 500
+descargas en cola, una de ellas en curso:
+1. desplácese por la lista de arriba abajo y de vuelta;
+2. escriba en el área de enlaces y cambie la calidad;
+3. pulse **Pausar** e **Iniciar**.
+
+Esperado: la lista se desplaza sin saltos de más de un instante, el texto aparece al
+escribir, los botones responden en menos de 1 s y la fila activa sigue actualizándose cada
+segundo. Anote en "Resultados" cualquier retraso apreciable.
+
 ## C. Memoria (SC-005) **[manual, Windows, equipo de referencia de 4 GB]**
 
 ```powershell
-uv run python scripts/medir_memoria.py --cola-de-prueba 500 --limite 300
+uv run python scripts/medir_memoria.py --ventana app --cola-de-prueba 500 --limite 300
+uv run python scripts/medir_memoria.py --ventana app --union --cola-de-prueba 500 --limite 300
 ```
 
 El script prepara un `DOWNLOADER_HOME` temporal con 500 descargas en cola, abre la aplicación
 por el lanzador, inicia el procesamiento contra el servidor local limitado y muestrea cada
 0,5 s la memoria privada (USS) sumada de todos los procesos de la aplicación (research R14)
-hasta que termina la primera descarga.
+hasta que termina la primera descarga. Con `--union`, la descarga une audio y video con
+ffmpeg, y `ffmpeg` y `ffprobe` cuentan en la suma (research R14, condición del usuario).
 
 Esperado:
 - informa del máximo y del desglose por proceso en ese instante;

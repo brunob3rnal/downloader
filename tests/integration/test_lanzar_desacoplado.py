@@ -5,6 +5,10 @@ fuera del objeto de trabajo (job object) del padre con `CREATE_BREAKAWAY_FROM_JO
 objeto de trabajo de `uv run` o del runner del CI no lo permite, `CreateProcess` falla con
 `ERROR_ACCESS_DENIED` y este test lo pone de manifiesto antes de construir nada encima. En
 Linux, `start_new_session=True`. Corre en los dos sistemas, bajo `uv run pytest` como en el CI.
+
+Lo que decide es la supervivencia del hijo. Si queda en un objeto de trabajo solo se registra:
+en el CI de GitHub el hijo sobrevive pero sigue en el objeto de trabajo exterior del runner, y
+en el equipo del usuario queda fuera de todos (research R8, "Resultado del diagnóstico").
 """
 
 import json
@@ -85,10 +89,10 @@ def test_el_hijo_sobrevive_al_proceso_que_lo_lanza(record_property):
         time.sleep(3)  # el intermedio ya ha terminado: `subprocess.run` esperó a que saliera
         assert hijo.is_running() and hijo.status() != psutil.STATUS_ZOMBIE
         if sys.platform == "win32":
+            # Solo informativo: no decide (research R8).
             en_trabajo = _en_algun_objeto_de_trabajo(hijo.pid)
             record_property("hijo_en_objeto_de_trabajo", en_trabajo)
             print(f"\nhijo en algún objeto de trabajo: {en_trabajo}")
-            assert not en_trabajo, "el hijo sigue dentro de un objeto de trabajo (research R8)"
         else:
             assert os.getsid(hijo.pid) == hijo.pid  # su propia sesión: no recibe las señales
     finally:

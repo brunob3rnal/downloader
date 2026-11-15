@@ -556,6 +556,14 @@ obligatorias:
   que la ventana fija al arrancar (T066). Dejan el máximo en 218,9 MB, con 81 MB de margen para
   el pico de `ffmpeg`, que la medición no cubre.
 
+Condiciones del usuario (2026-11-15):
+- los argumentos se fijan solo en el entorno del proceso de la aplicación (`os.environ` antes de
+  `webview.start`), nunca como variable persistente del usuario o del sistema (`setx`, registro);
+- la puerta final de memoria (T106) mide además una descarga que une audio y video, y la suma
+  incluye `ffmpeg` y `ffprobe` como procesos de la aplicación;
+- con `--disable-gpu`, se comprueba a mano en el equipo de 4 GB que la ventana sigue
+  respondiendo con 500 filas actualizándose (quickstart.md, V11).
+
 No es obligatorio prescindir de `uv run` como padre: R11 no cambia.
 
 ## R15. La ventana no carga yt-dlp
