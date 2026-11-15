@@ -779,6 +779,26 @@ siempre un tramo entero.
 La copia instrumentada se ha borrado; los registros de los tres fallos se conservan fuera del
 repositorio mientras dure la sesión.
 
+**Arreglo aplicado (2026-11-15, decisión del usuario)**: commit `44e8f18`, propio de la 001 y
+separado de la 002 para poder llevarlo a `main` aparte (comprobado: se aplica sobre `main` sin
+conflictos y sus tests y los de DRM pasan allí). Detalle en el research de la 001, R5,
+"Corrección D2". CI 101 en verde en los dos sistemas, sin reintentos.
+- Tests nuevos, vistos en rojo antes del arreglo: la regresión
+  (`test_reanudar_en_byte_xml.py`, reanuda en un `<` del archivo y vuelve a cortar; fallaba
+  siempre, con 413 407 bytes de más), el tope (`test_vigilar_xml.py`: un cuerpo mayor que el
+  tope se entrega completo y en orden; tampoco se retienen 206, `video/*`, `audio/*` ni el
+  archivo de `HttpFD`, y un F4M pedido al descargar se sigue analizando) y el aviso visible
+  (`test_manifiesto_sin_analizar.py`). Los tests de DRM de la 001 no se modificaron y pasan.
+- Al escribirlos apareció un segundo fallo en la misma envoltura, corregido en el mismo
+  commit: tras entregar lo retenido de un cuerpo no terminado, un `read()` sin tamaño devolvía
+  solo lo retenido y no el resto.
+- **Repetición con el arreglo**: `test_cortes_en_tres_momentos_distintos` 300 veces en Linux,
+  **0 fallos**. Con la frecuencia anterior (3 de 337) se esperaban unos 2,7; la probabilidad
+  de 0 por azar con el defecto presente sería de un 7 %. La prueba fuerte es el test de
+  regresión, que es determinista.
+- Sin el marcador `ytdlp_internals` en los tests nuevos que dependen de yt-dlp: la lista de
+  `tests/unit/test_marcadores.py` (001) es exacta, como con `slow`.
+
 **Reintentos del CI**: desde el 2026-11-15, todo reintento se anota aquí, con test, sistema y
 exceso. Fases 6 y 7: ninguno. Fase 8: ninguno (ejecución 98, verde en los dos sistemas).
 
@@ -806,7 +826,22 @@ anteriores:
   test; cambia la salida de la CLI, así que también las referencias de caracterización
   (`tests/integration/referencias_cli/`) que contengan una URL con credenciales.
 - **D2, progreso perdido y memoria sin límite al reanudar** (anotado el 2026-11-15; diagnóstico
-  en R20): `_vigilar_xml` retiene entera en memoria una reanudación cuyo primer byte es `<` y,
-  si la conexión se corta, la pierde. Arreglo propuesto en R20, pendiente de decisión del
-  usuario. Afecta a la puerta final de memoria (T106): hasta que se corrija, una reanudación
-  así puede pasar de 300 MB.
+  en R20): `_vigilar_xml` retenía entera en memoria una reanudación cuyo primer byte era `<` y,
+  si la conexión se cortaba, la perdía. **Corregido** en `44e8f18` (R20, "Arreglo aplicado").
+- **Revisión de otros puntos que retienen cuerpos en memoria** (2026-11-15, solo anotado, sin
+  corregir, a petición del usuario):
+  - `_vigilar_manifiesto` (HLS, `ytdl.py`): guarda una copia de todo cuerpo que empieza por
+    `#EXTM3U` y vuelve a decodificar la copia entera en cada lectura. Entrega los datos al
+    momento, así que no pierde progreso; su memoria es el tamaño del manifiesto, sin tope, y su
+    coste de CPU crece con el cuadrado del tamaño. Tampoco excluye las 206 ni los cuerpos de
+    vídeo (un archivo reanudado que empezara justo por `#EXTM3U` se copiaría; improbable).
+  - `_vigilar_cuerpo` (envoltura de lectura): junta como mucho lo que pide yt-dlp en una lectura
+    (su bloque crece hasta 4 MB). Ante un corte o un estancamiento entrega lo recibido y aplaza
+    el error, así que no pierde nada.
+  - `_vigilar_xml` con `read()` sin tamaño: el cuerpo ya llega entero; `drm.filtrar_xml` hace
+    además una copia y el árbol de expat (unas 2 o 3 veces el manifiesto). Sin tope, porque el
+    que lee ya lo tiene todo en memoria.
+  - No hay `hls.py` ni `dash.py` en el código del proyecto (solo en `tests/support/`). En yt-dlp,
+    `FragmentFD._read_fragment` lee cada fragmento entero en memoria (para descifrarlo o
+    unirlo) y `HlsFD` lee entera la lista de medios: el tamaño de un fragmento o de una lista,
+    no del archivo. En nuestro código, `publish` copia por bloques.
