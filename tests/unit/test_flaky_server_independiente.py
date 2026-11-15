@@ -35,3 +35,23 @@ def test_sirve_un_archivo_generado_a_velocidad_limitada():
     finally:
         proceso.terminate()
         proceso.wait(timeout=10)
+
+
+def test_sirve_el_contenido_de_un_archivo_real(tmp_path):
+    """`--fuente`: sirve un archivo del disco, para que la descarga pase la verificación de
+    ffprobe en los escenarios manuales (quickstart V2)."""
+    fuente = tmp_path / "real.mp4"
+    fuente.write_bytes(bytes(range(256)) * 40)
+    proceso = subprocess.Popen(
+        [sys.executable, "-m", "tests.support.flaky_server", "--servir", "0",
+         "--fuente", str(fuente)],
+        cwd=RAIZ, stdout=subprocess.PIPE, text=True,
+    )
+    try:
+        url = proceso.stdout.readline().strip().removeprefix("sirviendo ")
+        assert url.endswith("/video.mp4")
+        with urllib.request.urlopen(url, timeout=10) as respuesta:
+            assert respuesta.read() == fuente.read_bytes()
+    finally:
+        proceso.terminate()
+        proceso.wait(timeout=10)

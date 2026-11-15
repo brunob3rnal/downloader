@@ -62,8 +62,14 @@ Prepare una cola de prueba con el servidor local de los tests (su modo independi
 `--servir`, se añade en esta feature; ver plan.md):
 
 ```powershell
-uv run python -m tests.support.flaky_server --servir 8765 --limite 2000000   # 2 MB/s
+# Un MP4 real de unos 60 MB (2 min a 4 Mb/s): ffprobe lo verifica y la descarga se completa.
+ffmpeg -f lavfi -i testsrc=size=1280x720:rate=30 -f lavfi -i sine -t 120 -c:v libx264 -preset ultrafast -b:v 4M -c:a aac -shortest $env:TEMP\prueba.mp4
+uv run python -m tests.support.flaky_server --servir 8765 --limite 2000000 --fuente $env:TEMP\prueba.mp4   # 2 MB/s
 ```
+
+Los enlaces son `http://127.0.0.1:8765/video.mp4?n=1`, `?n=2`, …: la consulta distingue las
+descargas y el servidor la ignora. Sin `--fuente`, sirve ceros, que la verificación con
+ffprobe rechaza (sirve para medir memoria, no para completar descargas).
 
 ### V1. Doble clic sin consola (FR-001, SC-001)
 

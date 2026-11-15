@@ -13,9 +13,10 @@ la lista. Así, con el servidor detenido, la extracción también falla por la r
 Modo independiente, para quickstart.md y `scripts/medir_memoria.py` de la feature 002::
 
     python -m tests.support.flaky_server --servir PUERTO --limite BYTES_POR_S \
-        --archivo NOMBRE --tamano BYTES
+        --archivo NOMBRE (--tamano BYTES | --fuente RUTA)
 
-Sirve en `127.0.0.1:PUERTO` un archivo de `--tamano` bytes a `--limite` bytes/s hasta Ctrl+C.
+Sirve en `127.0.0.1:PUERTO` un archivo de `--tamano` bytes a cero, o el contenido de `--fuente`,
+a `--limite` bytes/s hasta Ctrl+C.
 """
 
 import argparse
@@ -548,10 +549,14 @@ def main(argv=None):
                         help="velocidad máxima por conexión; sin límite si se omite")
     parser.add_argument("--archivo", default="video.mp4", metavar="NOMBRE")
     parser.add_argument("--tamano", type=int, default=200_000_000, metavar="BYTES")
+    parser.add_argument("--fuente", default=None, metavar="RUTA",
+                        help="sirve el contenido de este archivo en lugar de --tamano bytes "
+                             "a cero (un video real pasa la verificación de ffprobe)")
     args = parser.parse_args(argv)
+    datos = Path(args.fuente).read_bytes() if args.fuente else bytes(args.tamano)
 
     servidor = FlakyServer(puerto=args.servir)
-    servidor.registrar(args.archivo, bytes(args.tamano), tipo_contenido="video/mp4",
+    servidor.registrar(args.archivo, datos, tipo_contenido="video/mp4",
                        velocidad=args.limite)
     print(f"sirviendo {servidor.url(args.archivo)}", flush=True)
     try:
