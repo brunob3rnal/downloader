@@ -109,10 +109,10 @@ el trabajador caben en 300 MB de memoria privada (USS) (regla 1; research R14).
   6. sale con 0 si el máximo es de `--limite` o menos, y con 1 si se pasa.
 
   Con `--importar-store`, la ventana mínima además importa `downloader.store`, que hoy carga yt-dlp, para medir su coste (R15)
-- [ ] T011 **[manual, Windows, equipo de 4 GB]** Ejecutar `uv run python scripts/medir_memoria.py` en cuatro variantes: tal cual, con `--sin-uv`, con `--importar-store`, y con `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--renderer-process-limit=1 --disable-gpu --disable-extensions"`. En la última, comprobar en la línea de órdenes impresa de `msedgewebview2.exe` si esos argumentos llegan junto a `--disable-features=ElasticOverscroll` de pywebview o lo sustituyen (precedencia, R14 [a verificar]).
+- [X] T011 **[manual, Windows, equipo de 4 GB]** Ejecutar `uv run python scripts/medir_memoria.py` en cuatro variantes: tal cual, con `--sin-uv`, con `--importar-store`, y con `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--renderer-process-limit=1 --disable-gpu --disable-extensions"`. En la última, comprobar en la línea de órdenes impresa de `msedgewebview2.exe` si esos argumentos llegan junto a `--disable-features=ElasticOverscroll` de pywebview o lo sustituyen (precedencia, R14 [a verificar]).
 
   Anotar en `specs/002-desktop-app/research.md` (R14, nuevo apartado "Resultado de la medición") la fecha, el equipo, el máximo y el desglose de cada variante, el coste de importar `downloader.store` (verifica la estimación de R15) y la precedencia observada
-- [ ] T012 **PUERTA**: con los resultados de T011, decidir.
+- [X] T012 **PUERTA**: con los resultados de T011, decidir.
   - Si alguna variante viable queda en 300 MB o menos: anotar en research R14 qué mitigaciones son obligatorias (por ejemplo, los argumentos de WebView2) y añadirlas como requisito a T066, `ventana/ventana.py`.
   - Si ninguna lo consigue: **detener la implementación** y presentar al usuario las cifras, las mitigaciones probadas y el plan B (tkinter, R1). No continuar sin su respuesta.
 - [ ] T013 Commit `002 Fase 2: medición de memoria con ventana mínima (SC-005)`, con los scripts, el test y los resultados en research.md
@@ -418,7 +418,7 @@ mensaje claro con el código 3.
   - `enfocar` con `restore`, `show` y traer al frente;
   - `ejecutar_js` con `evaluate_js`;
   - `destruir`;
-  - las mitigaciones de memoria que T012 haya hecho obligatorias.
+  - las mitigaciones de memoria que T012 hizo obligatorias (research R14, "Decisión de la puerta"): fijar al arrancar `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--renderer-process-limit=1 --disable-gpu --disable-extensions"` en el entorno del proceso, antes de `webview.start`, sumándolos a un valor que ya tuviera la variable. Con un test que lo compruebe.
 
   Y `src/downloader/app/ventana/__init__.py`
 - [ ] T067 [US1] Completar `principal.main()` para Windows: comprobar WebView2 (si falla: mensaje, registro y código 3), arrancar el servidor y abrir la ventana. Implementar `POST api/examinar` (501 sin ventana real)

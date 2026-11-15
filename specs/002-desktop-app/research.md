@@ -299,6 +299,29 @@ por la misma cadena que el lanzador (`uv run --gui-script`), inicia una descarga
 servidor local, termina la cadena de la ventana y comprueba que el trabajador sigue vivo y
 avanzando 5 s después. En Linux, el mismo test con `start_new_session`.
 
+**Resultado del diagnóstico (2026-11-14, `scripts/diagnostico_job.py`, opción A de la consulta
+sobre la Fase 1)**. Equipo del usuario: Windows 10 19045, Python 3.12.15, uv 0.13.1. El propio
+diagnóstico estaba en un objeto de trabajo.
+
+| Camino | Escenario | Hijo en objeto de trabajo | Intermedio en objeto de trabajo | Hijo sobrevive | Intermedio sobrevive |
+|--------|-----------|---------------------------|---------------------------------|----------------|----------------------|
+| python directo | fin normal | no | — | sí | — |
+| python directo | matar el superior | no | sí | sí | no |
+| uv run | fin normal | no | — | sí | — |
+| uv run | matar el superior | no | sí | sí | sí |
+| uv run --gui-script | fin normal | no | sí | sí | — |
+| uv run --gui-script | matar el superior | no | sí | sí | sí |
+
+Lectura:
+- en el equipo del usuario, `CREATE_BREAKAWAY_FROM_JOB` saca al hijo de todo objeto de trabajo
+  por los tres caminos, y el hijo sobrevive en los seis casos;
+- el intermedio, que no se separa, sí queda en un objeto de trabajo; con `python directo`
+  muere al matar el lanzador del entorno virtual. Separarse es, por tanto, necesario;
+- en el CI de GitHub el hijo sobrevivía pero seguía en un objeto de trabajo
+  (`test_lanzar_desacoplado.py`): lo atribuye al objeto de trabajo exterior del runner, que
+  no existe en el equipo del usuario. **Pendiente de la decisión del usuario** qué debe
+  comprobar ese test.
+
 ## R9. Velocidad, tiempo estimado y estado de la red en directo (FR-005, SC-006)
 
 **Hallazgo**: la feature 001 solo guarda en `cola.db` los bytes, cada 2 s
@@ -475,7 +498,7 @@ redibujen cada segundo (SC-005).
   contra el servidor local de los tests con velocidad limitada, desde que se abre la aplicación
   hasta que termina esa descarga (SC-005).
 
-**Estimación [a verificar]**:
+**Estimación** (verificada: ver "Resultado de la medición" al final de R14):
 
 | Proceso | Estimación |
 |---------|------------|
@@ -496,6 +519,44 @@ de construir la interfaz completa. Mitigaciones, en este orden, si se pasa de 30
 3. que la ventana no lance `uv run` como padre persistente (usar el respaldo `gui-scripts`);
 4. si nada basta, plan B con tkinter (R1), que se plantearía al usuario antes de cambiar la
    decisión.
+
+**Resultado de la medición (2026-11-14, T011)**. Equipo de referencia del usuario: Windows 10
+19045, 3,7 GB de RAM, 2 CPU lógicas, WebView2 157.0.4341.46. `scripts/medir_memoria.py` con la
+ventana mínima, 500 descargas en cola y la primera descargándose (200 MB a 2 MB/s); unas 390
+muestras en unos 220 s por variante. MB decimales.
+
+| Variante | Máximo | Ventana (pythonw) | WebView2 (suma) | Trabajador (python) | uv.exe | Resultado |
+|----------|--------|-------------------|-----------------|---------------------|--------|-----------|
+| tal cual (`uv run --gui-script`) | 266,5 MB | 43,7 | 152,2 | 56,6 | 6,9 | dentro |
+| `--sin-uv` | 253,5 MB | 43,8 | 146,5 | 56,3 | — | dentro |
+| `--importar-store` | 272,2 MB | 59,6 | 143,9 | 54,8 | 6,8 | dentro |
+| argumentos de WebView2 | 218,9 MB | 43,5 | 105,6 | 55,8 | 6,9 | dentro |
+
+En todas cuentan también `conhost.exe` (unos 6 MB, la consola sin ventana del trabajador) y
+dos lanzadores de menos de 1 MB.
+
+- **Estimación de R14**: 205–315 MB; medido, 219–272 MB. La cifra queda dentro del límite en
+  las cuatro variantes.
+- **Coste de cargar yt-dlp en la ventana (R15)**: el proceso de la ventana pasa de 43,7 a
+  59,6 MB, unos 16 MB, algo menos que los 20–30 MB estimados. R15 se mantiene.
+- **Coste de `uv run` como padre**: `uv.exe` ocupa unos 7 MB; la diferencia total entre las
+  dos primeras variantes (13 MB) incluye variación propia de WebView2.
+- **Precedencia de `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` [verificado]**: los argumentos de la
+  variable llegan **junto a** los de pywebview (`--disable-features=ElasticOverscroll` sigue
+  en la línea de órdenes), no los sustituyen. Ahorran unos 47 MB en WebView2.
+- **Límite de la medición**: el archivo de prueba es un único archivo directo, sin unir audio y
+  video, así que no incluye el pico de un `ffmpeg` que une pistas al terminar una descarga. Con
+  la configuración por defecto (266,5 MB) el margen hasta 300 MB es de 33,5 MB, y ese pico no
+  está medido.
+
+**Decisión de la puerta (T012)**: se supera; la implementación continúa. Mitigaciones
+obligatorias:
+- R15, la ventana sin yt-dlp (ya obligatoria en el plan);
+- los argumentos de WebView2 `--renderer-process-limit=1 --disable-gpu --disable-extensions`,
+  que la ventana fija al arrancar (T066). Dejan el máximo en 218,9 MB, con 81 MB de margen para
+  el pico de `ffmpeg`, que la medición no cubre.
+
+No es obligatorio prescindir de `uv run` como padre: R11 no cambia.
 
 ## R15. La ventana no carga yt-dlp
 
