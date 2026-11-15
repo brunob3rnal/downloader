@@ -314,12 +314,12 @@ en `destino`.
 
 ### Tests for User Story 1 (primero, en rojo)
 
-- [ ] T048 [P] [US1] Escribir `tests/unit/test_app_urls.py` (R16):
+- [X] T048 [P] [US1] Escribir `tests/unit/test_app_urls.py` (R16):
   - líneas vacías y de solo espacios ignoradas;
   - `http` y `https` con host válidas;
   - `ftp://x`, `hola`, `https://` sin host y `javascript:alert(1)` inválidas, con su número de línea (empezando en 1, contando las vacías);
   - espacios alrededor recortados.
-- [ ] T049 [P] [US1] Escribir `tests/unit/test_app_vista.py` (R13, data-model "Fila de la vista"):
+- [X] T049 [P] [US1] Escribir `tests/unit/test_app_vista.py` (R13, data-model "Fila de la vista"):
   - `sitio` es solo el host (sin usuario, contraseña, puerto, ruta ni consulta);
   - `porcentaje` sale de `progreso-vivo.json` para la descarga activa y de la cola para las demás;
   - cifras: "2,4 MB/s", "quedan 1 min 12 s", "Sin datos hace 14 s, reintentando", "Esperando red · reintento en 40 s";
@@ -330,45 +330,45 @@ en `destino`.
   - `aviso` según el estado;
   - los secretos de URL, título y error quedan ocultos;
   - el `ETag` cambia si cambia `actualizada`, el vivo o el estado del procesador, y no cambia si nada cambia.
-- [ ] T050 [P] [US1] Escribir `tests/integration/test_app_agregar.py` (contracts/api-local.md, `POST api/agregar` y `GET api/opciones`):
+- [X] T050 [P] [US1] Escribir `tests/integration/test_app_agregar.py` (contracts/api-local.md, `POST api/agregar` y `GET api/opciones`):
   - las líneas válidas se agregan y las inválidas se devuelven con su número;
   - el resultado en `cola.db` es igual que con `downloader agregar` con las mismas URLs y opciones en otro `app_home` (comparar url, calidad, carpeta y estado);
   - duplicados en `ya_en_cola` y fallidas en `reencoladas`;
   - carpeta inexistente, carpeta sin permiso, calidad desconocida o navegador desconocido → 400 con el mensaje de la CLI y nada agregado;
   - texto vacío → 400 "Pegue al menos un enlace";
   - `api/opciones` toma calidad y carpeta de `config.toml`, y con un `config.toml` inválido devuelve los valores por defecto y `aviso_config`.
-- [ ] T051 [P] [US1] Escribir `tests/integration/test_app_iniciar.py` (`@pytest.mark.ffmpeg`), con `app_local`, `servidor` y archivos de 5 MB a 1 MB/s:
+- [X] T051 [P] [US1] Escribir `tests/integration/test_app_iniciar.py` (`@pytest.mark.ffmpeg`), con `app_local`, `servidor` y archivos de 5 MB a 1 MB/s:
   - `POST api/iniciar` → 202 con `ejecucion`;
   - mientras dura, `api/estado` da `procesador.estado == "en_marcha"`, `origen == "app"` y una fila con `velocidad` y `eta`;
   - una URL agregada durante el procesamiento se procesa sin volver a iniciar (US1, escenario 4);
   - al final, `ultima_ejecucion` dice `completadas: 3`, `codigo: 0` y `error: null`, con los archivos en `destino`;
   - con una URL que da 404, `codigo: 1` y una entrada en `fallidas` con la causa;
   - sin ffmpeg en el `PATH` del subproceso, `error.tipo == "fatal"` con el mismo mensaje que `ejecutar` y el código 3 (FR-012).
-- [ ] T052 [P] [US1] Escribir `tests/unit/test_app_procesador.py`. Llama a `procesador.main(["--ejecucion", "x"])` con `operaciones.ejecutar_cola` parcheado para lanzar `RuntimeError("boom")`. Comprueba que `ultima-ejecucion.json` tiene `error.tipo == "inesperado"` con "RuntimeError: boom", que `registro/procesador.log` contiene la traza y que el código de salida no es 0
-- [ ] T053 [P] [US1] Escribir `tests/integration/test_app_vivo.py` (FR-005, SC-006):
+- [X] T052 [P] [US1] Escribir `tests/unit/test_app_procesador.py`. Llama a `procesador.main(["--ejecucion", "x"])` con `operaciones.ejecutar_cola` parcheado para lanzar `RuntimeError("boom")`. Comprueba que `ultima-ejecucion.json` tiene `error.tipo == "inesperado"` con "RuntimeError: boom", que `registro/procesador.log` contiene la traza y que el código de salida no es 0
+- [X] T053 [P] [US1] Escribir `tests/integration/test_app_vivo.py` (FR-005, SC-006):
   - con un procesamiento de la aplicación y con un `ejecutar` de la CLI, `api/estado` muestra `velocidad` y `eta` de la descarga activa;
   - el `porcentaje` de la API no va más de 2 s por detrás de los bytes que el servidor ha enviado: comparar la marca temporal de `bytes_servidos` del `servidor` con la de la consulta.
 
-- [ ] T054 [P] [US1] Escribir `tests/unit/test_app_lanzar.py`: con `subprocess.Popen` parcheado para lanzar `OSError(winerror=5)` cuando se pide `CREATE_BREAKAWAY_FROM_JOB`, `lanzar_trabajador` lanza `SinSegundoPlano` con el mensaje de R8, no reintenta sin el indicador y lo anota en el registro. `api/iniciar` responde 409 con ese motivo. Corre en los dos sistemas, porque simula los indicadores
+- [X] T054 [P] [US1] Escribir `tests/unit/test_app_lanzar.py`: con `subprocess.Popen` parcheado para lanzar `OSError(winerror=5)` cuando se pide `CREATE_BREAKAWAY_FROM_JOB`, `lanzar_trabajador` lanza `SinSegundoPlano` con el mensaje de R8, no reintenta sin el indicador y lo anota en el registro. `api/iniciar` responde 409 con ese motivo. Corre en los dos sistemas, porque simula los indicadores
 
 ### Implementation for User Story 1
 
-- [ ] T055 [US1] Crear `src/downloader/app/urls.py` con `separar(texto) -> (validas, invalidas[(linea, texto)])` (R16)
-- [ ] T056 [US1] Crear `src/downloader/app/vista.py` con `filas(descargas, vivo, estado)`, los formatos de cifras, `en_directo` y `etag(...)`. Tras el primer `BaseCorrupta`, la vista deja de leer y devuelve el aviso `cola_corrupta` (R13)
-- [ ] T057 [US1] Añadir a `src/downloader/app/procesos.py` la función `lanzar_trabajador(directorio, ejecucion) -> Popen` (R5, R8):
+- [X] T055 [US1] Crear `src/downloader/app/urls.py` con `separar(texto) -> (validas, invalidas[(linea, texto)])` (R16)
+- [X] T056 [US1] Crear `src/downloader/app/vista.py` con `filas(descargas, vivo, estado)`, los formatos de cifras, `en_directo` y `etag(...)`. Tras el primer `BaseCorrupta`, la vista deja de leer y devuelve el aviso `cola_corrupta` (R13)
+- [X] T057 [US1] Añadir a `src/downloader/app/procesos.py` la función `lanzar_trabajador(directorio, ejecucion) -> Popen` (R5, R8):
   - intérprete: `python.exe` junto a `pythonw.exe` si `sys.executable` es `pythonw`;
   - orden: `[python, "-m", "downloader.app.procesador", "--ejecucion", id]`;
   - `stdout`/`stderr` a `DEVNULL`;
   - en Windows, `creationflags = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB`, protegido por una comprobación de plataforma (test_plataforma);
   - en Linux, `start_new_session=True`;
   - si `CreateProcess` falla con `ERROR_ACCESS_DENIED` por el objeto de trabajo, lanza `SinSegundoPlano` con el mensaje de R8 y lo anota en el registro, sin reintentar sin el indicador. Si esto ocurre en el CI de Windows, parar y consultar al usuario (ver T006).
-- [ ] T058 [US1] Crear `src/downloader/app/procesador.py` (`python -m downloader.app.procesador --ejecucion ID`):
+- [X] T058 [US1] Crear `src/downloader/app/procesador.py` (`python -m downloader.app.procesador --ejecucion ID`):
   1. configura el registro `procesador`;
   2. comprueba ffmpeg con la misma función que la CLI y carga la configuración;
   3. llama a `operaciones.ejecutar_cola(origen="app", ejecucion=ID)`;
   4. escribe `ultima-ejecucion.json`: completadas y fallidas (con su causa), y `codigo` 0 o 1; con `ErrorFatal`, `fatal` y 3; con `KeyboardInterrupt`, `detenida` y 130; con cualquier otra excepción, `inesperado` (traza al registro);
   5. con `EjecucionEnCurso`, sale con 2 **sin** escribir resultado.
-- [ ] T059 [US1] Implementar en `src/downloader/app/api.py` las rutas `GET api/opciones`, `GET api/estado` (con `If-None-Match` y 304), `POST api/agregar` (con `operaciones.validar_*` y `agregar_urls`) y `POST api/iniciar` (202 o 500 con el error en el registro), según contracts/api-local.md. `POST api/iniciar` lanza el trabajador y guarda la ejecución en curso para mostrar el estado `arrancando`
+- [X] T059 [US1] Implementar en `src/downloader/app/api.py` las rutas `GET api/opciones`, `GET api/estado` (con `If-None-Match` y 304), `POST api/agregar` (con `operaciones.validar_*` y `agregar_urls`) y `POST api/iniciar` (202 o 500 con el error en el registro), según contracts/api-local.md. `POST api/iniciar` lanza el trabajador y guarda la ejecución en curso para mostrar el estado `arrancando`
 - [ ] T060 [US1] Commit `002 Fase 7: API de agregar, estado e iniciar con el trabajador en subproceso (US1)`
 
 **Aceptación**:

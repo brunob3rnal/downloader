@@ -251,7 +251,7 @@ class Presentador:
 
 # --- progreso en directo para la aplicación de escritorio (research R9 de la feature 002) ---
 
-ARCHIVO_VIVO = "progreso-vivo.json"
+ARCHIVO_VIVO = archivos_json.ARCHIVO_VIVO
 FALLOS_PARA_AVISAR = 3  # escrituras seguidas sin conseguirlo antes de anotarlo en el registro
 _registro_vivo = logging.getLogger("downloader.vivo")
 

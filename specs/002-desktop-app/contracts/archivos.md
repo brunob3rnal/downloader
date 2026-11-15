@@ -61,7 +61,9 @@ consulta. Fechas en ISO 8601, UTC, con milisegundos, como en `cola.db`.
  "error": null}
 ```
 
-- `codigo` es el de `ejecutar` (0, 1, 3 o 130), o null con `error.tipo = abrupto`.
+- `codigo` es el de `ejecutar` (0, 1, 3 o 130; 2 si `config.toml` no es válido, con
+  `error.tipo = fatal`), o null con `error.tipo = abrupto`. Si otro procesador ganó el bloqueo,
+  el procesador sale con 2 **sin** escribir resultado.
 - `error` puede ser:
   - `{"tipo": "fatal", "mensaje": "<el mismo texto que imprime ejecutar>"}`;
   - `{"tipo": "detenida", "mensaje": "interrumpido; progreso guardado"}`;

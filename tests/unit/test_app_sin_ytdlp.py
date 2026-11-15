@@ -27,6 +27,8 @@ MODULOS = [
     "downloader.app.resultado",
     "downloader.app.procesos",
     "downloader.app.principal",
+    "downloader.app.vista",
+    "downloader.app.urls",
 ]
 
 

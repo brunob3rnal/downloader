@@ -1,7 +1,6 @@
 """Línea de comandos: `agregar`, `ejecutar`, `estado` y `actualizar` (contracts/cli.md)."""
 
 import logging
-import shutil
 import signal
 import sys
 import threading
@@ -135,17 +134,9 @@ def agregar(
 
 def _comprobar_ffmpeg() -> None:
     """ffmpeg une y convierte los formatos y ffprobe verifica antes de publicar (R8)."""
-    ausentes = [programa for programa in ("ffmpeg", "ffprobe") if shutil.which(programa) is None]
-    if ausentes:
-        raise _error(
-            f"no se encuentra {' ni '.join(ausentes)} en el PATH. Instale ffmpeg, que incluye "
-            "ffprobe, y vuelva a ejecutar:\n"
-            "  Windows: winget install Gyan.FFmpeg  (o: choco install ffmpeg)\n"
-            "  macOS:   brew install ffmpeg\n"
-            "  Linux:   sudo apt install ffmpeg  (Debian, Ubuntu; o el gestor de su distribución)\n"
-            "La cola no se ha modificado.",
-            FATAL,
-        )
+    mensaje = operaciones.ffmpeg_ausente()
+    if mensaje:
+        raise _error(mensaje, FATAL)
 
 
 @app.command()

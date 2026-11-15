@@ -10,6 +10,7 @@ No carga yt-dlp al importarse (research R15): `worker` y `network` se importan d
 
 import logging
 import os
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -23,6 +24,24 @@ from downloader.store import ResultadoAgregar, Store
 # la exclusión la garantiza `ejecutar.lock`.
 ARCHIVO_PROCESADOR = "procesador.json"
 _registro_vivo = logging.getLogger("downloader.vivo")
+
+
+def ffmpeg_ausente() -> str | None:
+    """El mensaje de `ejecutar` si faltan ffmpeg o ffprobe en el PATH; `None` si están (R8).
+
+    ffmpeg une y convierte los formatos y ffprobe verifica antes de publicar.
+    """
+    ausentes = [programa for programa in ("ffmpeg", "ffprobe") if shutil.which(programa) is None]
+    if not ausentes:
+        return None
+    return (
+        f"no se encuentra {' ni '.join(ausentes)} en el PATH. Instale ffmpeg, que incluye "
+        "ffprobe, y vuelva a ejecutar:\n"
+        "  Windows: winget install Gyan.FFmpeg  (o: choco install ffmpeg)\n"
+        "  macOS:   brew install ffmpeg\n"
+        "  Linux:   sudo apt install ffmpeg  (Debian, Ubuntu; o el gestor de su distribución)\n"
+        "La cola no se ha modificado."
+    )
 
 
 def validar_calidad(valor: str | None, por_defecto: Calidad) -> Calidad:

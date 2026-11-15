@@ -9,6 +9,7 @@ import os
 import time
 from pathlib import Path
 
+ARCHIVO_VIVO = "progreso-vivo.json"  # el progreso en directo de `ejecutar` (research R9)
 ESPERA_REINTENTO = 0.05  # s; en Windows, `os.replace` falla si otro proceso tiene el destino abierto
 
 
