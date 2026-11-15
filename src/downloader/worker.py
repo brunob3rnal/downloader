@@ -19,11 +19,7 @@ from downloader.ytdl import Progreso
 PASO_ESPERA = 0.25  # s entre comprobaciones del monitor durante la espera de un reintento
 AVISO_REINICIO = "reiniciada desde cero: {motivo}"
 SIN_REANUDACION = "el servidor no permite reanudar"  # el motivo si no se conoce otro (R3)
-# Una lista sin entradas suele ser una URL que yt-dlp no sabe leer o que exige sesión.
-LISTA_VACIA = (
-    "no se encontraron videos; la URL puede no estar soportada o requerir sesión "
-    "(ver --cookies-de)"
-)
+from downloader.mensajes import LISTA_VACIA  # noqa: E402  (FR-028; reexportado)
 DISCO_LLENO = (
     "No queda espacio en el disco de {carpeta} (disco lleno). Libere espacio y vuelva a "
     "ejecutar `downloader ejecutar`"

@@ -14,9 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from yt_dlp.utils import sanitize_filename
-
-from downloader.errors import ErrorFatal, ErrorPermanente
+from downloader.excepciones import ErrorFatal, ErrorPermanente
 
 # Errores con los que `os.link` indica que el sistema de archivos no admite enlaces duros.
 # En Windows (FAT32, exFAT, algunas unidades de red) llegan como `winerror`, cuya traducción a
@@ -94,6 +92,10 @@ def nombre_publicado(
     nombre es el id. Si lo que queda antes del primer punto es un nombre reservado de Windows
     (`CON`, `NUL`, `COM1`…), se antepone `_`.
     """
+    # Aquí y no en el módulo: la ventana de la aplicación importa `publish` (por `config`) y no
+    # debe cargar yt-dlp (research R15 de la feature 002).
+    from yt_dlp.utils import sanitize_filename
+
     titulo = titulo or ""
     extension = sanitize_filename(extension)
     prefijo = _unidades_windows(str(Path(carpeta))) + 1 if carpeta is not None else 0

@@ -9,6 +9,9 @@ from yt_dlp.cookies import CookieLoadError
 from yt_dlp.networking.exceptions import HTTPError, TransportError
 from yt_dlp.utils import ExtractorError, UnsupportedError
 
+from downloader.excepciones import ErrorFatal, ErrorPermanente  # noqa: F401  (reexportados)
+from downloader.mensajes import CONSEJO_SESION, COOKIES_ILEGIBLES  # noqa: F401  (reexportados)
+
 
 class Tipo(Enum):
     TEMPORAL = "temporal"  # se reintenta indefinidamente (salvo el tope de los ambiguos)
@@ -19,14 +22,6 @@ class Tipo(Enum):
 class Fase(StrEnum):
     EXTRACCION = "extraccion"  # obtener la información del video
     DESCARGA = "descarga"  # transferir los archivos de medios
-
-
-class ErrorPermanente(Exception):
-    """Error propio que impide esta descarga (directo, carpeta inválida…)."""
-
-
-class ErrorFatal(Exception):
-    """Error propio que impide seguir con cualquier descarga (base corrupta, ffmpeg ausente…)."""
 
 
 class CookiesIlegibles(ErrorPermanente):
@@ -76,13 +71,6 @@ class Clasificacion:
     # se reintenta tras una espera corta (R21).
     estancamiento: bool = False
     consejo: str | None = None  # qué puede hacer el usuario, para añadir al mensaje del fallo
-
-
-# Un acceso denegado suele deberse a un video que exige la sesión del usuario (FR-016, FR-026).
-CONSEJO_SESION = (
-    "Puede que el video exija una sesión iniciada: vuelva a agregarlo con --cookies-de "
-    "NAVEGADOR (por ejemplo, --cookies-de firefox)."
-)
 
 
 _TRANSPORTE = (TransportError, TimeoutError, ConnectionError)
@@ -251,38 +239,7 @@ def cookies_ilegibles(exc: BaseException, navegador: str) -> CookiesIlegibles | 
         causa = _COOKIES_NO_ENCONTRADAS
     else:  # el mensaje original, sin los «ERROR: » que antepone `report_error`
         causa = re.sub(r"^(ERROR: )+", "", str(causas[0] if causas else carga))
-    return CookiesIlegibles(f"No se pudieron leer las cookies de {navegador}: {causa}")
+    return CookiesIlegibles(COOKIES_ILEGIBLES.format(navegador=navegador, causa=causa))
 
 
-_CABECERA = re.compile(
-    r"""(?P<clave>\b(?:cookie|authorization)\b['"]?\s*[:=]\s*)(?P<comilla>['"])?"""
-    r"""(?P<valor>(?(comilla)[^'"\n]*|[^\n]*))""",
-    re.IGNORECASE,
-)
-_PARAMETRO = re.compile(r"(?P<clave>[?&;](?P<nombre>[\w.~-]+)=)(?P<valor>[^&\s#'\"]*)")
-# Palabras que delatan un secreto en el nombre de un parámetro, separadas por `-`, `_` o `.`
-# (`X-Amz-Signature`, `access_token`, `Key-Pair-Id`); `monkey` o `itag` no lo son. Los nombres
-# que terminan en `token`, `sig` o `signature` (`lsig`) también.
-_PALABRAS_SECRETAS = {
-    "token", "sig", "signature", "key", "auth", "credential", "policy", "hmac", "hdnts",
-    "password", "secret",
-}
-_SUFIJOS_SECRETOS = ("token", "sig", "signature")
-OCULTO = "***"
-
-
-def _parametro_secreto(nombre: str) -> bool:
-    nombre = nombre.lower()
-    return (
-        not _PALABRAS_SECRETAS.isdisjoint(re.split(r"[-_.]", nombre))
-        or nombre.endswith(_SUFIJOS_SECRETOS)
-    )
-
-
-def ocultar_secretos(texto: str) -> str:
-    """Elimina valores de cabeceras Cookie/Authorization y de parámetros de URL de token o
-    firma (`token`, `sig`, `X-Amz-Signature`, `Key-Pair-Id`, `access_token`…)."""
-    texto = _CABECERA.sub(lambda m: f"{m['clave']}{m['comilla'] or ''}{OCULTO}", texto)
-    return _PARAMETRO.sub(
-        lambda m: f"{m['clave']}{OCULTO}" if _parametro_secreto(m["nombre"]) else m[0], texto
-    )
+from downloader.secretos import OCULTO, ocultar_secretos  # noqa: E402,F401  (reexportados)

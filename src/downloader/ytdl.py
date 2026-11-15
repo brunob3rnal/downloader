@@ -13,14 +13,13 @@ from pathlib import Path
 from typing import NamedTuple
 
 from yt_dlp import YoutubeDL
-from yt_dlp.cookies import SUPPORTED_BROWSERS
 from yt_dlp.downloader import get_suitable_downloader
 from yt_dlp.downloader.external import ExternalFD
 from yt_dlp.networking.common import Response
 from yt_dlp.networking.exceptions import HTTPError, IncompleteRead, TransportError
 from yt_dlp.utils import DownloadError
 
-from downloader import drm
+from downloader import drm, models
 from downloader.errors import (
     ErrorPermanente,
     Fase,
@@ -33,7 +32,7 @@ from downloader.errors import (
 from downloader.models import Calidad, Descarga
 
 DIRECTORIO_TEMPORAL = ".downloader-tmp"
-NAVEGADORES = SUPPORTED_BROWSERS  # los que admite `--cookies-de` (research R12, R25)
+NAVEGADORES = models.NAVEGADORES  # los que admite `--cookies-de` (research R12, R25)
 # Tamaño de cada lectura del cuerpo de una respuesta: lo máximo que se pierde en un corte (R18).
 TROZO_LECTURA = 4096
 # `retries` y `fragment_retries`: un fallo sube enseguida a los reintentos del trabajador, que

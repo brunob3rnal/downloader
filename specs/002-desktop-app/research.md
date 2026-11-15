@@ -614,6 +614,15 @@ verificar en la tabla de `errors.py`]**.
 El reintento usa `Store.agregar` con el navegador elegido, el mismo camino que
 `agregar --cookies-de`: la descarga fallida vuelve a la cola con el mismo id y ese navegador.
 
+**Resultado (2026-11-15, T016) [verificado]**: yt-dlp lanza el contenido que exige iniciar
+sesión (`InfoExtractor.raise_login_required`) como `ExtractorError(expected=True)`. La 001 lo
+clasifica PERMANENTE **sin** `CONSEJO_SESION`, y guarda como `ultimo_error` el mensaje de
+yt-dlp, que sugiere `--cookies-from-browser`. En lugar de cambiar el mensaje de la CLI
+(FR-017), `mensajes.requiere_sesion` reconoce también esa marca de yt-dlp
+(`MARCAS_YTDLP_SESION`). Lo prueba `tests/unit/test_mensajes.py`. Las cookies ilegibles se
+reconocen por el comienzo de su mensaje, `COOKIES_ILEGIBLES` ("No se pudieron leer las cookies
+de …"), que ahora comparten `errors` y `mensajes`.
+
 ## R18. Cierre de la ventana (FR-010)
 
 **Decisión**: el manejador de `window.events.closing` llama a la función de lógica

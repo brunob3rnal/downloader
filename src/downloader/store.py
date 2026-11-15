@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 
-from downloader.errors import ErrorFatal
+from downloader.excepciones import ErrorFatal
 from downloader.models import (
     PENDIENTES,
     Calidad,

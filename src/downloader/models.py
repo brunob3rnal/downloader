@@ -3,6 +3,13 @@
 from dataclasses import dataclass
 from enum import StrEnum
 
+# Navegadores que admite `--cookies-de`: los de `yt_dlp.cookies.SUPPORTED_BROWSERS`, fijados
+# aquí para no cargar yt-dlp en la ventana (research R12, R25; R15 de la feature 002). Un test
+# comprueba que coinciden.
+NAVEGADORES = frozenset(
+    {"brave", "chrome", "chromium", "edge", "firefox", "opera", "safari", "vivaldi", "whale"}
+)
+
 
 class Estado(StrEnum):
     QUEUED = "queued"
