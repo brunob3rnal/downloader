@@ -146,3 +146,19 @@ def test_maximo_devuelve_la_muestra_mayor_con_su_desglose():
 
 def test_megabytes_decimales():
     assert medir.mb(300_000_000) == pytest.approx(300.0)
+
+
+def test_motor_webview2_se_acepta():
+    medir.comprobar_motor({"motor": "edgechromium"})  # no lanza
+
+
+def test_otro_motor_termina_la_medicion_con_un_error_explicito():
+    # Sin WebView2, pywebview cae en silencio a MSHTML (Internet Explorer): no se da una cifra.
+    with pytest.raises(medir.MedicionFallida, match="mshtml.*WebView2"):
+        medir.comprobar_motor({"motor": "mshtml"})
+
+
+def test_motor_desconocido_tambien_es_error():
+    with pytest.raises(medir.MedicionFallida, match="WebView2"):
+        medir.comprobar_motor({"error": "No module named 'clr'"})
+

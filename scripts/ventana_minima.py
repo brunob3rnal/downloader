@@ -4,9 +4,11 @@ No es la aplicación: abre con pywebview (WebView2) una página de 500 filas con
 la ventana real (contracts/ventana.md) y la actualiza cada segundo desde un servidor de la
 biblioteca estándar en 127.0.0.1, como hará la aplicación. La lanza `scripts/medir_memoria.py`.
 
-    uv run --gui-script scripts/ventana_minima.py [--importar-store]
+    uv run --gui-script scripts/ventana_minima.py [--importar-store] [--informe-motor RUTA]
 
 Con `--importar-store` importa además `downloader.store`, que hoy carga yt-dlp (research R15).
+Con `--informe-motor`, escribe en RUTA qué motor eligió pywebview y, si no es WebView2 (caída
+silenciosa a MSHTML, research R2), termina con el código 3 sin abrir la ventana.
 """
 
 import json
@@ -60,8 +62,26 @@ class _Manejador(BaseHTTPRequestHandler):
         pass  # con pythonw no hay `sys.stderr` (research R3)
 
 
+def _motor() -> dict:
+    """El motor que usará pywebview; se decide al importar su backend WinForms (research R2)."""
+    try:
+        from webview.platforms import winforms
+    except Exception as error:  # pythonnet sin .NET, por ejemplo
+        return {"error": f"{type(error).__name__}: {error}"}
+    return {"motor": getattr(winforms, "renderer", None)}
+
+
 def main() -> None:
-    if "--importar-store" in sys.argv[1:]:
+    argumentos = sys.argv[1:]
+    if "--informe-motor" in argumentos:
+        ruta = Path(argumentos[argumentos.index("--informe-motor") + 1])
+        motor = _motor()
+        temporal = ruta.with_suffix(".tmp")
+        temporal.write_text(json.dumps(motor), encoding="utf-8")
+        temporal.replace(ruta)
+        if motor.get("motor") != "edgechromium":
+            sys.exit(3)
+    if "--importar-store" in argumentos:
         import downloader.store  # noqa: F401  (mide el coste de cargar yt-dlp, R15)
 
     servidor = ThreadingHTTPServer(("127.0.0.1", 0), _Manejador)

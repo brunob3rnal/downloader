@@ -14,6 +14,7 @@ trabajador con sus descendientes (ffmpeg, ffprobe). MB decimales: 1 MB = 1 000 0
 """
 
 import argparse
+import json
 import os
 import platform
 import shutil
@@ -113,6 +114,19 @@ class MedicionFallida(Exception):
     pass
 
 
+def comprobar_motor(informe: dict) -> None:
+    """Exige WebView2. Sin él, pywebview cae en silencio a MSHTML (Internet Explorer) y la
+    cifra no valdría para la aplicación (research R2): la medición termina con un error."""
+    motor = informe.get("motor")
+    if motor != "edgechromium":
+        detalle = motor or informe.get("error", "desconocido")
+        raise MedicionFallida(
+            f"el motor de la ventana es {detalle}, no WebView2 (edgechromium): pywebview no "
+            "encuentra Microsoft Edge WebView2 Runtime. Instálelo con `winget install "
+            "Microsoft.EdgeWebView2Runtime` y repita la medición; no se da ninguna cifra."
+        )
+
+
 def _esperar(condicion, segundos: float, que: str):
     limite = time.monotonic() + segundos
     while time.monotonic() < limite:
@@ -160,6 +174,13 @@ def _navegador_webview2(ventana):
             if orden and not any(parte.startswith("--type=") for parte in orden):
                 return proceso
     return None
+
+
+def _leer_json(ruta: Path):
+    try:
+        return json.loads(ruta.read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError):
+        return None
 
 
 def _terminar(proceso) -> None:
@@ -216,7 +237,10 @@ def medir(args) -> tuple[Muestra | None, dict]:
         if not script.exists():
             raise MedicionFallida(f"no existe {script.relative_to(RAIZ)} (la ventana de la "
                                   "aplicación llega en la Fase 8)")
-        extra = ["--importar-store"] if args.importar_store else []
+        informe_motor = temporal / "motor.json"
+        extra = ["--informe-motor", str(informe_motor)]
+        if args.importar_store:
+            extra.append("--importar-store")
         if args.sin_uv:
             orden = [str(Path(sys.executable).with_name("pythonw.exe")), str(script), *extra]
         else:
@@ -232,6 +256,17 @@ def medir(args) -> tuple[Muestra | None, dict]:
             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         )
         lanzado = psutil.Popen(orden, cwd=RAIZ, env=entorno)
+        if args.ventana == "minima":
+            def motor():
+                informe_leido = _leer_json(informe_motor)
+                if informe_leido is None and lanzado.poll() is not None:
+                    raise MedicionFallida(
+                        f"la ventana terminó con el código {lanzado.returncode} sin decir qué "
+                        "motor usa (¿falló `uv run`?)"
+                    )
+                return informe_leido
+
+            comprobar_motor(_esperar(motor, 90, "saber qué motor usa la ventana"))
         ventana = _esperar(lambda: _buscar_ventana(lanzado, script), 90,
                            "abrir la ventana con WebView2")
         navegador = _esperar(lambda: _navegador_webview2(ventana), 30,
