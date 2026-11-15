@@ -190,13 +190,13 @@ idéntica (FR-017).
 **Purpose**: que todo procesador, también un `ejecutar` de la CLI, publique quién es y su
 progreso en directo, sin cambiar nada visible de la CLI (R6, R9; contracts/archivos.md).
 
-- [ ] T028 [P] Escribir `tests/unit/test_archivos_json.py` con estos casos:
+- [X] T028 [P] Escribir `tests/unit/test_archivos_json.py` con estos casos:
   - `escribir_atomico(ruta, datos)` deja el archivo completo o el anterior, nunca a medias: un lector en otro hilo lee 500 veces mientras se escribe 500 veces y nunca obtiene JSON inválido;
   - con `os.replace` parcheado para lanzar `PermissionError` una vez, `escribir_atomico(..., reintentar=True)` reintenta tras 50 ms, y `escribir_atomico(..., reintentar=False)` devuelve `False` sin lanzar; no quedan temporales;
   - `leer(ruta)` devuelve `None` si el archivo no existe, si está vacío o si su JSON no es válido.
 
   Debe fallar (rojo)
-- [ ] T029 [P] Escribir `tests/unit/test_publicador.py` para `progress.Publicador` con un reloj falso:
+- [X] T029 [P] Escribir `tests/unit/test_publicador.py` para `progress.Publicador` con un reloj falso:
   - escribe como mucho una vez por segundo aunque reciba 100 eventos de progreso por segundo (frecuencia acotada);
   - contiene `pid`, `creado`, `actualizado`, `en_linea` y `activa` con `id`, `bytes`, `total`, `velocidad`, `eta`, `sin_datos` (null hasta 5 s sin bytes nuevos) y `espera` (`causa` con los secretos ocultos y `reintento_en`);
   - `activa` vale null entre descargas;
@@ -206,7 +206,7 @@ progreso en directo, sin cambiar nada visible de la CLI (R6, R9; contracts/archi
 
   También para `progress.Observadores([a, b])`, que reparte cada evento a los dos. Debe fallar
   (rojo)
-- [ ] T030 [P] Escribir `tests/integration/test_ejecutar_archivos.py`, que lanza `python -m downloader ejecutar` contra el fixture `servidor`, con un archivo de 20 MB a 2 MB/s:
+- [X] T030 [P] Escribir `tests/integration/test_ejecutar_archivos.py`, que lanza `python -m downloader ejecutar` contra el fixture `servidor`, con un archivo de 20 MB a 2 MB/s:
   - durante la descarga, `procesador.json` tiene `origen: "cli"`, `ejecucion: null`, `pid == proceso.pid` y un `creado` que coincide con `psutil.Process(pid).create_time()`;
   - `progreso-vivo.json` se actualiza al menos cada 2 s, con `velocidad` y `eta` no nulas y un `actualizado` de hace 2 s o menos;
   - al terminar con 0, con 1 y con 130 (`interrumpir`), los dos archivos ya no existen;
@@ -214,15 +214,15 @@ progreso en directo, sin cambiar nada visible de la CLI (R6, R9; contracts/archi
   - la salida estándar de `ejecutar` es idéntica a la de una ejecución sin estos archivos: comparar las líneas con el patrón de `test_salida_ejecutar.py`.
 
   Debe fallar (rojo)
-- [ ] T031 [P] **[P2]** Escribir `tests/integration/test_ejecutar_sin_archivos_vivos.py`. Con directorios llamados `procesador.json` y `progreso-vivo.json` creados de antemano en `app_home`, de modo que su escritura y su borrado fallen en los dos sistemas, también como root:
+- [X] T031 [P] **[P2]** Escribir `tests/integration/test_ejecutar_sin_archivos_vivos.py`. Con directorios llamados `procesador.json` y `progreso-vivo.json` creados de antemano en `app_home`, de modo que su escritura y su borrado fallen en los dos sistemas, también como root:
   - `downloader ejecutar` termina con todas completadas (0), con fallidas (1), con Ctrl+C (130) y sin ffmpeg (3), con la misma salida estándar, de error y código que las referencias de T022 (mismo normalizador);
   - con un manejador de `logging` en `downloader.vivo` (como lo configura el procesador de la aplicación), el fallo queda registrado con la ruta afectada, una vez y no una por segundo;
   - sin manejador (la CLI), no aparece nada en la salida.
 
   Debe fallar (rojo)
-- [ ] T032 Crear `src/downloader/archivos_json.py` con `escribir_atomico(ruta, datos, reintentar=False) -> bool` (temporal en el mismo directorio, `json.dumps(..., ensure_ascii=False)`, `os.replace`, sin `fsync`, un reintento a los 50 ms con `PermissionError` si `reintentar`) y `leer(ruta) -> dict | None` (contracts/archivos.md)
-- [ ] T033 Añadir a `src/downloader/progress.py` las clases `Publicador(directorio, pid, creado, reloj=time.monotonic)` y `Observadores(lista)`. `Publicador` implementa los mismos métodos que `Presentador` (`iniciar`, `detener`, `inicio`, `titulo`, `progreso`, `esperando`, `completada`, `fallida`, `aviso`, `mensaje`, `resumen`) y escribe `progreso-vivo.json` desde un hilo a 1 Hz con `escribir_atomico(reintentar=False)`: si Windows lo impide, lo intenta en el siguiente segundo. Recibe `en_linea` del monitor. Captura todo `OSError` al escribir o borrar: nunca lanza ni escribe en la salida, y lo anota en el logger `downloader.vivo` al empezar a fallar y al recuperarse (R9)
-- [ ] T034 En `operaciones.ejecutar_cola`:
+- [X] T032 Crear `src/downloader/archivos_json.py` con `escribir_atomico(ruta, datos, reintentar=False) -> bool` (temporal en el mismo directorio, `json.dumps(..., ensure_ascii=False)`, `os.replace`, sin `fsync`, un reintento a los 50 ms con `PermissionError` si `reintentar`) y `leer(ruta) -> dict | None` (contracts/archivos.md)
+- [X] T033 Añadir a `src/downloader/progress.py` las clases `Publicador(directorio, pid, creado, reloj=time.monotonic)` y `Observadores(lista)`. `Publicador` implementa los mismos métodos que `Presentador` (`iniciar`, `detener`, `inicio`, `titulo`, `progreso`, `esperando`, `completada`, `fallida`, `aviso`, `mensaje`, `resumen`) y escribe `progreso-vivo.json` desde un hilo a 1 Hz con `escribir_atomico(reintentar=False)`: si Windows lo impide, lo intenta en el siguiente segundo. Recibe `en_linea` del monitor. Captura todo `OSError` al escribir o borrar: nunca lanza ni escribe en la salida, y lo anota en el logger `downloader.vivo` al empezar a fallar y al recuperarse (R9)
+- [X] T034 En `operaciones.ejecutar_cola`:
   - escribir `procesador.json` (`pid`, `creado` de `psutil.Process().create_time()`, `origen`, `ejecucion`, `inicio`) justo después de `bloquear_ejecucion()`;
   - pasar a `worker.ejecutar` `Observadores([presentador, Publicador(...)])`;
   - borrar `procesador.json` en un `finally` también con `ErrorFatal` y `KeyboardInterrupt`; el `Publicador` borra el suyo al detenerse;

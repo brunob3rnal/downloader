@@ -8,11 +8,21 @@ No carga yt-dlp al importarse (research R15): `worker` y `network` se importan d
 `ejecutar_cola`, que solo llaman la CLI y el procesador de la aplicación.
 """
 
+import logging
+import os
+from datetime import UTC, datetime
 from pathlib import Path
 
-from downloader import publish
+import psutil
+
+from downloader import archivos_json, publish
 from downloader.models import NAVEGADORES, Calidad
 from downloader.store import ResultadoAgregar, Store
+
+# Quién procesa la cola (research R6 y contracts/archivos.md de la feature 002). Informativo:
+# la exclusión la garantiza `ejecutar.lock`.
+ARCHIVO_PROCESADOR = "procesador.json"
+_registro_vivo = logging.getLogger("downloader.vivo")
 
 
 def validar_calidad(valor: str | None, por_defecto: Calidad) -> Calidad:
@@ -68,15 +78,46 @@ def ejecutar_cola(store: Store, ajustes, origen: str, ejecucion: str | None = No
     """
     bloqueo = store.bloquear_ejecucion()
     try:
-        return _procesar(store, ajustes, navegador, presentador)
+        pid, creado = _anunciar(store.directorio, origen, ejecucion)
+        try:
+            return _procesar(store, ajustes, navegador, presentador, pid, creado)
+        finally:
+            _retirar(store.directorio)
     finally:
         bloqueo.liberar()  # `Store.cerrar` también lo libera; liberar dos veces no hace nada
 
 
-def _procesar(store, ajustes, navegador, presentador):
+def _anunciar(directorio: Path, origen: str, ejecucion: str | None):
+    """Escribe `procesador.json` justo después de tomar el bloqueo.
+
+    Si no puede (disco lleno, sin permiso, error de `psutil`), lo anota en `downloader.vivo` y
+    sigue: el archivo es informativo y nunca cambia la salida ni el código de `ejecutar` (R9).
+    """
+    ruta = Path(directorio) / ARCHIVO_PROCESADOR
+    pid, creado = os.getpid(), None
+    try:
+        creado = psutil.Process(pid).create_time()
+        datos = {"pid": pid, "creado": creado, "origen": origen, "ejecucion": ejecucion,
+                 "inicio": datetime.now(UTC).isoformat(timespec="milliseconds")}
+        if not archivos_json.escribir_atomico(ruta, datos, reintentar=True):
+            _registro_vivo.warning("no se puede escribir %s: el archivo está en uso", ruta)
+    except (OSError, psutil.Error) as error:
+        _registro_vivo.warning("no se puede escribir %s: %s", ruta, error)
+    return pid, creado
+
+
+def _retirar(directorio: Path) -> None:
+    ruta = Path(directorio) / ARCHIVO_PROCESADOR
+    try:
+        archivos_json.borrar(ruta)
+    except OSError as error:
+        _registro_vivo.warning("no se puede borrar %s: %s", ruta, error)
+
+
+def _procesar(store, ajustes, navegador, presentador, pid, creado):
     from downloader import worker
     from downloader.network import MonitorRed
-    from downloader.progress import Presentador
+    from downloader.progress import Observadores, Presentador, Publicador
 
     # Lo que un cierre abrupto dejó en `downloading` o `waiting_network` vuelve a la cola;
     # el bloqueo garantiza que no es de otro `ejecutar` en marcha (R11).
@@ -89,9 +130,14 @@ def _procesar(store, ajustes, navegador, presentador):
             estancamiento=ajustes.estancamiento_segundos,
             velocidad_minima=ajustes.estancamiento_velocidad_minima,
         )
+        # La salida de la CLI es la del `Presentador`; el `Publicador` escribe
+        # `progreso-vivo.json` para la ventana sin tocarla (R9).
+        observadores = Observadores([
+            presentador or Presentador(),
+            Publicador(store.directorio, pid, creado, monitor=monitor),
+        ])
         return worker.ejecutar(
-            store, monitor, presentador or Presentador(), tiempos, navegador,
-            ajustes.plantilla_nombre,
+            store, monitor, observadores, tiempos, navegador, ajustes.plantilla_nombre
         )
     finally:
         monitor.detener()

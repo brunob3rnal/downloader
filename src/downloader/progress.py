@@ -1,16 +1,19 @@
 """Presentación del progreso de `ejecutar` y de la cola en `estado` (contracts/cli.md, FR-005,
 SC-007, FR-032)."""
 
+import logging
 import math
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 from rich.console import Console, Group
 from rich.live import Live
 from rich.text import Text
 
+from downloader import archivos_json
 from downloader.errors import ocultar_secretos
 from downloader.models import ETIQUETAS, Descarga, Estado, TipoDescarga
 from downloader.ytdl import Progreso
@@ -244,3 +247,195 @@ class Presentador:
                 lineas = [linea_activa(a) for a in pendientes]
             for linea in lineas:
                 self._linea(linea)
+
+
+# --- progreso en directo para la aplicación de escritorio (research R9 de la feature 002) ---
+
+ARCHIVO_VIVO = "progreso-vivo.json"
+FALLOS_PARA_AVISAR = 3  # escrituras seguidas sin conseguirlo antes de anotarlo en el registro
+_registro_vivo = logging.getLogger("downloader.vivo")
+
+
+@dataclass
+class _Viva:
+    id: int
+    ultimo_avance: float
+    progreso: Progreso | None = None
+    espera: tuple[str, float | None] | None = None  # (causa, instante del reintento o None)
+
+
+class Publicador:
+    """Escribe `progreso-vivo.json` como mucho una vez por `intervalo` s (contracts/archivos.md).
+
+    Recibe los mismos eventos que `Presentador` y no escribe nada en la salida: la de la CLI no
+    cambia. Si no puede escribir o borrar el archivo, no lanza; lo anota en el logger
+    `downloader.vivo` al empezar a fallar (tras `FALLOS_PARA_AVISAR` intentos seguidos, para no
+    contar un reemplazo negado ocasional en Windows) y al recuperarse. Sin manejadores (la CLI)
+    eso no aparece en ninguna parte; el procesador de la aplicación lo lleva a su registro.
+    Solo guarda ids y cifras: ninguna URL ni título.
+    """
+
+    def __init__(self, directorio, pid: int, creado: float, monitor=None,
+                 reloj=time.monotonic, escribir=archivos_json.escribir_atomico,
+                 intervalo: float = 1.0):
+        self.ruta = Path(directorio) / ARCHIVO_VIVO
+        self._pid, self._creado, self._monitor = pid, creado, monitor
+        self._reloj, self._escribir, self._intervalo = reloj, escribir, intervalo
+        self._cerrojo = threading.Lock()
+        self._activa: _Viva | None = None
+        self._ultima_escritura: float | None = None
+        self._fallos = 0
+        self._avisado = False
+        self._parar = threading.Event()
+        self._hilo: threading.Thread | None = None
+
+    # --- ciclo de vida -------------------------------------------------------------
+
+    def iniciar(self) -> None:
+        self._parar.clear()
+        self._hilo = threading.Thread(target=self._latido, name="progreso-vivo", daemon=True)
+        self._hilo.start()
+
+    def detener(self) -> None:
+        self._parar.set()
+        if self._hilo is not None:
+            self._hilo.join()
+            self._hilo = None
+        try:
+            archivos_json.borrar(self.ruta)
+        except OSError as error:
+            _registro_vivo.warning("no se puede borrar %s: %s", self.ruta, error)
+
+    # --- eventos -------------------------------------------------------------------
+
+    def inicio(self, descarga: Descarga) -> None:
+        with self._cerrojo:
+            self._activa = _Viva(descarga.id, self._reloj())
+        self._publicar_si_toca()
+
+    def titulo(self, descarga: Descarga) -> None:
+        pass
+
+    def progreso(self, descarga: Descarga, progreso: Progreso) -> None:
+        with self._cerrojo:
+            activa = self._activa
+            if activa is None or activa.id != descarga.id:
+                activa = self._activa = _Viva(descarga.id, self._reloj())
+            anterior = activa.progreso
+            if (anterior is None or anterior.archivo != progreso.archivo
+                    or (progreso.bytes or 0) > (anterior.bytes or 0)):
+                activa.ultimo_avance = self._reloj()
+            activa.progreso = progreso
+            activa.espera = None
+        self._publicar_si_toca()
+
+    def esperando(self, descarga: Descarga, reintento: float | None, causa: str) -> None:
+        with self._cerrojo:
+            if self._activa is None or self._activa.id != descarga.id:
+                self._activa = _Viva(descarga.id, self._reloj())
+            self._activa.espera = (ocultar_secretos(causa), reintento)
+        self._publicar_si_toca()
+
+    def completada(self, descarga: Descarga, ruta) -> None:
+        self._terminada()
+
+    def fallida(self, descarga: Descarga, causa: str) -> None:
+        self._terminada()
+
+    def aviso(self, descarga: Descarga, texto: str) -> None:
+        pass
+
+    def mensaje(self, texto: str) -> None:
+        pass
+
+    def resumen(self) -> None:
+        pass
+
+    # --- escritura -----------------------------------------------------------------
+
+    def publicar(self) -> None:
+        """Escribe ya el estado actual."""
+        datos = self._datos()
+        self._ultima_escritura = self._reloj()
+        error = None
+        try:
+            escrito = self._escribir(self.ruta, datos, reintentar=False)
+        except OSError as excepcion:
+            escrito, error = False, excepcion
+        self._anotar(escrito is not False, error)
+
+    def _terminada(self) -> None:
+        with self._cerrojo:
+            self._activa = None
+        self._publicar_si_toca()
+
+    def _publicar_si_toca(self) -> None:
+        ultima = self._ultima_escritura
+        if ultima is None or self._reloj() - ultima >= self._intervalo:
+            self.publicar()
+
+    def _latido(self) -> None:
+        while not self._parar.wait(_PASO):
+            self._publicar_si_toca()
+
+    def _datos(self) -> dict:
+        ahora = self._reloj()
+        with self._cerrojo:
+            activa = self._activa
+            datos_activa = None
+            if activa is not None:
+                progreso = activa.progreso
+                silencio = ahora - activa.ultimo_avance
+                espera = None
+                if activa.espera is not None:
+                    causa, reintento = activa.espera
+                    reintento_en = None
+                    if reintento is not None:
+                        reintento_en = max(0, math.ceil(round(reintento - ahora, 3)))
+                    espera = {"causa": causa, "reintento_en": reintento_en}
+                datos_activa = {
+                    "id": activa.id,
+                    "bytes": progreso.bytes if progreso else None,
+                    "total": progreso.total if progreso else None,
+                    "velocidad": progreso.velocidad if progreso else None,
+                    "eta": progreso.eta if progreso else None,
+                    "sin_datos": int(silencio) if progreso and silencio >= SIN_DATOS else None,
+                    "espera": espera,
+                }
+        en_linea = self._monitor.en_linea.is_set() if self._monitor is not None else None
+        return {
+            "pid": self._pid,
+            "creado": self._creado,
+            "actualizado": datetime.now(UTC).isoformat(timespec="milliseconds"),
+            "en_linea": en_linea,
+            "activa": datos_activa,
+        }
+
+    def _anotar(self, escrito: bool, error: OSError | None) -> None:
+        if escrito:
+            if self._avisado:
+                _registro_vivo.info("se vuelve a escribir %s", self.ruta)
+            self._fallos, self._avisado = 0, False
+            return
+        self._fallos += 1
+        if self._fallos >= FALLOS_PARA_AVISAR and not self._avisado:
+            self._avisado = True
+            _registro_vivo.warning("no se puede escribir %s: %s", self.ruta,
+                                   error or "el archivo está en uso")
+
+
+class Observadores:
+    """Reparte cada evento del trabajador a varios observadores, en orden."""
+
+    def __init__(self, observadores):
+        self._observadores = list(observadores)
+
+    def __getattr__(self, nombre):
+        metodos = [getattr(observador, nombre) for observador in self._observadores]
+
+        def repartir(*argumentos):
+            for metodo in metodos:
+                metodo(*argumentos)
+
+        return repartir
+
