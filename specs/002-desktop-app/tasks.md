@@ -295,7 +295,7 @@ Todas las historias dependen de esta fase.
   - `arrancar(crear_ventana, comprobar_motor=None)`, el único camino de arranque, con este orden: 1) instancia única (se añade en la Fase 12); 2) `comprobar_motor` si se pasa (WebView2 en Windows); 3) servidor; 4) `crear_ventana(url)`; 5) ciclo de un segundo hasta que la ventana se cierra;
   - `main()`: configura el registro de `ventana`. En Windows, importa `downloader.app.ventana` dentro de la función (nunca en el nivel del módulo) y llama a `arrancar` con la ventana de pywebview y la comprobación de WebView2. En otro sistema, tras la instancia única, escribe en la salida de error "La ventana solo está disponible en Windows; use la CLI: uv run downloader" y termina con el código 2;
   - `src/downloader/app/__init__.py` y `src/downloader/app/__main__.py`.
-- [ ] T047 Commit `002 Fase 6: servidor local seguro, registro, resultado y estado del procesador`
+- [X] T047 Commit `002 Fase 6: servidor local seguro, registro, resultado y estado del procesador`
 
 **Aceptación**:
 - T037–T041 en verde en Linux y en Windows (SC-007 automatizado);
@@ -369,7 +369,7 @@ en `destino`.
   4. escribe `ultima-ejecucion.json`: completadas y fallidas (con su causa), y `codigo` 0 o 1; con `ErrorFatal`, `fatal` y 3; con `KeyboardInterrupt`, `detenida` y 130; con cualquier otra excepción, `inesperado` (traza al registro);
   5. con `EjecucionEnCurso`, sale con 2 **sin** escribir resultado.
 - [X] T059 [US1] Implementar en `src/downloader/app/api.py` las rutas `GET api/opciones`, `GET api/estado` (con `If-None-Match` y 304), `POST api/agregar` (con `operaciones.validar_*` y `agregar_urls`) y `POST api/iniciar` (202 o 500 con el error en el registro), según contracts/api-local.md. `POST api/iniciar` lanza el trabajador y guarda la ejecución en curso para mostrar el estado `arrancando`
-- [ ] T060 [US1] Commit `002 Fase 7: API de agregar, estado e iniciar con el trabajador en subproceso (US1)`
+- [X] T060 [US1] Commit `002 Fase 7: API de agregar, estado e iniciar con el trabajador en subproceso (US1)`
 
 **Aceptación**:
 - T048–T054 en verde en Linux y en Windows;

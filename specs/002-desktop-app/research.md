@@ -667,3 +667,42 @@ el enganche al evento de pywebview es exclusivo de Windows.
 - La interfaz web (`app.js`) se mantiene delgada: pinta lo que devuelve la API y envía
   órdenes. Toda la lógica (validación, decisiones de cierre, formato de cifras, permisos de
   Detener) está en Python y tiene tests. No se añade un navegador de pruebas al CI.
+
+## R20. Fallos intermitentes de la 001 durante la feature (investigación del 2026-11-15)
+
+**Hallazgo**: dos tests de la feature 001 fallaron una vez en el CI tras empezar la feature 002
+y pasaron al reintentarlos con el mismo código. Los dos con el mismo síntoma: el servidor de
+prueba sirvió más bytes de los que exige el test al reanudar.
+
+| Fecha | Commit | Sistema | Test | Exceso sobre el límite |
+|-------|--------|---------|------|------------------------|
+| 2026-11-15 | `4f0a317` (Fase 3) | Windows | `test_disco_lleno.py` | 360 448 bytes (pedidos 1 902 408; faltaban 1 541 960) |
+| 2026-11-15 | `44494c2` (Fase 5) | Linux | `test_network_cuts.py::test_cortes_en_tres_momentos_distintos` | 804 947 bytes (servidos 2 889 519 > 1,01 × 2 063 943) |
+
+**Repetición** (petición del usuario): `test_network_cuts.py` y `test_disco_lleno.py`
+alternando, en el mismo contenedor Linux, el código actual (`4cb69b1`, tras la Fase 5) y el
+anterior a la feature (`0d0170e`), con 30 minutos por lado (no caben 200 iteraciones):
+
+| Código | Iteraciones | Fallos | Test | Exceso |
+|--------|-------------|--------|------|--------|
+| actual | 157 | 1 (iteración 121) | `test_cortes_en_tres_momentos_distintos` | 392 167 bytes (servidos 2 476 842 > 1,01 × 2 064 035) |
+| anterior a la feature | 157 | 1 (iteración 51) | `test_cortes_en_tres_momentos_distintos` | 392 674 bytes (servidos 2 480 049 > 1,01 × 2 066 708) |
+
+- **`test_disco_lleno.py` no se reproduce en Linux**: 0 fallos en 314 ejecuciones (157 por
+  lado). Su único fallo fue en Windows.
+- **Sin diferencia entre el código actual y el anterior**: la misma frecuencia (1 de 157) y el
+  mismo exceso, en el mismo test. El fallo es anterior a la feature 002; no lo introduce
+  ninguna de las fases 3, 4 o 5.
+- **No es un margen demasiado justo**: el exceso no está cerca del 1 % de tolerancia, sino que
+  es un bloque entero. En la repetición, unos 392 KB, casi exactamente el 20 % del archivo
+  menos el 1 % de tolerancia: el trozo que el test corta tras el 20 %, servido dos veces. En el
+  CI de Linux, dos bloques así. Ampliar la tolerancia no lo arreglaría salvo que fuera enorme.
+  Apunta a un acontecimiento discreto: o el cliente pierde de vez en cuando el trozo recibido
+  antes de un corte y lo vuelve a pedir (sería progreso perdido, Principio IV), o el servidor
+  de prueba cuenta como servidos bytes que el corte de conexión descarta antes de que el
+  cliente los lea (sería un artefacto del test). Con estos datos no se distingue.
+- **La tolerancia no se ha cambiado.** Averiguar cuál de las dos causas es requiere una tarea
+  propia sobre la feature 001, fuera de esta.
+
+**Reintentos del CI**: desde el 2026-11-15, todo reintento se anota aquí, con test, sistema y
+exceso. Fases 6 y 7: ninguno.
