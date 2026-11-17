@@ -5,6 +5,8 @@ cuentan como de la aplicación, la suma de memoria privada (USS) y la elección 
 """
 
 import importlib.util
+import shutil
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -162,3 +164,58 @@ def test_motor_desconocido_tambien_es_error():
     with pytest.raises(medir.MedicionFallida, match="WebView2"):
         medir.comprobar_motor({"error": "No module named 'clr'"})
 
+
+
+# --- `--union`: una descarga que une audio y vídeo (research R14, condición del usuario) ---
+
+
+def test_ffmpeg_y_ffprobe_del_trabajador_cuentan(arbol):
+    ffmpeg = ProcesoFalso(30, "ffmpeg.exe", 70, padre=arbol.trabajador)
+    ffprobe = ProcesoFalso(31, "ffprobe.exe", 20, padre=arbol.trabajador)
+    nombres = {p.name() for p in medir.procesos_de_la_aplicacion(arbol.ventana, arbol.trabajador,
+                                                                  tope=1)}
+    assert {"ffmpeg.exe", "ffprobe.exe"} <= nombres
+    assert ffmpeg.pid != ffprobe.pid
+
+
+def _descarga(estado, bytes_=0, total=100):
+    return SimpleNamespace(estado=SimpleNamespace(value=estado), bytes_descargados=bytes_,
+                           bytes_totales=total)
+
+
+@pytest.mark.parametrize("descarga, union, fin", [
+    (_descarga("downloading", 50), False, False),
+    (_descarga("downloading", 100), False, True),  # sin unión: basta la transferencia
+    (_descarga("downloading", 100), True, False),  # con unión: falta unir y verificar
+    (_descarga("completed", 100), True, True),
+    (_descarga("failed", 10), True, True),
+    (_descarga("queued", 0, None), True, False),
+])
+def test_cuando_termina_la_medicion(descarga, union, fin):
+    assert medir.medicion_terminada(descarga, union) is fin
+
+
+def test_el_manifiesto_de_la_union_tiene_video_y_audio_separados():
+    texto = medir.manifiesto_union().decode("utf-8")
+    assert texto.count("<AdaptationSet") == 2
+    assert "<BaseURL>video.mp4</BaseURL>" in texto and "<BaseURL>audio.m4a</BaseURL>" in texto
+    assert 'contentType="video"' in texto and 'contentType="audio"' in texto
+
+
+def test_el_argumento_union_existe():
+    assert medir.analizar(["--union"]).union is True
+    assert medir.analizar([]).union is False
+
+
+@pytest.mark.skipif(not (shutil.which("ffmpeg") and shutil.which("ffprobe")),
+                    reason="requiere ffmpeg y ffprobe en el PATH")
+def test_las_pistas_de_la_union_se_unen_con_ffmpeg(tmp_path):
+    video, audio = medir.preparar_pistas(tmp_path, repeticiones=2)
+    assert video.stat().st_size > 0 and audio.stat().st_size > 0
+    unido = tmp_path / "unido.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-i", str(video), "-i", str(audio), "-c", "copy",
+                    "-map", "0:v:0", "-map", "1:a:0", str(unido)], check=True)
+    salida = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type",
+                             "-of", "csv=p=0", str(unido)], capture_output=True, text=True,
+                            check=True).stdout.split()
+    assert sorted(salida) == ["audio", "video"]

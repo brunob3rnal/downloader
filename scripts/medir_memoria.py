@@ -6,7 +6,11 @@ real se hace a mano en Windows (tasks.md, T011); las funciones puras de la parte
 tienen tests en `tests/unit/test_medir_memoria.py` y se importan también en Linux.
 
     uv run python scripts/medir_memoria.py [--cola-de-prueba 500] [--limite 300]
-        [--ventana minima|app] [--sin-uv] [--importar-store] [--tiempo-maximo 900]
+        [--ventana minima|app] [--sin-uv] [--importar-store] [--union] [--tiempo-maximo 900]
+
+Con `--union`, la primera descarga es un MPD con el vídeo y el audio en pistas separadas (unos
+200 MB, generadas con ffmpeg), que ffmpeg une al terminar y ffprobe verifica; la medición sigue
+hasta que la descarga queda completada (research R14, condición del usuario).
 
 Procesos de la aplicación: la ventana y sus descendientes (WebView2), los ascendientes de la
 ventana que son de la cadena del lanzador (uv y el lanzador del entorno virtual), y el
@@ -37,6 +41,7 @@ ARGUMENTOS_WEBVIEW2 = (
 INTERVALO = 0.5  # s entre muestras
 TAMANO = 200_000_000  # bytes del archivo de prueba
 VELOCIDAD = 2_000_000  # bytes/s
+REPETICIONES_UNION = 100  # 10 s de prueba repetidos: unos 190 MB de vídeo y 16 MB de audio
 
 
 @dataclass
@@ -105,6 +110,59 @@ def suma_uss(procesos, instante: float) -> Muestra:
 def maximo(muestras):
     """La muestra con la suma mayor, con su desglose; `None` si no hay muestras."""
     return max(muestras, key=lambda m: m.total, default=None)
+
+
+def medicion_terminada(descarga, union: bool) -> bool:
+    """Si la medición puede acabar con la primera descarga en este estado.
+
+    Sin unión basta con que termine la transferencia. Con unión hay que esperar a que ffmpeg
+    una las pistas y ffprobe verifique: hasta que la descarga quede completada (o falle).
+    """
+    if descarga is None:
+        return False
+    if descarga.estado.value in ("completed", "failed"):
+        return True
+    if union:
+        return False
+    total = descarga.bytes_totales
+    return bool(total) and descarga.bytes_descargados >= total
+
+
+def manifiesto_union() -> bytes:
+    """Un MPD con una `Representation` de vídeo y otra de audio, cada una un archivo."""
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" '
+        'mediaPresentationDuration="PT1000S" minBufferTime="PT2S" '
+        'profiles="urn:mpeg:dash:profile:isoff-on-demand:2011"><Period>'
+        '<AdaptationSet contentType="video" mimeType="video/mp4">'
+        '<Representation id="video" codecs="avc1.64001e" bandwidth="1500000" width="640" '
+        'height="360"><BaseURL>video.mp4</BaseURL></Representation></AdaptationSet>'
+        '<AdaptationSet contentType="audio" mimeType="audio/mp4">'
+        '<Representation id="audio" codecs="mp4a.40.2" bandwidth="128000" '
+        'audioSamplingRate="44100"><BaseURL>audio.m4a</BaseURL></Representation>'
+        "</AdaptationSet></Period></MPD>\n"
+    ).encode()
+
+
+def preparar_pistas(directorio: Path, repeticiones: int = REPETICIONES_UNION) -> tuple[Path, Path]:
+    """Un vídeo y un audio de prueba en pistas separadas, repetidos sin recodificar."""
+    directorio = Path(directorio)
+    base = directorio / "base.mp4"
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=25",
+         "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100", "-t", "10",
+         "-c:v", "libx264", "-b:v", "1500k", "-g", "50", "-c:a", "aac", "-b:a", "128k",
+         "-pix_fmt", "yuv420p", str(base)], check=True)
+    salidas = []
+    for nombre, opcion in (("video.mp4", "-an"), ("audio.m4a", "-vn")):
+        salida = directorio / nombre
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-stream_loop", str(repeticiones - 1), "-i",
+             str(base), opcion, "-c", "copy", "-movflags", "+faststart", str(salida)],
+            check=True)
+        salidas.append(salida)
+    return salidas[0], salidas[1]
 
 
 # --- medición (solo Windows) ---------------------------------------------------------
@@ -220,17 +278,35 @@ def medir(args) -> tuple[Muestra | None, dict]:
     home.mkdir()
     destino.mkdir()
     entorno = {**os.environ, "DOWNLOADER_HOME": str(home)}
-    servidor = trabajador = lanzado = None
+    servidor = trabajador = lanzado = archivos = None
     try:
-        servidor = subprocess.Popen(
-            [sys.executable, "-m", "tests.support.flaky_server", "--servir", "0",
-             "--limite", str(VELOCIDAD), "--archivo", "video.mp4", "--tamano", str(TAMANO)],
-            cwd=RAIZ, stdout=subprocess.PIPE, text=True,
-        )
-        linea = servidor.stdout.readline().strip()
-        if not linea.startswith("sirviendo "):
-            raise MedicionFallida(f"el servidor de prueba no arrancó: {linea!r}")
-        _preparar_cola(home, destino, linea.removeprefix("sirviendo "), args.cola_de_prueba)
+        if args.union:
+            # El servidor de prueba en este proceso (no cuenta para la suma): manifiesto y pistas.
+            sys.path.insert(0, str(RAIZ))
+            from tests.support.flaky_server import FlakyServer
+
+            pistas = temporal / "pistas"
+            pistas.mkdir()
+            video, audio = preparar_pistas(pistas)
+            archivos = FlakyServer()
+            archivos.registrar("union/manifiesto.mpd", manifiesto_union(),
+                               tipo_contenido="application/dash+xml")
+            for nombre, ruta in (("video.mp4", video), ("audio.m4a", audio)):
+                archivos.registrar(f"union/{nombre}", ruta.read_bytes(),
+                                   tipo_contenido="video/mp4", velocidad=VELOCIDAD)
+            informe["union"] = f"{mb(video.stat().st_size + audio.stat().st_size):.0f} MB"
+            url = archivos.url("union/manifiesto.mpd")
+        else:
+            servidor = subprocess.Popen(
+                [sys.executable, "-m", "tests.support.flaky_server", "--servir", "0",
+                 "--limite", str(VELOCIDAD), "--archivo", "video.mp4", "--tamano", str(TAMANO)],
+                cwd=RAIZ, stdout=subprocess.PIPE, text=True,
+            )
+            linea = servidor.stdout.readline().strip()
+            if not linea.startswith("sirviendo "):
+                raise MedicionFallida(f"el servidor de prueba no arrancó: {linea!r}")
+            url = linea.removeprefix("sirviendo ")
+        _preparar_cola(home, destino, url, args.cola_de_prueba)
 
         script = (RAIZ / "scripts" / "ventana_minima.py" if args.ventana == "minima"
                   else RAIZ / "src" / "downloader" / "app" / "gestor.pyw")
@@ -302,11 +378,10 @@ def medir(args) -> tuple[Muestra | None, dict]:
                 if primera is not None:
                     informe["primera"] = (primera.estado.value, primera.bytes_descargados,
                                           primera.bytes_totales)
-                    completa = primera.bytes_totales and (
-                        primera.bytes_descargados >= primera.bytes_totales
-                    )
-                    if primera.estado.value in ("completed", "failed") or completa:
-                        informe["fin"] = "terminó la transferencia de la primera descarga"
+                    if medicion_terminada(primera, args.union):
+                        informe["fin"] = ("la primera descarga quedó " + primera.estado.value
+                                          if args.union else
+                                          "terminó la transferencia de la primera descarga")
                         break
             time.sleep(INTERVALO)
         informe["muestras"] = len(muestras)
@@ -318,6 +393,8 @@ def medir(args) -> tuple[Muestra | None, dict]:
         if servidor is not None:
             servidor.terminate()
             servidor.wait(timeout=10)
+        if archivos is not None:
+            archivos.cerrar()
         shutil.rmtree(temporal, ignore_errors=True)
 
 
@@ -330,6 +407,7 @@ def _imprimir(args, mayor: Muestra | None, informe: dict) -> int:
         f"{psutil.cpu_count()} CPU lógicas",
         f"variante: ventana={args.ventana}, uv={'no' if args.sin_uv else 'sí'}, "
         f"importar-store={'sí' if args.importar_store else 'no'}, "
+        f"unión={'sí, ' + informe.get('union', '?') if args.union else 'no'}, "
         "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="
         f"{os.environ.get('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS', '(sin definir)')}",
         f"cola: {args.cola_de_prueba} descargas; fin: {informe.get('fin', '?')}; "
@@ -362,7 +440,7 @@ def _imprimir(args, mayor: Muestra | None, informe: dict) -> int:
     return codigo
 
 
-def main(argv=None) -> int:
+def analizar(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--cola-de-prueba", type=int, default=500, metavar="N")
     parser.add_argument("--limite", type=float, default=300, metavar="MB")
@@ -371,8 +449,14 @@ def main(argv=None) -> int:
                         help="lanza la ventana con pythonw directamente, sin uv run")
     parser.add_argument("--importar-store", action="store_true",
                         help="la ventana mínima importa downloader.store (research R15)")
+    parser.add_argument("--union", action="store_true",
+                        help="la primera descarga une audio y vídeo con ffmpeg (research R14)")
     parser.add_argument("--tiempo-maximo", type=float, default=900, metavar="S")
-    args = parser.parse_args(argv)
+    return parser.parse_args(argv)
+
+
+def main(argv=None) -> int:
+    args = analizar(argv)
     if sys.platform != "win32":
         print("La medición solo se hace en Windows (la ventana usa WebView2).", file=sys.stderr)
         return 2

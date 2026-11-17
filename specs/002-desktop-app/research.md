@@ -401,7 +401,8 @@ tabla de arriba). D4 (R21) lo resolvería.
 - **Linux**: `start_new_session=True`, para que no reciba las señales de la sesión de la
   ventana.
 
-**Por qué hace falta salir del objeto de trabajo [a verificar en Windows]**: la ventana no la
+**Por qué hace falta salir del objeto de trabajo [verificado: diagnóstico T006 en el equipo
+del usuario y T087 en el CI 110; falta V5 a mano]**: la ventana no la
 lanza el sistema directamente. `uv run` (R11) lanza `pythonw.exe`, y el `pythonw.exe` de un
 entorno virtual es a su vez un lanzador que arranca el intérprete real. Tanto uv como el
 lanzador del entorno virtual pueden meter a sus hijos en un objeto de trabajo con
@@ -592,7 +593,7 @@ termina. La ventana abierta consulta ese archivo en su ciclo de un segundo; si e
 y llama a `ventana.enfocar()` (`restore()`, `show()` y traer al frente). El sistema libera el
 bloqueo si la ventana muere, así que una ventana colgada que ya no existe no impide abrir otra.
 
-**Limitación [a verificar en Windows]**: Windows puede negar traer una ventana al frente si la
+**Limitación [a verificar en Windows; pendiente de V9 a mano]**: Windows puede negar traer una ventana al frente si la
 petición no viene del proceso en primer plano; en ese caso parpadea en la barra de tareas. Se
 acepta: lo importante es que no se abre una segunda ventana.
 
@@ -658,7 +659,7 @@ de construir la interfaz completa. Mitigaciones, en este orden, si se pasa de 30
    `--renderer-process-limit=1`, `--disable-gpu` (la interfaz es estática y el renderizado por
    software basta), `--disable-extensions`. pywebview fija sus propios
    `AdditionalBrowserArguments` (`--disable-features=ElasticOverscroll`): hay que verificar
-   qué valor prevalece **[a verificar]**;
+   qué valor prevalece **[verificado en T011: se suman, no se sustituyen]**;
 3. que la ventana no lance `uv run` como padre persistente (usar el respaldo `gui-scripts`);
 4. si nada basta, plan B con tkinter (R1), que se plantearía al usuario antes de cambiar la
    decisión.
@@ -713,7 +714,7 @@ No es obligatorio prescindir de `uv run` como padre: R11 no cambia.
 
 **Hallazgo**: `errors.py` importa `yt_dlp` en el nivel del módulo, y `store.py` importa
 `errors` (por `ErrorFatal`). Abrir la cola desde la ventana cargaría yt-dlp entero: entre 20 y
-30 MB de memoria y tiempo de arranque (SC-001) **[a verificar]**.
+30 MB de memoria y tiempo de arranque (SC-001) **[verificado en T011: unos 16 MB]**.
 
 **Decisión**: separar lo que la ventana necesita en módulos sin yt-dlp:
 - `ErrorFatal` y `ErrorPermanente` pasan a `excepciones.py`;
@@ -949,6 +950,7 @@ Fase 9: ninguno (ejecución 104, verde en los dos sistemas a la primera).
 Fase 10: ninguno (ejecuciones 105 y 106, verdes en los dos sistemas a la primera).
 Fase 11: ninguno (ejecuciones 109 y 110, verdes en los dos sistemas a la primera).
 Fase 12, tras la corrección: CI 112 verde. "Qué está terminando" (`c4e952c`): CI 113 verde.
+Fase 13: ninguno (CI 114, verde en los dos sistemas a la primera).
 Fase 12: CI 111 (commit `25f6a37`) **rojo en Windows**, sin reintento. Falló
 `test_app_ventana_windows.py::test_la_ventana_fija_los_argumentos_de_webview2_antes_de_arrancar`
 (Fase 8, solo Windows): su ventana de pywebview simulada era un `object()` sin `events`, y la

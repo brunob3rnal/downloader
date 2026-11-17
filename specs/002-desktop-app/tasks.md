@@ -619,7 +619,8 @@ navegador, y "Reintentar con cookies" en las descargas que requieren sesión.
 ## Phase 14: Polish & Cross-Cutting Concerns
 
 - [ ] T106 **[manual, Windows, equipo de 4 GB] PUERTA FINAL SC-005**: `uv run python scripts/medir_memoria.py --ventana app` con 500 descargas en cola y la aplicación real (quickstart C), en dos escenarios: la descarga directa de la Fase 2 y **una descarga que une audio y video** (condición del usuario, research R14). Para la segunda, ampliar antes `scripts/medir_memoria.py` con `--union`: el trabajador se lanza con el extractor de prueba de 001 (`tests/support/fake_extractor.py`) instalado y descarga un video con pistas de video y audio separadas, que ffmpeg une al terminar; la medición sigue hasta que termina la unión, y **la suma incluye `ffmpeg` y `ffprobe`** como procesos de la aplicación (descendientes del trabajador), con un test en `tests/unit/test_medir_memoria.py`. Anotar los dos resultados en research R14. Si alguno pasa de 300 MB, **parar y consultar al usuario** antes de dar la feature por terminada
-- [ ] T107 [P] Añadir al `README.md` la sección "Aplicación de escritorio (Windows)":
+  - **Parcial (2026-11-17)**: `--union` añadido a `scripts/medir_memoria.py`, con sus tests; comprobado en Linux que la primera descarga de esa cola se une con ffmpeg y se completa. Falta la medición en el equipo de 4 GB.
+- [X] T107 [P] Añadir al `README.md` la sección "Aplicación de escritorio (Windows)":
   - requisitos (WebView2, cómo instalarlo si falta);
   - el lanzador `Gestor de descargas.vbs` y su respaldo `gestor-descargas.exe`;
   - qué hace Pausar;
@@ -627,8 +628,10 @@ navegador, y "Reintentar con cookies" en las descargas que requieren sesión.
   - el registro de errores en `%APPDATA%\downloader\registro\`;
   - en "Límites conocidos": el tiempo de parada medido en Windows con una conexión estancada (R7) y la retirada de VBScript (R11).
 - [ ] T108 [P] Ejecutar quickstart.md completo en Windows (A, B, D) y en Linux (A, D), y anotar en su apartado "Resultados" la fecha, los sistemas y cualquier desviación
-- [ ] T109 Comprobar SC-009 sobre toda la feature: `git diff --name-only --diff-filter=M <base de la feature> -- tests/unit tests/integration` solo debe listar `tests/unit/test_plataforma.py` (T004). El CI en verde en `ubuntu-latest` y `windows-latest`, con los tests `solo_windows` ejecutados en Windows y omitidos con su motivo en Linux
+  - **Parcial (2026-11-17; quickstart.md, "Resultados")**: Linux, A y D hechos. Falta Windows (A lo cubre el CI; B y D, a mano).
+- [X] T109 Comprobar SC-009 sobre toda la feature: `git diff --name-only --diff-filter=M <base de la feature> -- tests/unit tests/integration` solo debe listar `tests/unit/test_plataforma.py` (T004). El CI en verde en `ubuntu-latest` y `windows-latest`, con los tests `solo_windows` ejecutados en Windows y omitidos con su motivo en Linux
 - [ ] T110 Revisar que todos los puntos "[a verificar]" de research.md tienen su resultado anotado, según la tabla de este documento, y marcar cada uno como **[verificado]** o como refutado, con la decisión que se tomó
+  - **Parcial (2026-11-17)**: revisados todos; cada punto tiene su estado en la tabla "Puntos [a verificar]". Quedan V5, V7, V9, V1b/.exe y la puerta final de memoria, que necesitan el equipo del usuario.
 - [ ] T111 Commit `002 Fase 14: medición final, README y validación`
 
 **Aceptación**: puerta final de memoria superada, quickstart con resultados, CI en verde en los
@@ -638,18 +641,18 @@ dos sistemas y research sin puntos pendientes.
 
 ## Puntos "[a verificar]" de research.md → tareas (regla 4)
 
-| Punto | Qué se verifica | Tarea |
-|-------|-----------------|-------|
-| R2 | mensaje claro y código 3 si falta WebView2 | T061 (test), T072 (manual V7) |
-| R7 | `raise_signal` despierta las esperas en Windows | T075 (b) |
-| R7 / SC-004 | tiempo de parada en Windows con conexión estancada (solo medir) | T075 (c), T079 |
-| R8 | el trabajador sobrevive al cierre de la cadena `uv run` (objetos de trabajo) | T006 (comprobación temprana), T087 (test de la cadena del lanzador), T090 (manual V5) |
-| R12 | traer la ventana al frente en Windows | T099 (manual V9) |
-| R14 | presupuesto de memoria | T011–T012 (puerta), T106 (puerta final) |
-| R14 | precedencia de `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` | T011 |
-| R15 | coste de cargar yt-dlp en la ventana | T011 (`--importar-store`), T014 |
-| R17 | "requiere iniciar sesión" sin 403 | T016 |
-| R11 | doble clic sin consola | T062 (test), T069 (manual V1) |
+| Punto | Qué se verifica | Tarea | Estado (2026-11-17, T110) |
+|-------|-----------------|-------|---------------------------|
+| R2 | mensaje claro y código 3 si falta WebView2 | T061 (test), T072 (manual V7) | test en verde en el CI de Windows; **V7 pendiente** (sin máquina virtual) |
+| R7 | `raise_signal` despierta las esperas en Windows | T075 (b) | **verificado** (CI 104 y siguientes: 0,16–0,31 s) |
+| R7 / SC-004 | tiempo de parada en Windows con conexión estancada (solo medir) | T075 (c), T079 | **verificado**: 13,0–13,1 s; SC-004 enmendado (20 s); V3 pendiente |
+| R8 | el trabajador sobrevive al cierre de la cadena `uv run` (objetos de trabajo) | T006 (comprobación temprana), T087 (test de la cadena del lanzador), T090 (manual V5) | **verificado** en T006 y T087 (CI 110); V5 pendiente |
+| R12 | traer la ventana al frente en Windows | T099 (manual V9) | **pendiente de V9** |
+| R14 | presupuesto de memoria | T011–T012 (puerta), T106 (puerta final) | puerta inicial superada (218,9 MB); **puerta final pendiente** (T106, con `--union`) |
+| R14 | precedencia de `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` | T011 | **verificado**: se suman |
+| R15 | coste de cargar yt-dlp en la ventana | T011 (`--importar-store`), T014 | **verificado**: unos 16 MB |
+| R17 | "requiere iniciar sesión" sin 403 | T016 | **verificado** (T016) |
+| R11 | doble clic sin consola | T062 (test), T069 (manual V1) | test en verde (CI); V1 a mano sin consola; **falta el `.exe` con doble clic y V1b** |
 
 ---
 

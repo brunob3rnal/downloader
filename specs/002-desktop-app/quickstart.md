@@ -251,3 +251,11 @@ Con estos datos no se cierra ninguna tarea manual de la Fase 8:
 - T070: falta confirmar la franja final de V2 y que la fila activa de V11 se actualiza cada
   segundo con las 500 filas;
 - T071 (V10) y T072 (V7): sin hacer.
+
+### 2026-11-17: Linux (contenedor de desarrollo; T108, parte de Linux)
+
+| Escenario | Qué se observó |
+|-----------|----------------|
+| A, tests automáticos | `uv run pytest`: 1183 pasados, 14 omitidos (los solo de Windows y el del volumen FAT32, que crea el CI). El CI de Linux y Windows, en verde en cada fase |
+| D, seguridad a mano | el servidor escucha en `127.0.0.1:<puerto>` (con `psutil`, sin `0.0.0.0`); `curl http://127.0.0.1:<puerto>/` → 403; con el secreto pero sin `X-Gestor` en `api/estado` → 403; con `Host: localhost` → 403; desde la IP de red del equipo, la conexión se rechaza |
+

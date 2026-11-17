@@ -141,6 +141,58 @@ solo guarda el nombre del navegador. Sin la opción no se lee ninguna cookie.
 Brave, Chromium, Opera, Vivaldi y Whale usan el mismo código que Chrome y Edge; Safari solo
 existe en macOS. Si las cookies no se pueden leer, el error nombra el navegador y la causa.
 
+## Aplicación de escritorio (Windows)
+
+Una ventana para agregar URLs y seguir la cola sin terminal. Usa la misma cola, la misma
+configuración y el mismo código de descarga que la CLI: lo que se agrega en un sitio se ve en el
+otro, y nunca hay dos procesamientos a la vez.
+
+Requisitos, además de los de la CLI:
+
+- Windows 10/11 con **Microsoft Edge WebView2 Runtime**, que viene con Windows 11 y con los
+  Windows 10 actualizados. Si falta, la aplicación lo dice en un cuadro de mensaje y no se abre.
+  Se instala con `winget install Microsoft.EdgeWebView2Runtime`.
+- Haber hecho `uv sync` una vez, como en la instalación.
+
+Para abrirla, doble clic en **`Gestor de descargas.vbs`**, en la carpeta del repositorio. No
+aparece ninguna consola. Antes de abrir la ventana, el lanzador sincroniza el entorno con
+`uv sync`; si falla (por ejemplo, sin red tras actualizar el repositorio), lo dice en un cuadro
+de mensaje. Si los scripts `.vbs` están desactivados en el equipo, el respaldo es
+`.venv\Scripts\gestor-descargas.exe`, que también se puede anclar a la barra de tareas. Una
+segunda apertura no abre otra ventana: trae al frente la que ya está abierta.
+
+En la ventana:
+
+- **Agregar a la cola**: un enlace por línea, con calidad y carpeta. Las líneas que no son
+  enlaces se señalan con su número y no se agregan.
+- **Iniciar** procesa la cola, una descarga a la vez, con el porcentaje, la velocidad y el
+  tiempo restante de la activa.
+- **Pausar** es el Ctrl+C de `ejecutar`: guarda el progreso y la descarga vuelve a la cola, de
+  donde continúa al iniciar de nuevo, desde la ventana o con `uv run downloader ejecutar`. Tarda
+  menos de un segundo, salvo en Windows con la conexión colgada (hasta unos 15 s) o mientras
+  ffmpeg une el vídeo o ffprobe lo verifica, que la ventana indica ("Terminando la unión del
+  vídeo…").
+- Si hay un `ejecutar` en marcha en una terminal, la ventana lo muestra en directo ("En marcha
+  desde la terminal") y no deja iniciar ni pausar: se detiene desde su terminal con Ctrl+C.
+- **Cookies**: la casilla "Usar las cookies de mi navegador" está desmarcada cada vez que se
+  abre la ventana; cada navegador lleva su advertencia (ver [Cookies del
+  navegador](#cookies-del-navegador)). Una descarga que falló por requerir una sesión iniciada
+  ofrece **Reintentar con cookies**.
+
+**Segundo plano**: al cerrar la ventana con un procesamiento propio en marcha, pregunta si
+seguir en segundo plano, pausar y cerrar, o cancelar. En segundo plano el procesamiento sigue
+sin ninguna ventana ni consola; al volver a abrir la aplicación se ve en directo y se puede
+pausar. No sobrevive a un reinicio del equipo: al abrir la aplicación, Iniciar continúa la cola.
+
+**Errores**: el resultado de la última ejecución (completadas, fallidas y, si lo hubo, el error
+que la detuvo o un final inesperado) aparece en una franja sobre la cola, también si ocurrió con
+la ventana cerrada. Los fallos de la aplicación se guardan en
+`%APPDATA%\downloader\registro\` (`ventana.log` y `procesador.log`, 2 MB en total como
+mucho), con los tokens y las contraseñas ocultos.
+
+La interfaz solo acepta peticiones de su propia ventana: escucha únicamente en `127.0.0.1`, en un
+puerto al azar, con un secreto por sesión; rechaza otros equipos, otros programas y páginas web.
+
 ## Tests
 
 Ningún test usa internet: todos van contra un servidor local.
@@ -201,6 +253,15 @@ crea en Linux y en Windows).
   ocultos.
 - En Windows sin rutas largas habilitadas, una carpeta de destino de más de unos 195
   caracteres puede dejar los archivos de trabajo por encima del límite de 260 de Windows.
+- Aplicación de escritorio, Pausar en Windows: con la conexión colgada (abierta y sin datos)
+  tarda unos 13 s (medido en el CI; se admiten hasta 20 s), porque la lectura en curso solo
+  vuelve por su tiempo de espera. Mientras ffmpeg une el vídeo o ffprobe lo verifica, espera a
+  que terminen: con archivos de varios GB, en un disco duro mecánico, puede pasar de 20 s. Lo
+  descargado no se pierde. Que Pausar corte la conexión y esos programas es una mejora pendiente.
+- Aplicación de escritorio, lanzador: Microsoft ha anunciado la retirada por fases de VBScript.
+  Si `Gestor de descargas.vbs` deja de funcionar, el respaldo es
+  `.venv\Scripts\gestor-descargas.exe`. Un instalador y un ejecutable propio quedan para más
+  adelante.
 
 ## Licencia
 
@@ -217,3 +278,6 @@ repositorio; esta nota no es asesoría legal.
 - Plan e investigación: [plan.md](specs/001-resilient-video-downloader/plan.md),
   [research.md](specs/001-resilient-video-downloader/research.md)
 - Validación: [quickstart.md](specs/001-resilient-video-downloader/quickstart.md)
+- Aplicación de escritorio: [spec.md](specs/002-desktop-app/spec.md),
+  [plan.md](specs/002-desktop-app/plan.md), [research.md](specs/002-desktop-app/research.md),
+  [quickstart.md](specs/002-desktop-app/quickstart.md)
