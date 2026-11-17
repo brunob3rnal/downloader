@@ -37,6 +37,8 @@ MOTIVO_TERMINANDO = "El procesamiento está terminando."
 MOTIVO_NINGUNO = "No hay ningún procesamiento en marcha."
 SIN_PARADA = "No se pudo pedir la parada; vuelva a intentarlo."
 SIN_CIERRE = "No se está cerrando la ventana."
+MOTIVO_NO_REINTENTABLE = ("Solo se puede reintentar con cookies una descarga que falló por "
+                          "requerir una sesión iniciada.")
 DECISIONES = ("segundo_plano", "pausar", "cancelar", "cerrar_igualmente")
 SIN_DIALOGO = "El diálogo de carpeta no está disponible; escriba la ruta"
 SIN_ENLACES = "Pegue al menos un enlace"
@@ -77,6 +79,7 @@ class Api:
             ("POST", "iniciar"): self._iniciar,
             ("POST", "detener"): self._detener,
             ("POST", "cerrar"): self._cerrar,
+            ("POST", "reintentar"): self._reintentar,
             ("POST", "examinar"): self._examinar,
         }
 
@@ -266,6 +269,43 @@ class Api:
                      "reencolada": "reencoladas"}[hecho.accion]
             respuesta[clave].append(entrada)
         return Respuesta(200, respuesta)
+
+    # --- reintentar con cookies (FR-016, research R17) ----------------------------------
+
+    def _reintentar(self, cuerpo, cabeceras) -> Respuesta:
+        """Devuelve a la cola una descarga que falló por requerir sesión, con un navegador.
+
+        Lo mismo que `agregar --cookies-de NAVEGADOR` con la misma URL y calidad: la fila
+        vuelve a `queued` con el mismo id (y su directorio de trabajo) y ese navegador.
+        """
+        try:
+            datos = json.loads(cuerpo.decode("utf-8") or "null")
+        except (UnicodeDecodeError, ValueError):
+            datos = None
+        if not isinstance(datos, dict) or type(datos.get("id")) is not int:
+            return Respuesta(400, {"error": "petición inválida"})
+        if datos.get("navegador") is None:
+            return Respuesta(400, {"error": "Elija un navegador"})
+        try:
+            navegador = operaciones.validar_navegador(str(datos["navegador"]))
+        except ValueError as error:
+            return Respuesta(400, {"error": str(error)})
+        try:
+            store = Store.abrir(self.directorio)
+        except BaseCorrupta as error:
+            return Respuesta(500, {"error": str(error)})
+        try:
+            try:
+                descarga = store.obtener(datos["id"])
+            except KeyError:
+                return Respuesta(404, {"error": "no existe esa descarga"})
+            if not vista.fila_reintentable(descarga):
+                return Respuesta(409, {"motivo": MOTIVO_NO_REINTENTABLE})
+            hecho = store.agregar(descarga.url, descarga.calidad, descarga.carpeta_destino,
+                                  navegador_cookies=navegador)
+        finally:
+            store.cerrar()
+        return Respuesta(200, {"accion": hecho.accion, "id": hecho.descarga.id})
 
     # --- iniciar -----------------------------------------------------------------------
 

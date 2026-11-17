@@ -78,3 +78,17 @@ def test_app_js_dice_que_esta_terminando(app_local):
     """Mientras se detiene, si ffmpeg o ffprobe están terminando, se dice cuál (SC-004)."""
     js = app_local.cliente.get("app.js").cuerpo.decode("utf-8")
     assert "p.terminando" in js and "datos.procesador.terminando" in js
+
+
+def test_la_pagina_tiene_las_cookies_desmarcadas_y_el_reintento(app_local):
+    """FR-014: casilla desmarcada al abrir, navegador solo con la casilla y su aviso;
+    "Reintentar con cookies" con elección de navegador y confirmación (T103)."""
+    html = app_local.cliente.get().cuerpo.decode("utf-8")
+    assert "Usar las cookies de mi navegador" in html
+    casilla = re.search(r'<input[^>]*id="usar-cookies"[^>]*>', html).group(0)
+    assert 'type="checkbox"' in casilla and "checked" not in casilla
+    assert re.search(r'<select[^>]*id="navegador"[^>]*disabled', html)
+    js = app_local.cliente.get("app.js").cuerpo.decode("utf-8")
+    assert "Reintentar con cookies" in js and '"reintentar"' in js
+    assert "reintentar_con_cookies" in js and "confirm" in js
+    assert "localStorage" not in js and "sessionStorage" not in js  # nada se recuerda

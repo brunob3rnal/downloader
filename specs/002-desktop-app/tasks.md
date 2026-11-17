@@ -596,7 +596,7 @@ navegador, y "Reintentar con cookies" en las descargas que requieren sesión.
 
 ### Tests for User Story 5 (primero, en rojo)
 
-- [ ] T101 [P] [US5] Escribir `tests/integration/test_app_cookies.py` (`@pytest.mark.ffmpeg`), con `servidor.exigir_sesion` y `tests/support/navegador_falso.py` de 001:
+- [X] T101 [P] [US5] Escribir `tests/integration/test_app_cookies.py` (`@pytest.mark.ffmpeg`), con `servidor.exigir_sesion` y `tests/support/navegador_falso.py` de 001:
   - `api/opciones` lista los navegadores de `models.NAVEGADORES` con los avisos exactos de contracts/api-local.md;
   - agregar con `navegador: "firefox"` guarda `navegador_cookies = "firefox"` en la fila;
   - una descarga que falla con 403 por sesión tiene `reintentar_con_cookies: true`, y una 404 tiene `false`;
@@ -607,8 +607,8 @@ navegador, y "Reintentar con cookies" en las descargas que requieren sesión.
 
 ### Implementation for User Story 5
 
-- [ ] T102 [US5] Implementar `POST api/reintentar` en `src/downloader/app/api.py` con `operaciones.validar_navegador`, `Store.agregar` y `mensajes.requiere_sesion` (R17). Completar `reintentar_con_cookies` en `src/downloader/app/vista.py`
-- [ ] T103 [US5] En `src/downloader/app/web/`: casilla "Usar las cookies de mi navegador" desmarcada al cargar, desplegable de navegador solo activo si está marcada y el aviso del navegador elegido. Botón "Reintentar con cookies" en las filas, con la elección de navegador, su aviso y la confirmación (contracts/ventana.md)
+- [X] T102 [US5] Implementar `POST api/reintentar` en `src/downloader/app/api.py` con `operaciones.validar_navegador`, `Store.agregar` y `mensajes.requiere_sesion` (R17). Completar `reintentar_con_cookies` en `src/downloader/app/vista.py`
+- [X] T103 [US5] En `src/downloader/app/web/`: casilla "Usar las cookies de mi navegador" desmarcada al cargar, desplegable de navegador solo activo si está marcada y el aviso del navegador elegido. Botón "Reintentar con cookies" en las filas, con la elección de navegador, su aviso y la confirmación (contracts/ventana.md)
 - [ ] T104 [US5] **[manual, Windows]** Quickstart V8
 - [ ] T105 [US5] Commit `002 Fase 13: cookies del navegador y reintento con sesión (US5)`
 

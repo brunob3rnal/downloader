@@ -24,6 +24,11 @@
       <button id="examinar" type="button" class="boton">Examinar</button>
       <button id="agregar" type="button" class="boton principal">Agregar a la cola</button>
     </div>
+    <div class="fila-cookies">
+      <label class="casilla"><input id="usar-cookies" type="checkbox"> Usar las cookies de mi navegador</label>
+      <select id="navegador" aria-label="Navegador" disabled></select>
+    </div>
+    <p id="aviso-navegador" class="aviso" hidden></p>
     <p id="aviso-config" class="aviso" hidden></p>
     <p id="error-agregar" class="error" role="alert" hidden></p>
     <div id="resumen" class="resumen" role="status" hidden></div>
@@ -61,6 +66,19 @@
       <button id="cierre-cancelar" type="button" class="boton">Cancelar</button>
     </div>
     <button id="cierre-igualmente" type="button" class="boton ancho" hidden>Cerrar igualmente</button>
+  </div>
+</div>
+<div id="dialogo-reintento" class="fondo-dialogo" hidden>
+  <div class="dialogo" role="dialog" aria-modal="true" aria-labelledby="reintento-titulo">
+    <h2 id="reintento-titulo">Reintentar con cookies</h2>
+    <p id="reintento-texto"></p>
+    <select id="reintento-navegador" aria-label="Navegador"></select>
+    <p id="reintento-aviso" class="aviso"></p>
+    <p id="reintento-error" class="error" role="alert" hidden></p>
+    <div class="dialogo-botones">
+      <button id="reintento-confirmar" type="button" class="boton principal">Reintentar</button>
+      <button id="reintento-cancelar" type="button" class="boton">Cancelar</button>
+    </div>
   </div>
 </div>
 <footer class="pie">

@@ -106,6 +106,11 @@ def _aviso(descarga, estado: Estado) -> str | None:
     return texto or None
 
 
+def fila_reintentable(descarga) -> bool:
+    """Si se ofrece "Reintentar con cookies": falló por requerir sesión (R17)."""
+    return descarga.estado is Estado.FAILED and requiere_sesion(descarga.ultimo_error)
+
+
 def _fila(descarga, hijas: int, activa, sin_directo: bool, sin_procesador: bool) -> dict:
     estado = descarga.estado
     if sin_procesador and estado in (Estado.DOWNLOADING, Estado.WAITING_NETWORK):
@@ -128,8 +133,7 @@ def _fila(descarga, hijas: int, activa, sin_directo: bool, sin_procesador: bool)
         "espera": None,
         "detalle": None,
         "aviso": _aviso(descarga, estado),
-        "reintentar_con_cookies": (estado is Estado.FAILED
-                                   and requiere_sesion(descarga.ultimo_error)),
+        "reintentar_con_cookies": fila_reintentable(descarga),
         "hijas": None,
     }
     if descarga.tipo is TipoDescarga.PLAYLIST:

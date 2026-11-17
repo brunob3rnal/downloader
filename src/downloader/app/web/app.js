@@ -18,6 +18,8 @@
   let estadoPintado = null; // estado del procesador en el último pintado
   let ultimoEstado = null;
   let resultadoCerrado = null; // ejecución cuyo resultado cerró el usuario
+  let navegadores = []; // {id, nombre, aviso} de api/opciones
+  let reintentando = null; // id de la descarga del diálogo de reintento
   const filas = new Map(); // id → {elemento, clave}
 
   // --- API ---------------------------------------------------------------------------
@@ -65,6 +67,62 @@
       ? "config.toml no es válido; se usan los valores por defecto: " + r.datos.aviso_config : "");
     const examinar = $("examinar");
     examinar.hidden = !r.datos.examinar_disponible;
+    navegadores = r.datos.navegadores;
+    for (const id of ["navegador", "reintento-navegador"]) {
+      const lista = $(id);
+      lista.textContent = "";
+      for (const n of navegadores) {
+        const opcion = document.createElement("option");
+        opcion.value = n.id;
+        opcion.textContent = n.nombre;
+        lista.appendChild(opcion);
+      }
+      lista.value = "firefox";
+    }
+    pintarCookies();
+  }
+
+  // --- Cookies del navegador (FR-014): desmarcadas en cada apertura, nada se recuerda -----
+
+  function avisoDe(id) {
+    const n = navegadores.find((x) => x.id === id);
+    return n ? n.aviso : "";
+  }
+
+  function pintarCookies() {
+    const usar = $("usar-cookies").checked;
+    $("navegador").disabled = !usar;
+    mostrar($("aviso-navegador"), usar ? avisoDe($("navegador").value) : "");
+  }
+
+  function abrirReintento(fila) {
+    reintentando = fila.id;
+    $("reintento-texto").textContent = "«" + fila.titulo + "» falló porque necesita una sesión " +
+      "iniciada. Elija el navegador donde la tiene abierta y confirme: volverá a la cola con las " +
+      "cookies de ese navegador, que solo se leen al descargar y nunca se guardan.";
+    $("reintento-aviso").textContent = avisoDe($("reintento-navegador").value);
+    mostrar($("reintento-error"), "");
+    $("dialogo-reintento").hidden = false;
+  }
+
+  async function confirmarReintento() {
+    const boton = $("reintento-confirmar");
+    boton.disabled = true;
+    try {
+      const r = await api("POST", "reintentar",
+        { id: reintentando, navegador: $("reintento-navegador").value });
+      if (r.estado === 200) {
+        $("dialogo-reintento").hidden = true;
+        etiquetaEstado = null;
+        consultar();
+      } else {
+        mostrar($("reintento-error"), (r.datos && (r.datos.error || r.datos.motivo)) || "No se pudo reintentar");
+      }
+    } catch (e) {
+      mostrar($("reintento-error"), "Se perdió la conexión con la aplicación");
+    } finally {
+      boton.disabled = false;
+    }
   }
 
   async function examinar() {
@@ -110,7 +168,8 @@
     boton.disabled = true;
     try {
       const r = await api("POST", "agregar", {
-        texto: texto, calidad: $("calidad").value, carpeta: $("carpeta").value, navegador: null,
+        texto: texto, calidad: $("calidad").value, carpeta: $("carpeta").value,
+        navegador: $("usar-cookies").checked ? $("navegador").value : null,
       });
       if (r.estado === 200 && r.datos) {
         resumir(r.datos);
@@ -217,6 +276,16 @@
     const texto = detalle(fila);
     li.querySelector(".detalle").textContent = texto;
     li.querySelector(".detalle").title = texto;
+    const lateral = li.querySelector(".lateral");
+    lateral.textContent = "";
+    if (fila.reintentar_con_cookies) {
+      const boton = document.createElement("button");
+      boton.type = "button";
+      boton.className = "boton";
+      boton.textContent = "Reintentar con cookies";
+      boton.addEventListener("click", () => abrirReintento(fila));
+      lateral.appendChild(boton);
+    }
   }
 
   function pintarLista(datos) {
@@ -371,6 +440,12 @@
     $("agregar").addEventListener("click", agregar);
     $("iniciar").addEventListener("click", iniciar);
     $("pausar").addEventListener("click", pausar);
+    $("usar-cookies").addEventListener("change", pintarCookies);
+    $("navegador").addEventListener("change", pintarCookies);
+    $("reintento-navegador").addEventListener("change",
+      () => { $("reintento-aviso").textContent = avisoDe($("reintento-navegador").value); });
+    $("reintento-confirmar").addEventListener("click", confirmarReintento);
+    $("reintento-cancelar").addEventListener("click", () => { $("dialogo-reintento").hidden = true; });
     $("cierre-segundo-plano").addEventListener("click", () => decidirCierre("segundo_plano"));
     $("cierre-pausar").addEventListener("click", () => decidirCierre("pausar"));
     $("cierre-cancelar").addEventListener("click", () => decidirCierre("cancelar"));

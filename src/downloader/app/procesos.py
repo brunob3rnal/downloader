@@ -125,6 +125,9 @@ SIN_SEGUNDO_PLANO = (
 _registro = logging.getLogger("downloader.app")
 
 
+MODULO = "downloader.app.procesador"  # el trabajador (los tests de cookies lo envuelven)
+
+
 class SinSegundoPlano(Exception):
     pass
 
@@ -141,7 +144,7 @@ def lanzar_trabajador(directorio, ejecucion: str):
     """Lanza `python -m downloader.app.procesador --ejecucion ID` sin consola visible y de modo
     que sobreviva al cierre de la ventana (R8). Sus salidas no se leen: el estado llega por la
     cola y los archivos informativos, y los errores, por el registro."""
-    orden = [_interprete(), "-m", "downloader.app.procesador", "--ejecucion", ejecucion]
+    orden = [_interprete(), "-m", MODULO, "--ejecucion", ejecucion]
     opciones = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     env={**os.environ, "DOWNLOADER_HOME": str(directorio)})

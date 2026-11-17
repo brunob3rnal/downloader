@@ -12,7 +12,8 @@ import pytest
 from tests.support.cliente_app import ClienteApp
 from tests.support.ventana_falsa import VentanaFalsa
 
-MODULO_TRABAJADOR = "downloader.app.procesador"
+# El del trabajador, y el envoltorio con el navegador falso de los tests de cookies.
+MODULOS_TRABAJADOR = ("downloader.app.procesador", "tests.support.trabajador_con_navegador_falso")
 
 
 def terminar_trabajadores() -> list[int]:
@@ -25,7 +26,8 @@ def terminar_trabajadores() -> list[int]:
     vivos = []
     for hijo in psutil.Process().children(recursive=True):
         try:
-            if MODULO_TRABAJADOR in hijo.cmdline() and hijo.status() != psutil.STATUS_ZOMBIE:
+            orden = hijo.cmdline()
+            if any(m in orden for m in MODULOS_TRABAJADOR) and hijo.status() != psutil.STATUS_ZOMBIE:
                 hijo.kill()
                 vivos.append(hijo)
         except psutil.Error:

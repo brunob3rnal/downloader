@@ -188,9 +188,12 @@ Sin cuerpo.
 
 - **200** `{"accion": "reencolada", "id": 15}`: la descarga fallida vuelve a la cola con ese
   navegador, como `agregar --cookies-de` (FR-016).
-- **400**: navegador no admitido.
-- **409**: la descarga no está fallida, o no ofrece el reintento (R17).
+- **400**: navegador ausente o no admitido, o cuerpo inválido.
+- **409** `{"motivo": "Solo se puede reintentar con cookies una descarga que falló por requerir
+  una sesión iniciada."}`: la descarga no está fallida, o no ofrece el reintento (R17).
 - **404**: no existe.
+- La fila vuelve a la cola con el mismo id y su directorio de trabajo; el procesamiento no se
+  inicia solo (como `agregar`).
 
 ## `POST api/examinar`
 
