@@ -953,6 +953,13 @@ Fase 12, tras la corrección: CI 112 verde. "Qué está terminando" (`c4e952c`):
 Fase 13: ninguno (CI 114, verde en los dos sistemas a la primera).
 Fase 14, parte sin el equipo del usuario: ninguno (CI 115, verde en los dos sistemas a la
 primera).
+Notas de D5–D7 (`836d490`): CI 116 **rojo en Windows**, sin reintento. Falló
+`test_app_instancia.py::test_si_la_primera_muere_el_bloqueo_se_libera` (Fase 12): en Windows,
+el `python.exe` del entorno virtual es un lanzador que arranca el intérprete real como hijo, y
+es el hijo el que tiene `ventana.lock`. `VentanaEnProceso.matar` solo mataba el lanzador; el
+hijo muere justo después, y la comprobación inmediata vio el bloqueo aún tomado. Defecto del
+soporte de test, no de la aplicación: `matar` mata ahora el árbol y espera a que termine (sin
+tocar el test).
 
 **Falso positivo fuera del CI** (anotado el 2026-11-17): un revisor externo ejecutó la suite en
 esta rama (commit `b865789`) en su propio entorno y le falló

@@ -57,13 +57,38 @@ class VentanaEnProceso:
                 self._hay.wait(0.2)
 
     def matar(self) -> None:
-        """Termina la ventana de golpe, como un cierre forzado (los trabajadores no son suyos)."""
+        """Termina la ventana de golpe, como un cierre forzado, y espera a que acabe del todo.
+
+        En Windows, el `python.exe` del entorno virtual es un lanzador que arranca el
+        intérprete real como hijo: es el hijo el que tiene `ventana.lock`. Se matan los dos y se
+        espera a ambos, para que el bloqueo esté libre al volver. Los trabajadores no cuentan:
+        se lanzan separados de la ventana (research R8) y no son sus descendientes en Linux; en
+        Windows se excluyen por su línea de órdenes.
+        """
+        try:
+            raiz = psutil.Process(self.proceso.pid)
+            arbol = [p for p in raiz.children(recursive=True) if not _es_trabajador(p)]
+        except psutil.Error:
+            arbol = []
+        for proceso in arbol:
+            try:
+                proceso.kill()
+            except psutil.Error:
+                pass
         if self.proceso.poll() is None:
             self.proceso.kill()
         self.proceso.wait(timeout=30)
+        psutil.wait_procs(arbol, timeout=30)
 
     def estado(self) -> dict:
         return self.cliente.get("api/estado").json()
+
+
+def _es_trabajador(proceso) -> bool:
+    try:
+        return MODULO_TRABAJADOR in proceso.cmdline()
+    except psutil.Error:
+        return False
 
 
 def trabajadores_de(home: Path) -> list[psutil.Process]:
