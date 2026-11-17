@@ -495,7 +495,7 @@ dos procesadores.
 
 ### Tests for User Story 3 (primero, en rojo)
 
-- [ ] T081 [P] [US3] Escribir `tests/integration/test_app_procesador_unico.py` (`@pytest.mark.ffmpeg`):
+- [X] T081 [P] [US3] Escribir `tests/integration/test_app_procesador_unico.py` (`@pytest.mark.ffmpeg`):
   - con `downloader ejecutar` en marcha, `api/estado` da `origen: "cli"`, `puede_iniciar: false` y `puede_detener: false`, con el `motivo` exacto de contracts/api-local.md, y muestra la cola en directo;
   - `api/iniciar` y `api/detener` → 409 con su motivo (FR-008, FR-009, US3 escenario 5);
   - con la aplicación procesando, `downloader ejecutar` sale con 2 y no procesa nada;
@@ -505,8 +505,8 @@ dos procesadores.
 
 ### Implementation for User Story 3
 
-- [ ] T082 [US3] Completar `src/downloader/app/procesos.py` con el seguimiento del subproceso lanzado: estado `arrancando` hasta que aparece `procesador.json` con su ejecución o el proceso termina; si sale con 2, pasar a observar sin tocar el resultado. Completar `api/estado`, `api/iniciar` y `api/detener` con `puede_iniciar`, `puede_detener` y los motivos de contracts/api-local.md
-- [ ] T083 [US3] Mostrar en `src/downloader/app/web/app.js` el origen ("En marcha desde la terminal") y los motivos de los botones desactivados
+- [X] T082 [US3] Completar `src/downloader/app/procesos.py` con el seguimiento del subproceso lanzado: estado `arrancando` hasta que aparece `procesador.json` con su ejecución o el proceso termina; si sale con 2, pasar a observar sin tocar el resultado. Completar `api/estado`, `api/iniciar` y `api/detener` con `puede_iniciar`, `puede_detener` y los motivos de contracts/api-local.md
+- [X] T083 [US3] Mostrar en `src/downloader/app/web/app.js` el origen ("En marcha desde la terminal") y los motivos de los botones desactivados
 - [ ] T084 [US3] **[manual, Windows]** Quickstart V4
 - [ ] T085 [US3] Commit `002 Fase 10: un único procesador y modo observación (US3)`
 

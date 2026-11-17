@@ -50,3 +50,12 @@ def test_app_js_pausa_con_api_detener_y_dice_que_se_esta_deteniendo(app_local):
     assert '"detener"' in js and "puede_detener" in js
     assert "Deteniendo…" in js and '"deteniendo"' in js
     assert "PAUSAR_DISPONIBLE" not in js  # Pausar ya no está desactivado
+
+
+def test_app_js_dice_el_origen_y_el_motivo_de_los_botones_inactivos(app_local):
+    """Con un `ejecutar` de la terminal, la página lo dice y explica por qué no deja iniciar
+    ni pausar, al pasar el cursor y al pulsar (US3; T083)."""
+    js = app_local.cliente.get("app.js").cuerpo.decode("utf-8")
+    assert "En marcha desde la terminal" in js and 'p.origen === "cli"' in js
+    assert "boton.title" in js and "dataset.motivo" in js  # el motivo, al pasar el cursor
+    assert 'mostrar($("motivo"), boton.dataset.motivo)' in js  # y al pulsar

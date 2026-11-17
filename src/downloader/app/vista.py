@@ -98,23 +98,28 @@ def _porcentaje(bytes_, total):
     return round(min(100.0, 100 * bytes_ / total), 1)
 
 
-def _aviso(descarga) -> str | None:
-    if descarga.estado in (Estado.FAILED, Estado.WAITING_NETWORK):
+def _aviso(descarga, estado: Estado) -> str | None:
+    if estado in (Estado.FAILED, Estado.WAITING_NETWORK):
         return ocultar_secretos(descarga.ultimo_error) if descarga.ultimo_error else None
     partes = [descarga.archivo_final, descarga.ultimo_aviso]
     texto = " · ".join(ocultar_secretos(p) for p in partes if p)
     return texto or None
 
 
-def _fila(descarga, hijas: int, activa, sin_directo: bool) -> dict:
-    etiqueta = ETIQUETAS[descarga.estado]
+def _fila(descarga, hijas: int, activa, sin_directo: bool, sin_procesador: bool) -> dict:
+    estado = descarga.estado
+    if sin_procesador and estado in (Estado.DOWNLOADING, Estado.WAITING_NETWORK):
+        # La dejó a medias un cierre abrupto y nadie la procesa: no se muestra como en marcha
+        # (spec, Edge Cases), sino como lo que será al iniciar, en cola (`recuperar`, R11 de 001).
+        estado = Estado.QUEUED
+    etiqueta = ETIQUETAS[estado]
     fila = {
         "id": descarga.id,
         "titulo": ocultar_secretos(descarga.titulo) if descarga.titulo else url_visible(
             descarga.url),
         "sitio": sitio(descarga.url),
         "direccion": direccion(descarga.url),
-        "estado": descarga.estado.value,
+        "estado": estado.value,
         "etiqueta": etiqueta[:1].upper() + etiqueta[1:],
         "porcentaje": _porcentaje(descarga.bytes_descargados, descarga.bytes_totales),
         "velocidad": None,
@@ -122,8 +127,8 @@ def _fila(descarga, hijas: int, activa, sin_directo: bool) -> dict:
         "sin_datos": None,
         "espera": None,
         "detalle": None,
-        "aviso": _aviso(descarga),
-        "reintentar_con_cookies": (descarga.estado is Estado.FAILED
+        "aviso": _aviso(descarga, estado),
+        "reintentar_con_cookies": (estado is Estado.FAILED
                                    and requiere_sesion(descarga.ultimo_error)),
         "hijas": None,
     }
@@ -131,7 +136,7 @@ def _fila(descarga, hijas: int, activa, sin_directo: bool) -> dict:
         fila.update(porcentaje=None, hijas=hijas,
                     detalle=f"lista ({hijas} video{'s' * (hijas != 1)})")
         return fila
-    if descarga.estado is Estado.COMPLETED:
+    if estado is Estado.COMPLETED:
         fila["porcentaje"] = 100.0
     elif fila["porcentaje"] is None:
         fila["porcentaje"] = 0.0
@@ -154,9 +159,9 @@ def _fila(descarga, hijas: int, activa, sin_directo: bool) -> dict:
             if fila["eta"] is not None:
                 partes.append(tiempo(fila["eta"]))
             fila["detalle"] = " · ".join(partes)
-    elif sin_directo and descarga.estado in (Estado.DOWNLOADING, Estado.WAITING_NETWORK):
+    elif sin_directo and estado in (Estado.DOWNLOADING, Estado.WAITING_NETWORK):
         fila["detalle"] = SIN_DATOS_EN_DIRECTO
-    elif descarga.estado is Estado.QUEUED and fila["porcentaje"] >= 1:
+    elif estado is Estado.QUEUED and fila["porcentaje"] >= 1:
         # Pausada o interrumpida: lo descargado sigue en su `.part` (FR-009; texto de la maqueta).
         fila["detalle"] = f"Continúa desde el {int(fila['porcentaje'])} %, no empieza de cero"
     return fila
@@ -166,11 +171,12 @@ def filas(descargas, vivo, procesador: EstadoProcesador, ahora: datetime | None 
     ahora = ahora or datetime.now(UTC)
     valido = _vivo_valido(vivo, procesador, ahora)
     activa = valido.get("activa") if valido else None
-    sin_directo = procesador.estado == "en_marcha" and valido is None
+    sin_procesador = procesador.estado != "en_marcha"
+    sin_directo = not sin_procesador and valido is None
     hijas = Counter(d.padre_id for d in descargas if d.padre_id is not None)
     return [
         _fila(d, hijas[d.id], activa if activa and activa.get("id") == d.id else None,
-              sin_directo)
+              sin_directo, sin_procesador)
         for d in descargas
     ]
 

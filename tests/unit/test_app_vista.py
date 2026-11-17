@@ -128,7 +128,7 @@ def test_aviso_segun_el_estado():
         _d(2, Estado.WAITING_NETWORK, ultimo_error="timeout"),
         _d(3, Estado.COMPLETED, archivo_final="/tmp/v.mp4", ultimo_aviso="reiniciada desde cero"),
         _d(4, Estado.QUEUED),
-    ], None, vista.NINGUNO, AHORA)
+    ], None, PROCESADOR, AHORA)  # con un procesador en marcha: la que espera la red es la suya
     assert [f["aviso"] for f in filas] == [
         "Video privado", "timeout", "/tmp/v.mp4 · reiniciada desde cero", None]
 
@@ -187,3 +187,26 @@ def test_en_cola_con_progreso_dice_desde_donde_continua():
     filas = vista.filas([pausada, sin_empezar], None, vista.NINGUNO, AHORA)
     assert _fila(filas, 1)["detalle"] == "Continúa desde el 14 %, no empieza de cero"
     assert _fila(filas, 2)["detalle"] is None
+
+
+@pytest.mark.parametrize("procesador", [vista.NINGUNO,
+                                        EstadoProcesador("ninguno", "cli", pid=7, abrupto=True)])
+def test_sin_procesador_una_fila_a_medias_se_muestra_en_cola(procesador):
+    """Un cierre abrupto deja la fila en `downloading` o `waiting_network`. Sin procesador no se
+    muestra como en marcha (spec, Edge Cases): se muestra como lo que será al iniciar, en cola
+    y con su progreso (`recuperar`, R11 de 001)."""
+    a_medias = _d(1, Estado.DOWNLOADING, bytes_descargados=300, bytes_totales=1000)
+    sin_red = _d(2, Estado.WAITING_NETWORK, ultimo_error="conexión rechazada")
+    filas = vista.filas([a_medias, sin_red], None, procesador, AHORA)
+    uno, dos = _fila(filas, 1), _fila(filas, 2)
+    assert (uno["estado"], uno["etiqueta"], uno["porcentaje"]) == ("queued", "En cola", 30.0)
+    assert uno["detalle"] == "Continúa desde el 30 %, no empieza de cero"
+    assert (dos["estado"], dos["etiqueta"]) == ("queued", "En cola")
+    assert dos["aviso"] is None and dos["detalle"] is None  # el error de red ya no viene a cuento
+
+
+def test_con_un_procesador_en_marcha_la_fila_a_medias_es_la_suya():
+    a_medias = _d(1, Estado.DOWNLOADING, bytes_descargados=300, bytes_totales=1000)
+    fila = _fila(vista.filas([a_medias], None, PROCESADOR, AHORA), 1)
+    assert (fila["estado"], fila["etiqueta"]) == ("downloading", "Descargando")
+    assert fila["detalle"] == vista.SIN_DATOS_EN_DIRECTO

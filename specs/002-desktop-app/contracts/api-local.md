@@ -101,6 +101,10 @@ si nada cambió, la respuesta es **304** sin cuerpo (R13).
   contraseña, puerto ni consulta.
 - Las filas van en el orden de `cola.db` (id ascendente). Con una cola corrupta, `filas`
   viene vacío y `cola_corrupta` lleva el mensaje (Edge Cases).
+- Sin un procesador en marcha, una fila que un cierre abrupto dejó en `downloading` o
+  `waiting_network` se muestra como `queued` ("En cola"), con su progreso: es lo que será al
+  iniciar, y así nada se muestra como en marcha cuando nadie procesa (Edge Cases; `recuperar`,
+  R11 de 001). `cola.db` no se toca.
 - `en_linea` es null si no hay un procesador en marcha o si `progreso-vivo.json` tiene más de
   5 s.
 - `en_directo` es `false` si hay un procesador en marcha y no hay un `progreso-vivo.json` válido
@@ -151,7 +155,12 @@ Sin cuerpo.
 - **500** `{"error": "..."}`: no se pudo lanzar el proceso; queda anotado en el registro.
 
 Si el subproceso sale con el código 2 (perdió la carrera por el bloqueo, R6), `api/estado`
-pasa a mostrar el procesador ajeno, y `ultima_ejecucion` no se reemplaza.
+pasa a mostrar el procesador ajeno, y `ultima_ejecucion` no se reemplaza. Mientras arranca,
+el estado es `arrancando`; si termina sin llegar a anunciarse, vuelve a `ninguno`.
+
+El motivo del 409 es el de `api/estado`: con un `ejecutar` de la CLI, "Este procesamiento se
+lanzó desde la terminal; deténgalo allí con Ctrl+C."; con uno de la aplicación, "Ya hay un
+procesamiento en marcha.", o el de `arrancando`, `deteniendo` o terminando.
 
 ## `POST api/detener`
 

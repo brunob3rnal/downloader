@@ -227,6 +227,26 @@ aplicación no consigue el bloqueo y sale con el código 2. La aplicación lo mu
 **Dependencia nueva**: `psutil` (BSD-3-Clause, sin dependencias, unos 2 MB en memoria) en los
 dos sistemas. Sirve también para medir la memoria (R14).
 
+**Verificación (Fase 10, `test_app_procesador_unico.py`)**:
+- la carrera aceptada, sin azar: con el bloqueo tomado por un procesador que aún no se ha
+  anunciado, Iniciar lanza el trabajador (202), que sale con 2 sin resultado ni anuncio, y la
+  ventana no se queda en `arrancando`;
+- la carrera, con azar: 20 rondas con un `ejecutar` de la CLI y `POST api/iniciar` casi a la
+  vez. Los dos no tardan lo mismo en llegar al bloqueo (en Linux, la CLI se anuncia en unos
+  0,25 s y el trabajador en unos 0,07 s), así que el test mide esos tiempos y desfasa los
+  arranques para barrer la ventana de la carrera. Cada ronda acaba con un solo procesador:
+  el perdedor sale con 2, solo el ganador escribe `procesador.json` y nadie más puede tomar
+  `ejecutar.lock`. Los tres desenlaces (gana la aplicación; gana la CLI con el trabajador ya
+  lanzado; la ventana ya veía a la CLI y responde 409) salen en la misma ejecución; el test
+  escribe el reparto en su salida y no exige ninguno en concreto;
+- un `ejecutar` de la CLI que termina, o al que se mata, deja de verse en marcha en la
+  siguiente consulta de `api/estado` (el límite son 2 s).
+
+**Filas a medias sin procesador**: tras un cierre abrupto, `cola.db` conserva la fila en
+`downloading` o `waiting_network` hasta que el siguiente procesador la recupera. La ventana la
+muestra entonces como "En cola" con su progreso (`vista`), para no mostrar nada en marcha
+cuando nadie procesa (spec, Edge Cases).
+
 **Alternativas**: *escribir el `pid` en `ejecutar.lock`*: en Windows, `msvcrt.locking` impide
 que otro proceso lea el byte bloqueado, y mezclaría datos con el mecanismo de exclusión.
 *Comprobar procesos por nombre*: no distingue el origen ni la cola.
