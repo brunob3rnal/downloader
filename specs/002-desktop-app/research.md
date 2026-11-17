@@ -437,6 +437,10 @@ Windows, `test_lanzador.py` ejecuta `wscript.exe //B "Gestor de descargas.vbs"` 
 `DOWNLOADER_HOME` temporal y comprueba que arranca el proceso de la ventana bajo `pythonw.exe`
 y que ningún proceso de la cadena tiene una ventana de consola visible.
 
+**Resultado (V1, 2026-11-17, equipo de 4 GB)**: tres dobles clics en el `.vbs`, ninguna
+consola, y la ventana lista casi al instante (sin cronómetro). Quedan por comprobar el doble
+clic en `gestor-descargas.exe` y V1b (quickstart.md, "Resultados").
+
 **Alternativas**:
 - *`.cmd` o `.bat`*: abren una consola, aunque sea un instante (incumple SC-001).
 - *`.pyw` suelto*: depende de que el lanzador `py` de python.org esté instalado y asociado;

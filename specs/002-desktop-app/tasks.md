@@ -431,9 +431,12 @@ mensaje claro con el código 3.
 
   Añadir `[project.gui-scripts] gestor-descargas = "downloader.app.principal:main"` en `pyproject.toml`
 - [ ] T069 [US1] **[manual, Windows]** Quickstart V1: con el entorno sincronizado, doble clic desde el Explorador. Comprobar que no aparece ninguna consola y medir el tiempo hasta la ventana lista (SC-001: 5 s o menos). Comprobar que `.venv\Scripts\gestor-descargas.exe` también abre la ventana sin consola. Comprobar el paso V1b: con un cambio pendiente en `uv.lock` y sin red, el doble clic muestra el mensaje de error de la sincronización, nunca nada. Anotar los resultados en quickstart.md (nuevo apartado "Resultados")
+  - **Parcial (2026-11-17; quickstart.md, "Resultados")**: V1 hecho, sin consola y listo casi al instante (sin cronómetro). Faltan el doble clic en `gestor-descargas.exe` (solo se abrió desde PowerShell) y V1b.
 - [ ] T070 [US1] **[manual, Windows]** Quickstart V2 y comparación con la maqueta (contracts/ventana.md, incluida la tabla de diferencias), y V11 en el equipo de 4 GB: con `--disable-gpu`, la ventana sigue respondiendo con 500 filas actualizándose
+  - **Parcial (2026-11-17; quickstart.md, "Resultados")**: V2 hecho (las dos descargas, completadas) y sin diferencias con la maqueta; en V11, todo respondió en menos de 1 s. Falta confirmar la franja final de V2 y que la fila activa de V11 se actualiza cada segundo.
 - [ ] T071 [US1] **[manual, Windows]** Quickstart V10 (SC-002): una persona que no use la terminal agrega una URL y empieza a descargarla. Medir el tiempo y contar las acciones desde la ventana abierta con la URL copiada. Esperado: menos de 1 minuto y 3 acciones como máximo (pegar, Agregar a la cola, Iniciar). Anotar el resultado en quickstart.md
 - [ ] T072 [US1] **[manual, Windows] [a verificar R2]** Quickstart V7: en una máquina virtual sin WebView2, comprobar el cuadro de mensaje de R2, el código 3 (`echo %ERRORLEVEL%` tras `start /wait`) y la entrada en `registro\ventana.log`. Anotar el resultado en research R2
+  - **Pendiente (2026-11-15)**: el usuario no tiene una máquina virtual sin WebView2.
 - [ ] T073 [US1] Commit `002 Fase 8: ventana, interfaz y lanzador en Windows (US1)`
 
 **Aceptación**:

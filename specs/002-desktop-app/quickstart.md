@@ -218,3 +218,31 @@ Esperado:
 - escucha en `127.0.0.1:<puerto>` y nunca en `0.0.0.0`;
 - `curl http://127.0.0.1:<puerto>/` responde 403;
 - desde otro equipo de la red, la conexión se rechaza.
+
+## Resultados
+
+Lo que se ha ejecutado a mano, por fecha. Cada fila dice lo que se observó; lo que no se llegó
+a observar queda como pendiente, no como bueno. Un escenario que no aparece aquí no se ha hecho.
+
+### 2026-11-17: Fase 8, en el equipo de referencia de 4 GB
+
+Comunicados por el usuario. No consta el commit exacto; como mínimo `930d73e`, porque las
+descargas de V2 se completaron y eso necesita `--fuente`.
+
+| Escenario | Qué se observó | Queda pendiente |
+|-----------|----------------|-----------------|
+| V1, doble clic en `Gestor de descargas.vbs`, 3 veces | Ninguna consola. Se pudo escribir "de forma casi instantánea", claramente por debajo de los 5 s de SC-001 (sin cronómetro: no hay cifra) | — |
+| V1, respaldo `.venv\Scripts\gestor-descargas.exe` | Abierto desde PowerShell: la ventana se abrió bien | El doble clic desde el Explorador: abrirlo desde una terminal no dice si aparecería una consola |
+| V1b, sincronización fallida | No hecho | Todo |
+| V2, servidor de prueba | Las dos descargas terminaron en "Completada". La línea `hola` "dio error al agregar" | No se anotó el texto de ese error (se entiende que es el aviso esperado de la línea 3, porque los otros dos enlaces se agregaron y se completaron) ni si la franja final decía "2 completadas, 0 fallidas" |
+| Comparación con la maqueta | Ninguna diferencia, aparte de las ya previstas: **Pausar** desactivado (Fase 9), sin cookies ni "Reintentar con cookies" (Fase 13), y la franja del resultado y el pie, que añade la spec | — |
+| V7, WebView2 ausente | No hecho: el usuario no tiene una máquina virtual sin WebView2 (dicho el 2026-11-15) | Todo |
+| V10, sin terminal | No hecho | Todo |
+| V11, 500 descargas en cola con `--disable-gpu` | El desplazamiento, la escritura, el cambio de calidad y **Examinar** respondieron en menos de 1 s | La fila activa: "creo que siguió actualizándose", sin fijarse con detalle; queda sin confirmar. El paso 3 (**Pausar**) no existe hasta la Fase 9: se hace al repetir el quickstart completo (T108) |
+| Fuera de quickstart: un video real, desde la ventana | Se completó; la fila mostró porcentaje y velocidad | — |
+
+Con estos datos no se cierra ninguna tarea manual de la Fase 8:
+- T069: faltan V1b y el doble clic en `gestor-descargas.exe`;
+- T070: falta confirmar la franja final de V2 y que la fila activa de V11 se actualiza cada
+  segundo con las 500 filas;
+- T071 (V10) y T072 (V7): sin hacer.
