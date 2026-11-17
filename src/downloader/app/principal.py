@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from downloader import config
-from downloader.app import registro
+from downloader.app import instancia, registro
 from downloader.app.api import Api
 from downloader.app.servidor import Servidor
 
@@ -30,17 +30,37 @@ def arrancar_servidor(ventana, directorio=None):
 
 
 def arrancar(crear_ventana, comprobar_motor=None, directorio=None) -> int:
-    """Arranca y bloquea hasta que la ventana se cierra; devuelve el código de salida."""
-    if comprobar_motor is not None and not comprobar_motor():
-        return SIN_MOTOR
-    servidor, url = arrancar_servidor(None, directorio)
+    """Arranca y bloquea hasta que la ventana se cierra; devuelve el código de salida.
+
+    Primero, la instancia única (FR-018, R12): si ya hay una ventana abierta, le pide que se
+    ponga al frente y sale con 0 sin abrir otra.
+    """
+    directorio = Path(directorio) if directorio is not None else config.directorio_app()
+    unica = instancia.tomar(directorio)
+    if unica is None:
+        instancia.pedir_activacion(directorio)
+        return 0
     try:
-        ventana = crear_ventana(url)
-        servidor.api.ventana = ventana
-        ventana.mostrar()  # hasta que se cierra
+        if comprobar_motor is not None and not comprobar_motor():
+            return SIN_MOTOR
+        servidor, url = arrancar_servidor(None, directorio)
+        vigilante = None
+        try:
+            ventana = crear_ventana(url)
+            servidor.api.ventana = ventana
+            if hasattr(ventana, "al_cerrar"):  # la ventana real pregunta antes de cerrarse
+                ventana.al_cerrar = servidor.api.al_cerrar_ventana
+            if hasattr(ventana, "enfocar"):
+                vigilante = instancia.Vigilante(directorio, ventana.enfocar)
+                vigilante.start()
+            ventana.mostrar()  # hasta que se cierra
+        finally:
+            if vigilante is not None:
+                vigilante.detener()
+            servidor.cerrar()
+        return 0
     finally:
-        servidor.cerrar()
-    return 0
+        unica.liberar()
 
 
 def abrir(crear_ventana, comprobar_motor=None, al_fallar=None) -> int:
@@ -50,10 +70,15 @@ def abrir(crear_ventana, comprobar_motor=None, al_fallar=None) -> int:
     proceso propio (`tests/support/ventana_headless.py`). Con `al_fallar`, una excepción al
     crear o mostrar la ventana se le entrega, con el registro aún abierto, y se sale con 3.
     """
-    manejo = registro.configurar("ventana", config.directorio_app())
+    directorio = config.directorio_app()
+    if not instancia.libre(directorio):
+        # Antes del registro: un solo proceso escribe en `ventana.log` (R10).
+        instancia.pedir_activacion(directorio)
+        return 0
+    manejo = registro.configurar("ventana", directorio)
     try:
         try:
-            return arrancar(crear_ventana, comprobar_motor)
+            return arrancar(crear_ventana, comprobar_motor, directorio)
         except Exception as error:  # noqa: BLE001 — sin consola, nadie vería la traza (R2)
             if al_fallar is None:
                 raise
@@ -69,5 +94,9 @@ def main() -> int:
         from downloader.app import ventana
 
         return abrir(ventana.crear, ventana.comprobar_motor, ventana.fallo_al_abrir)
+    directorio = config.directorio_app()
+    if not instancia.libre(directorio):  # FR-018 también aquí: no hay nada que abrir
+        instancia.pedir_activacion(directorio)
+        return 0
     print(SOLO_WINDOWS, file=sys.stderr)
     return 2

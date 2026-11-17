@@ -296,8 +296,47 @@
     $("registro-no-disponible").hidden = !datos.avisos.registro_no_disponible;
   }
 
+  // --- Aviso al cerrar (FR-010; research R18) -------------------------------------------
+
+  // Lo llama la ventana real al pulsar su X con un procesamiento propio en curso.
+  window.mostrarDialogoCierre = function (texto) {
+    $("dialogo-texto").textContent = texto;
+    mostrar($("dialogo-estado"), "");
+    for (const id of ["cierre-segundo-plano", "cierre-pausar", "cierre-cancelar"]) $(id).disabled = false;
+    $("cierre-igualmente").hidden = true;
+    $("dialogo-cierre").hidden = false;
+    $("cierre-segundo-plano").focus();
+  };
+
+  async function decidirCierre(decision) {
+    if (decision === "pausar") {
+      for (const id of ["cierre-segundo-plano", "cierre-pausar", "cierre-cancelar"]) $(id).disabled = true;
+      mostrar($("dialogo-estado"), "Deteniendo…");
+    }
+    let r = null;
+    try { r = await api("POST", "cerrar", { decision: decision }); } catch (e) { r = null; }
+    if (decision === "cancelar" || (r && r.estado === 409)) {
+      $("dialogo-cierre").hidden = true;
+      if (r && r.estado === 409) mostrar($("motivo"), r.datos && r.datos.motivo);
+    }
+    etiquetaEstado = null;
+    consultar();
+  }
+
+  function pintarCierre(datos) {
+    // Tras "Pausar y cerrar": "Deteniendo…" hasta que la ventana se cierra; pasado el plazo,
+    // se ofrece cerrar igualmente (el progreso está a salvo).
+    const enCierre = datos.cierre;
+    if (!enCierre || $("dialogo-cierre").hidden) return;
+    mostrar($("dialogo-estado"), enCierre.cerrar_igualmente
+      ? "Sigue deteniéndose. Lo descargado está a salvo: puede cerrar igualmente."
+      : "Deteniendo…");
+    $("cierre-igualmente").hidden = !enCierre.cerrar_igualmente;
+  }
+
   function pintar(datos) {
     ultimoEstado = datos;
+    pintarCierre(datos);
     pintarCabecera(datos);
     pintarResultado(datos);
     pintarLista(datos);
@@ -329,6 +368,10 @@
     $("agregar").addEventListener("click", agregar);
     $("iniciar").addEventListener("click", iniciar);
     $("pausar").addEventListener("click", pausar);
+    $("cierre-segundo-plano").addEventListener("click", () => decidirCierre("segundo_plano"));
+    $("cierre-pausar").addEventListener("click", () => decidirCierre("pausar"));
+    $("cierre-cancelar").addEventListener("click", () => decidirCierre("cancelar"));
+    $("cierre-igualmente").addEventListener("click", () => decidirCierre("cerrar_igualmente"));
     $("cerrar-resultado").addEventListener("click", function () {
       resultadoCerrado = $("resultado").dataset.ejecucion;
       $("resultado").hidden = true;

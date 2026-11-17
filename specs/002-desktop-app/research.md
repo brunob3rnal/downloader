@@ -446,7 +446,8 @@ Lectura:
 - `test_lanzador_segundo_plano.py`, solo en Windows (T087): la ventana arrancada con
   `uv run --gui-script`, como el lanzador; se mata toda la cadena (uv, el lanzador del
   entorno, `pythonw.exe`) salvo el trabajador, que debe seguir descargando 5 s después.
-  Resultado del CI: pendiente del commit de la Fase 11 (se anota tras el CI).
+  **Verificado en el CI 110** (commit `279a0de`, `windows-latest`): el trabajador sobrevive y
+  sigue descargando. Falta V5 en el equipo del usuario (T090).
 
 ## R9. Velocidad, tiempo estimado y estado de la red en directo (FR-005, SC-006)
 
@@ -590,6 +591,14 @@ bloqueo si la ventana muere, así que una ventana colgada que ya no existe no im
 **Limitación [a verificar en Windows]**: Windows puede negar traer una ventana al frente si la
 petición no viene del proceso en primer plano; en ese caso parpadea en la barra de tareas. Se
 acepta: lo importante es que no se abre una segunda ventana.
+
+**Implementación (Fase 12)**: `app/instancia.py`. `principal.arrancar` toma el bloqueo como
+primer paso; `principal.abrir` y `main()` lo comprueban además antes de abrir el registro (un
+solo escritor por `ventana.log`, R10), también fuera de Windows: con una ventana abierta,
+`python -m downloader.app` pide la activación y sale con 0 en Linux y en Windows. Al tomar el
+bloqueo se descarta una `activar.solicitud` anterior. `test_app_instancia.py`, en los dos
+sistemas y entre procesos reales: la segunda apertura termina en unos 0,15 s y la primera se
+enfoca en menos de un segundo (en local, Linux). Que la ventana real pase al frente es V9.
 
 ## R13. Datos que muestra la ventana
 
@@ -934,6 +943,7 @@ exceso. Fases 6 y 7: ninguno. Fase 8: ninguno (ejecución 98, verde en los dos s
 Arreglo de D2 (ejecuciones 101 y 102) y resultados manuales de la Fase 8 (103): ninguno.
 Fase 9: ninguno (ejecución 104, verde en los dos sistemas a la primera).
 Fase 10: ninguno (ejecuciones 105 y 106, verdes en los dos sistemas a la primera).
+Fase 11: ninguno (ejecuciones 109 y 110, verdes en los dos sistemas a la primera).
 CI 108 (commit `d68cc43`, SC-004 enmendado y test de parada durante la unión): **rojo en
 Linux**, sin reintento. Falló el test nuevo `test_app_parada_postproceso.py[verificacion]`: la
 verificación de las pistas de prueba dura unos 0,2 s, menos que la consulta del vigilante

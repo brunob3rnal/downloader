@@ -9,14 +9,15 @@ import json
 import logging
 import secrets
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
 from downloader import archivos_json, config, operaciones
-from downloader.app import parada, procesos, registro, resultado, urls, vista
-from downloader.models import NAVEGADORES, Calidad
+from downloader.app import cierre, parada, procesos, registro, resultado, urls, vista
+from downloader.models import NAVEGADORES, PENDIENTES, Calidad
 from downloader.store import BaseCorrupta, Store
 
 NOMBRES_CALIDAD = {"mejor": "Mejor calidad", "1080p": "1080p", "720p": "720p",
@@ -34,6 +35,8 @@ MOTIVO_DETENIENDO = "El procesamiento se está deteniendo."
 MOTIVO_TERMINANDO = "El procesamiento está terminando."
 MOTIVO_NINGUNO = "No hay ningún procesamiento en marcha."
 SIN_PARADA = "No se pudo pedir la parada; vuelva a intentarlo."
+SIN_CIERRE = "No se está cerrando la ventana."
+DECISIONES = ("segundo_plano", "pausar", "cancelar", "cerrar_igualmente")
 SIN_DIALOGO = "El diálogo de carpeta no está disponible; escriba la ruta"
 SIN_ENLACES = "Pegue al menos un enlace"
 _registro = logging.getLogger("downloader.app")
@@ -62,6 +65,9 @@ class Api:
         self.lanzamiento: procesos.Lanzamiento | None = None
         self._deteniendo: str | None = None  # ejecución para la que se pidió la parada
         self._abruptos: set[str] = set()  # ejecuciones cuyo final abrupto ya se anotó
+        # "Pausar y cerrar" en curso (R18): `None`, o lo que `api/estado` da en `cierre`.
+        self._cierre: dict | None = None
+        self.plazo_cierre = cierre.PLAZO  # s hasta ofrecer "Cerrar igualmente"
         self._cola_corrupta: str | None = None
         self._rutas = {
             ("GET", "opciones"): self._opciones,
@@ -69,6 +75,7 @@ class Api:
             ("POST", "agregar"): self._agregar,
             ("POST", "iniciar"): self._iniciar,
             ("POST", "detener"): self._detener,
+            ("POST", "cerrar"): self._cerrar,
             ("POST", "examinar"): self._examinar,
         }
 
@@ -187,8 +194,10 @@ class Api:
         vivo = archivos_json.leer(self.directorio / archivos_json.ARCHIVO_VIVO)
         ultima = resultado.leer(self.directorio)
         descargas = self._leer_cola()
+        cierre_actual = dict(self._cierre) if self._cierre is not None else None
         etiqueta = vista.etag(descargas, vivo, estado, ultima)[:-1] + (
-            f"-{info['estado']}-{int(registro.disponible())}-{bool(self._cola_corrupta)}\"")
+            f"-{info['estado']}-{int(registro.disponible())}-{bool(self._cola_corrupta)}"
+            f"-{json.dumps(cierre_actual, sort_keys=True)}\"")
         if cabeceras.get("If-None-Match") == etiqueta:
             return Respuesta(304, None, {"ETag": etiqueta})
         ahora = datetime.now(UTC)
@@ -202,6 +211,7 @@ class Api:
             "ultima_ejecucion": ultima,
             "avisos": {"registro_no_disponible": not registro.disponible(),
                        "cola_corrupta": self._cola_corrupta},
+            "cierre": cierre_actual,
         }
         return Respuesta(200, datos, {"ETag": etiqueta})
 
@@ -272,20 +282,93 @@ class Api:
     def _detener(self, cuerpo, cabeceras) -> Respuesta:
         """Pide la parada ordenada del procesador de la aplicación (FR-009, research R7)."""
         with self._cerrojo:
-            estado, info = self._procesador()
-            if info["estado"] == "deteniendo":
-                return Respuesta(202, {"estado": "deteniendo"})  # repetido: sin efecto
-            if not info["puede_detener"]:
-                return Respuesta(409, {"motivo": info["motivo"] or MOTIVO_NINGUNO})
-            try:
-                pedida = parada.pedir(self.directorio, estado.ejecucion)
-            except OSError as error:
-                pedida = False
-                _registro.error("no se pudo escribir la petición de parada: %s", error)
-            else:
-                if not pedida:
-                    _registro.error("no se pudo escribir la petición de parada: en uso")
+            return self._pedir_parada()
+
+    def _pedir_parada(self) -> Respuesta:
+        """`api/detener`, con `self._cerrojo` tomado."""
+        estado, info = self._procesador()
+        if info["estado"] == "deteniendo":
+            return Respuesta(202, {"estado": "deteniendo"})  # repetido: sin efecto
+        if not info["puede_detener"]:
+            return Respuesta(409, {"motivo": info["motivo"] or MOTIVO_NINGUNO})
+        try:
+            pedida = parada.pedir(self.directorio, estado.ejecucion)
+        except OSError as error:
+            pedida = False
+            _registro.error("no se pudo escribir la petición de parada: %s", error)
+        else:
             if not pedida:
-                return Respuesta(500, {"error": SIN_PARADA})
-            self._deteniendo = estado.ejecucion
+                _registro.error("no se pudo escribir la petición de parada: en uso")
+        if not pedida:
+            return Respuesta(500, {"error": SIN_PARADA})
+        self._deteniendo = estado.ejecucion
         return Respuesta(202, {"estado": "deteniendo"})
+
+    # --- cierre de la ventana (FR-010, research R18) -------------------------------------
+
+    def al_cerrar_ventana(self) -> bool:
+        """Lo llama la ventana real al pulsar su X: `True` si puede cerrarse ya.
+
+        Con un procesamiento propio en curso, cancela el cierre y muestra el diálogo de la
+        página. `ejecutar_js` va en otro hilo: el aviso de cierre llega en el hilo de la
+        ventana, que no debe quedarse esperando a la página.
+        """
+        _, info = self._procesador()
+        if cierre.decidir(info) == cierre.CERRAR:
+            return True
+        pendientes = sum(d.estado in PENDIENTES for d in self._leer_cola())
+        codigo = f"mostrarDialogoCierre({json.dumps(cierre.texto(pendientes))})"
+        ventana = self.ventana
+        if ventana is not None:
+            threading.Thread(target=ventana.ejecutar_js, args=(codigo,), daemon=True).start()
+        return False
+
+    def _cerrar(self, cuerpo, cabeceras) -> Respuesta:
+        """La respuesta al diálogo de cierre (contracts/api-local.md)."""
+        try:
+            decision = (json.loads(cuerpo.decode("utf-8") or "null") or {}).get("decision")
+        except (UnicodeDecodeError, ValueError, AttributeError):
+            decision = None
+        if decision not in DECISIONES:
+            return Respuesta(400, {"error": "decisión desconocida"})
+        if decision == "cancelar":
+            return Respuesta(202, {})
+        if decision == "segundo_plano":
+            self._destruir_ventana()
+            return Respuesta(202, {})
+        if decision == "cerrar_igualmente":
+            if self._cierre is None:
+                return Respuesta(409, {"motivo": SIN_CIERRE})
+            self._destruir_ventana()
+            return Respuesta(202, {})
+        with self._cerrojo:  # pausar
+            _, info = self._procesador()
+            if info["estado"] == "ninguno":
+                self._destruir_ventana()  # ya no hay nada que pausar
+                return Respuesta(202, {})
+            if self._cierre is None:
+                respuesta = self._pedir_parada()
+                if respuesta.estado != 202:
+                    return respuesta
+                self._cierre = {"estado": "deteniendo", "cerrar_igualmente": False}
+                threading.Thread(target=self._cerrar_al_terminar, daemon=True,
+                                 name="cierre-al-terminar").start()
+        return Respuesta(202, {"estado": "deteniendo"})
+
+    def _cerrar_al_terminar(self) -> None:
+        """Tras "Pausar y cerrar": destruye la ventana cuando el procesador termina y, si
+        pasa el plazo, ofrece cerrar igualmente (el progreso está a salvo, R18)."""
+        limite = time.monotonic() + self.plazo_cierre
+        while self._cierre is not None:
+            _, info = self._procesador()
+            if info["estado"] == "ninguno":
+                self._destruir_ventana()
+                return
+            if time.monotonic() >= limite and not self._cierre["cerrar_igualmente"]:
+                self._cierre = {"estado": "deteniendo", "cerrar_igualmente": True}
+            time.sleep(0.1)
+
+    def _destruir_ventana(self) -> None:
+        self._cierre = None
+        if self.ventana is not None:
+            self.ventana.destruir()

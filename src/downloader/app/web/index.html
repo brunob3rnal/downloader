@@ -50,6 +50,19 @@
     <p id="vacia" class="vacia" hidden>La cola está vacía. Pegue enlaces arriba y pulse Agregar a la cola.</p>
   </section>
 </main>
+<div id="dialogo-cierre" class="fondo-dialogo" hidden>
+  <div class="dialogo" role="dialog" aria-modal="true" aria-labelledby="dialogo-titulo">
+    <h2 id="dialogo-titulo"><span class="icono-aviso" aria-hidden="true">!</span>Hay descargas en curso</h2>
+    <p id="dialogo-texto"></p>
+    <p id="dialogo-estado" class="dialogo-estado" role="status" hidden></p>
+    <button id="cierre-segundo-plano" type="button" class="boton principal ancho">Seguir en segundo plano</button>
+    <div class="dialogo-botones">
+      <button id="cierre-pausar" type="button" class="boton">Pausar y cerrar</button>
+      <button id="cierre-cancelar" type="button" class="boton">Cancelar</button>
+    </div>
+    <button id="cierre-igualmente" type="button" class="boton ancho" hidden>Cerrar igualmente</button>
+  </div>
+</div>
 <footer class="pie">
   <span>La cola se guarda en este equipo. Si se cierra el programa, continúa al abrirlo.</span>
   <span id="registro-no-disponible" class="aviso" hidden>El registro de errores no está disponible.</span>

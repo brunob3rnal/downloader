@@ -59,3 +59,16 @@ def test_app_js_dice_el_origen_y_el_motivo_de_los_botones_inactivos(app_local):
     assert "En marcha desde la terminal" in js and 'p.origen === "cli"' in js
     assert "boton.title" in js and "dataset.motivo" in js  # el motivo, al pasar el cursor
     assert 'mostrar($("motivo"), boton.dataset.motivo)' in js  # y al pulsar
+
+
+def test_el_dialogo_de_cierre_de_la_maqueta(app_local):
+    """Título, tres botones, "Deteniendo…" y "Cerrar igualmente" (FR-010, R18; T098)."""
+    html = app_local.cliente.get().cuerpo.decode("utf-8")
+    for texto in ("Hay descargas en curso", "Seguir en segundo plano", "Pausar y cerrar",
+                  "Cancelar", "Cerrar igualmente"):
+        assert texto in html, texto
+    js = app_local.cliente.get("app.js").cuerpo.decode("utf-8")
+    assert "window.mostrarDialogoCierre" in js and '"cerrar"' in js
+    for decision in ("segundo_plano", "pausar", "cancelar", "cerrar_igualmente"):
+        assert f'"{decision}"' in js, decision
+    assert "cerrar_igualmente" in js and "Deteniendo…" in js

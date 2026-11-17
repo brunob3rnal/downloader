@@ -89,7 +89,8 @@ si nada cambió, la respuesta es **304** sin cuerpo (R13).
   "avisos": {
     "registro_no_disponible": false,
     "cola_corrupta": "mensaje de BaseCorrupta, o null"
-  }
+  },
+  "cierre": "null, o {\"estado\": \"deteniendo\", \"cerrar_igualmente\": false} (POST api/cerrar)"
 }
 ```
 
@@ -196,11 +197,25 @@ Sin cuerpo. Abre el diálogo nativo de carpeta.
 ## `POST api/cerrar`
 
 ```json
-{"decision": "segundo_plano | pausar | cancelar"}
+{"decision": "segundo_plano | pausar | cancelar | cerrar_igualmente"}
 ```
 
 Respuesta al diálogo de cierre (FR-010, R18).
 
-- **202**: con `segundo_plano`, la ventana se destruye; con `pausar`, se pide la parada y la
-  ventana se destruye cuando el procesador termina; con `cancelar`, no hace nada.
-- **409** con `pausar` si el procesador no es de la aplicación.
+- **202**: con `segundo_plano`, la ventana se destruye; con `pausar`, se pide la parada (como
+  `api/detener`) y la ventana se destruye cuando el procesador termina; si ya no hay
+  procesador, se destruye enseguida; con `cancelar`, no hace nada.
+- Mientras dura "Pausar y cerrar", `api/estado` lleva `"cierre": {"estado": "deteniendo",
+  "cerrar_igualmente": false}`; pasado el plazo (30 s), `cerrar_igualmente` vale `true` y la
+  página ofrece el botón. Con la decisión `cerrar_igualmente`, la ventana se destruye sin
+  esperar; no se mata nada y el progreso está a salvo. Sin "Pausar y cerrar", `cierre` es
+  `null`.
+- **409** con `pausar` si el procesador no es de la aplicación (con el motivo de
+  `api/detener`), y con `cerrar_igualmente` si no se está cerrando ("No se está cerrando la
+  ventana.").
+- **400** con una decisión desconocida.
+
+El diálogo lo abre la ventana real al pulsar su X: si `cierre.decidir` da `preguntar` (un
+procesamiento de la aplicación en marcha, arrancando o deteniéndose), cancela el cierre y
+ejecuta `mostrarDialogoCierre(texto)` en la página. Con uno de la CLI o sin procesamiento, se
+cierra sin preguntar.

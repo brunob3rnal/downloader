@@ -72,8 +72,8 @@ Solo con un procesador de origen `app` en marcha. Es un diálogo modal dentro de
 
 - título "Hay descargas en curso";
 - texto: "Una descarga está activa y otras N esperan en la cola. Puede dejarlas avanzando en
-  segundo plano o pausarlas. En ambos casos se conserva lo ya descargado." (con N real, y
-  "no hay más en la cola" si N = 0);
+  segundo plano o pausarlas. En ambos casos se conserva lo ya descargado." (con N real,
+  "otra espera en la cola" si N = 1 y "no hay más en la cola" si N = 0);
 - botones **Seguir en segundo plano** (principal), **Pausar y cerrar** y **Cancelar**;
 - con **Pausar y cerrar**, los botones se desactivan y aparece "Deteniendo…" hasta que la
   ventana se cierra. A los 30 s, si no ha terminado, se ofrece "Cerrar igualmente" (R18).

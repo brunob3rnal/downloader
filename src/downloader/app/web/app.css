@@ -134,3 +134,24 @@ textarea:focus, select:focus, input:focus, button:focus-visible {
   .cabecera-cola { flex-wrap: wrap; }
 }
 .boton.inactivo { opacity: .5; cursor: default; }
+
+/* Aviso al cerrar (maqueta, página 2) */
+.fondo-dialogo {
+  position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
+  background: rgba(17, 24, 39, .35); padding: 16px;
+}
+.dialogo {
+  width: 100%; max-width: 640px; background: var(--superficie); border: 1px solid var(--borde);
+  border-radius: 14px; padding: 32px 36px; box-shadow: 0 20px 50px rgba(0, 0, 0, .2);
+}
+.dialogo h2 { display: flex; align-items: center; gap: 14px; margin: 0 0 14px; font-size: 22px; }
+.icono-aviso {
+  display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;
+  border: 2.5px solid var(--azul); border-radius: 50%; color: var(--azul); font-size: 15px; font-weight: 700;
+}
+.dialogo p { color: var(--texto-2); font-size: 16px; line-height: 1.5; margin: 0 0 28px; }
+.dialogo .dialogo-estado { color: var(--naranja); margin: -16px 0 20px; }
+.boton.ancho { width: 100%; height: 50px; }
+.dialogo-botones { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
+.dialogo-botones .boton { height: 50px; }
+#cierre-igualmente { margin-top: 12px; }

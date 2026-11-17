@@ -556,28 +556,28 @@ Pausar y cerrar, Cancelar); una segunda apertura no abre otra ventana.
 
 ### Tests for User Story 4 (primero, en rojo)
 
-- [ ] T092 [P] [US4] Escribir `tests/unit/test_app_cierre.py` para `cierre.decidir(estado)`:
+- [X] T092 [P] [US4] Escribir `tests/unit/test_app_cierre.py` para `cierre.decidir(estado)`:
   - origen `app` en `en_marcha`, `arrancando` o `deteniendo` → `preguntar`;
   - origen `cli` → `cerrar`;
   - `ninguno` → `cerrar`;
   - el texto del diálogo da N = pendientes menos 1, con la variante para N = 0 de contracts/ventana.md.
-- [ ] T093 [P] [US4] Escribir `tests/integration/test_app_cierre.py` con `app_local` y `VentanaFalsa`:
+- [X] T093 [P] [US4] Escribir `tests/integration/test_app_cierre.py` con `app_local` y `VentanaFalsa`:
   - `api/cerrar` con `segundo_plano` → `destruir` llamado y el trabajador sigue vivo;
   - con `pausar` → `parada.json` escrito, y `destruir` llamado solo cuando el proceso ha terminado (130);
   - con el plazo de 30 s inyectado a 1 s y un trabajador que no para (vigilante parcheado), `api/estado` ofrece `cerrar_igualmente`;
   - con `cancelar` → nada;
   - con `pausar` y un procesador de la CLI → 409.
-- [ ] T094 [P] [US4] Escribir `tests/integration/test_app_instancia.py`, en los dos sistemas y sin parches entre procesos (FR-018, R12):
+- [X] T094 [P] [US4] Escribir `tests/integration/test_app_instancia.py`, en los dos sistemas y sin parches entre procesos (FR-018, R12):
   - con un primer `ventana_headless.py`, que toma `ventana.lock` en `principal.arrancar`, un segundo `python -m downloader.app` termina con 0 en 3 s o menos y deja `activar.solicitud`; el primero lo borra y llama a `VentanaFalsa.enfocar` en 2 s o menos (lo comprueba por su salida estándar);
   - si el primero muere, el bloqueo se libera: un nuevo `ventana_headless.py` arranca y toma el bloqueo;
   - en Linux, con el bloqueo libre, `python -m downloader.app` sale con 2 y el mensaje de `main()` (T046).
-- [ ] T095 [P] [US4] Añadir a `tests/unit/test_app_ventana_windows.py` (`@pytest.mark.solo_windows`), con objetos simulados de pywebview: si `cierre.decidir` devuelve `preguntar`, el manejador de `events.closing` devuelve `False` y llama a `evaluate_js("mostrarDialogoCierre(...)")`; con `cerrar`, devuelve `True` sin llamar a nada
+- [X] T095 [P] [US4] Añadir a `tests/unit/test_app_ventana_windows.py` (`@pytest.mark.solo_windows`), con objetos simulados de pywebview: si `cierre.decidir` devuelve `preguntar`, el manejador de `events.closing` devuelve `False` y llama a `evaluate_js("mostrarDialogoCierre(...)")`; con `cerrar`, devuelve `True` sin llamar a nada
 
 ### Implementation for User Story 4
 
-- [ ] T096 [US4] Crear `src/downloader/app/cierre.py` (`decidir`, el texto del diálogo y el flujo de Pausar y cerrar con el plazo de 30 s) e implementar `POST api/cerrar` en `src/downloader/app/api.py`
-- [ ] T097 [US4] Crear `src/downloader/app/instancia.py` (`ventana.lock` con `downloader.bloqueo` y `activar.solicitud`). Integrarlo como primer paso de `principal.arrancar` (T046), de modo que `main()` y `ventana_headless.py` pasen por él, y en el ciclo de un segundo, que llama a `ventana.enfocar()`
-- [ ] T098 [US4] En `src/downloader/app/ventana/ventana.py`, enganchar `window.events.closing` a `cierre.decidir`. Añadir en `src/downloader/app/web/` el diálogo modal de la segunda página de la maqueta (título, texto con N, tres botones, "Deteniendo…" y "Cerrar igualmente")
+- [X] T096 [US4] Crear `src/downloader/app/cierre.py` (`decidir`, el texto del diálogo y el flujo de Pausar y cerrar con el plazo de 30 s) e implementar `POST api/cerrar` en `src/downloader/app/api.py`
+- [X] T097 [US4] Crear `src/downloader/app/instancia.py` (`ventana.lock` con `downloader.bloqueo` y `activar.solicitud`). Integrarlo como primer paso de `principal.arrancar` (T046), de modo que `main()` y `ventana_headless.py` pasen por él, y en el ciclo de un segundo, que llama a `ventana.enfocar()`
+- [X] T098 [US4] En `src/downloader/app/ventana/ventana.py`, enganchar `window.events.closing` a `cierre.decidir`. Añadir en `src/downloader/app/web/` el diálogo modal de la segunda página de la maqueta (título, texto con N, tres botones, "Deteniendo…" y "Cerrar igualmente")
 - [ ] T099 [US4] **[manual, Windows] [a verificar R12]** Quickstart V5 (Pausar y cerrar, Cancelar) y V9. Anotar en research R12 si la ventana pasa al frente o solo parpadea en la barra de tareas
 - [ ] T100 [US4] Commit `002 Fase 12: diálogo de cierre e instancia única (US4)`
 
