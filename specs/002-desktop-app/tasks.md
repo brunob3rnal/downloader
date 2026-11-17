@@ -478,7 +478,7 @@ desde la aplicación o desde la CLI.
 - [X] T078 [US2] Activar Pausar en `src/downloader/app/web/app.js` según `puede_detener`, con "Deteniendo…" mientras dura
 - [ ] T079 [US2] **[manual, Windows]** Quickstart V3, incluido el caso con el servidor parado. Anotar en research R7 (nuevo apartado "Resultado de la medición") los tiempos de parada de T075 (a), (b) y (c) en los dos sistemas, tomados del CI y de V3. **No enmendar SC-004**: si (c) pasa de 10 s en Windows, comunicarlo al usuario con la cifra (regla 4)
   - **Parcial (2026-11-17; research R7, "Resultado de la medición")**: anotados los tiempos del CI en los dos sistemas. (c) en Windows: 13,09 s, por encima de los 10 s de SC-004; comunicado al usuario, que decide. Falta V3 a mano.
-- [ ] T080 [US2] Commit `002 Fase 9: Pausar equivalente a Ctrl+C (US2)`
+- [X] T080 [US2] Commit `002 Fase 9: Pausar equivalente a Ctrl+C (US2)`
 
 **Aceptación**:
 - T074–T075 en verde en Linux y en Windows ((c) en Windows registra el tiempo y solo falla por encima de 25 s);
@@ -508,7 +508,7 @@ dos procesadores.
 - [X] T082 [US3] Completar `src/downloader/app/procesos.py` con el seguimiento del subproceso lanzado: estado `arrancando` hasta que aparece `procesador.json` con su ejecución o el proceso termina; si sale con 2, pasar a observar sin tocar el resultado. Completar `api/estado`, `api/iniciar` y `api/detener` con `puede_iniciar`, `puede_detener` y los motivos de contracts/api-local.md
 - [X] T083 [US3] Mostrar en `src/downloader/app/web/app.js` el origen ("En marcha desde la terminal") y los motivos de los botones desactivados
 - [ ] T084 [US3] **[manual, Windows]** Quickstart V4
-- [ ] T085 [US3] Commit `002 Fase 10: un único procesador y modo observación (US3)`
+- [X] T085 [US3] Commit `002 Fase 10: un único procesador y modo observación (US3)`
 
 **Aceptación**: T081 en verde en Linux y en Windows; V4 hecho.
 

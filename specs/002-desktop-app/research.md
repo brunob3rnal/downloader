@@ -242,6 +242,19 @@ dos sistemas. Sirve también para medir la memoria (R14).
 - un `ejecutar` de la CLI que termina, o al que se mata, deja de verse en marcha en la
   siguiente consulta de `api/estado` (el límite son 2 s).
 
+Reparto de la carrera en el CI 106 (commit `8c4a1e0`), 20 rondas por sistema:
+
+| Sistema | CLI / trabajador hasta anunciarse | Gana la aplicación | Gana la CLI (trabajador lanzado, sale con 2) | La ventana ya veía la CLI (409) |
+|---------|-----------------------------------|-------------------|-----------------------------------------------|---------------------------------|
+| Linux | 0,24 s / 0,07 s | 6 | 10 | 4 |
+| Windows | 0,30 s / 0,09 s | 0 | 10 | 10 |
+
+En Windows, el trabajador que lanza la ventana tarda más en arrancar que en la calibración
+(que lo arranca directamente, sin los indicadores de R8), así que no ganó ninguna ronda.
+El caso "la aplicación tiene el bloqueo y `ejecutar` sale con 2" lo cubre en los dos sistemas
+`test_con_la_aplicacion_procesando_ejecutar_sale_con_2`; en ninguna ronda hubo dos
+procesadores.
+
 **Filas a medias sin procesador**: tras un cierre abrupto, `cola.db` conserva la fila en
 `downloading` o `waiting_network` hasta que el siguiente procesador la recupera. La ventana la
 muestra entonces como "En cola" con su progreso (`vista`), para no mostrar nada en marcha
@@ -328,6 +341,8 @@ descarga de 50 MB a 2 MB/s. Una medición por sistema; SC-004 pide 10 s como má
   la parada queda en el `.part` (en (c), los 3 000 000 bytes exactos) y la reanudación pide
   `Range: bytes=N-` desde ahí.
 - En local (Linux, 8 ejecuciones): (a) 0,13–0,36 s, (b) 0,18–0,36 s, (c) 0,14–0,34 s.
+- Repetición en el CI 106 (Fase 10): Linux 0,28 / 0,15 / 0,11 s; Windows 0,19 / 0,16 /
+  **13,00 s**. El caso (c) en Windows se mantiene por encima de 10 s.
 - Falta la medición manual de V3 en el equipo del usuario (T079).
 
 **Límite conocido en Windows, sin medir**: una parada pedida mientras `ffmpeg` une los
@@ -883,6 +898,7 @@ conflictos y sus tests y los de DRM pasan allí). Detalle en el research de la 0
 exceso. Fases 6 y 7: ninguno. Fase 8: ninguno (ejecución 98, verde en los dos sistemas).
 Arreglo de D2 (ejecuciones 101 y 102) y resultados manuales de la Fase 8 (103): ninguno.
 Fase 9: ninguno (ejecución 104, verde en los dos sistemas a la primera).
+Fase 10: ninguno (ejecuciones 105 y 106, verdes en los dos sistemas a la primera).
 
 **Fallo sin reintento, no detectado a tiempo** (2026-11-15): la ejecución 97 del CI, la del
 commit `335186a` (solo documentación: research R20 y tasks), terminó en rojo en Linux y no lo
