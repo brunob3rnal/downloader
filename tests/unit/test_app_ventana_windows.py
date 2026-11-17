@@ -97,7 +97,7 @@ def test_la_ventana_fija_los_argumentos_de_webview2_antes_de_arrancar(monkeypatc
 
     vistos = {}
     monkeypatch.delenv(entorno_webview2.VARIABLE, raising=False)
-    monkeypatch.setattr(webview, "create_window", lambda *a, **o: object())
+    monkeypatch.setattr(webview, "create_window", lambda *a, **o: _VentanaPywebview())
     monkeypatch.setattr(webview, "start", lambda *a, **o: vistos.update(
         valor=__import__("os").environ.get(entorno_webview2.VARIABLE), opciones=o))
     ventana.crear("http://127.0.0.1:1/x/").mostrar()

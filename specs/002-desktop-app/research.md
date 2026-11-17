@@ -944,6 +944,12 @@ Arreglo de D2 (ejecuciones 101 y 102) y resultados manuales de la Fase 8 (103): 
 Fase 9: ninguno (ejecución 104, verde en los dos sistemas a la primera).
 Fase 10: ninguno (ejecuciones 105 y 106, verdes en los dos sistemas a la primera).
 Fase 11: ninguno (ejecuciones 109 y 110, verdes en los dos sistemas a la primera).
+Fase 12: CI 111 (commit `25f6a37`) **rojo en Windows**, sin reintento. Falló
+`test_app_ventana_windows.py::test_la_ventana_fija_los_argumentos_de_webview2_antes_de_arrancar`
+(Fase 8, solo Windows): su ventana de pywebview simulada era un `object()` sin `events`, y la
+Fase 12 engancha el aviso de cierre al crear la ventana. Error mío al cambiar la ventana real
+sin poder ejecutar en local los tests `solo_windows`; se corrige el test para usar la ventana
+simulada completa (`_VentanaPywebview`), sin tocar el código.
 CI 108 (commit `d68cc43`, SC-004 enmendado y test de parada durante la unión): **rojo en
 Linux**, sin reintento. Falló el test nuevo `test_app_parada_postproceso.py[verificacion]`: la
 verificación de las pistas de prueba dura unos 0,2 s, menos que la consulta del vigilante
