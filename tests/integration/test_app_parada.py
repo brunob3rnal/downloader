@@ -26,7 +26,7 @@ TAMANO = 50_000_000
 VELOCIDAD = 2_000_000  # bytes/s
 ESTANCADA = 3_000_000  # bytes que llegan antes de que la conexión se quede sin datos
 PARADA_MAXIMA = 10  # s (SC-004)
-PARADA_ESTANCADA_EN_WINDOWS = 25  # s; en Windows ese caso solo se mide (research R7)
+PARADA_ESTANCADA_EN_WINDOWS = 20  # s; SC-004 enmendado el 2026-11-17 (research R7)
 INTERRUMPIDO = 130
 DETENIDA = {"tipo": "detenida", "mensaje": "interrumpido; progreso guardado"}
 
@@ -153,8 +153,8 @@ def test_parada_esperando_la_red(cola, servidor, destino, capsys, record_propert
 
 def test_parada_con_la_conexion_estancada(cola, servidor, destino, capsys, record_property):
     """Sin marcador y con un límite por sistema. En Windows una señal no interrumpe una lectura
-    de socket bloqueada, que vuelve con su tiempo de espera (15 s): ahí solo se mide, y falla
-    por encima de 25 s. SC-004 no se enmienda (research R7)."""
+    de socket bloqueada, que vuelve con su tiempo de espera (15 s): SC-004, enmendado, admite
+    ahí hasta 20 s (research R7)."""
     app = cola
     # Toda petición al archivo, también los sondeos del extractor, recibe 3 MB y se queda sin datos.
     servidor.programar(NOMBRE, pausar_tras_bytes=ESTANCADA, veces=12)

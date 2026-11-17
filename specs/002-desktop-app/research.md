@@ -336,8 +336,10 @@ descarga de 50 MB a 2 MB/s. Una medición por sistema; SC-004 pide 10 s como má
   `time.sleep(30)` y un bucle de `Event.wait(0,25)`, también con `SIGINT` heredada ignorada.
 - **(c) supera SC-004 en Windows: 13,09 s frente a 10 s.** Es lo previsto arriba: la señal no
   interrumpe la lectura de socket bloqueada, que vuelve con su tiempo de espera de 15 s
-  (`ytdl.SOCKET_TIMEOUT`). El test lo admite hasta 25 s y **SC-004 no se ha enmendado**: la
-  decisión es del usuario. En los tres casos y en los dos sistemas, todo lo recibido antes de
+  (`ytdl.SOCKET_TIMEOUT`). **Decisión del usuario (2026-11-17): opción 1**. SC-004 se enmienda:
+  en Windows con la conexión colgada se admiten hasta 20 s, y el test usa ese límite. El tiempo
+  de espera de lectura y el código de la 001 no cambian; la opción 3 queda como D4 (R21).
+  En los tres casos y en los dos sistemas, todo lo recibido antes de
   la parada queda en el `.part` (en (c), los 3 000 000 bytes exactos) y la reanudación pide
   `Range: bytes=N-` desde ahí.
 - En local (Linux, 8 ejecuciones): (a) 0,13–0,36 s, (b) 0,18–0,36 s, (c) 0,14–0,34 s.
@@ -923,6 +925,12 @@ anteriores:
   `vista.direccion`). Se corrige después de esta feature, por decisión del usuario, con su
   test; cambia la salida de la CLI, así que también las referencias de caracterización
   (`tests/integration/referencias_cli/`) que contengan una URL con credenciales.
+- **D4, Pausar no corta la conexión en curso en Windows** (anotado el 2026-11-17; mejora para
+  después de la feature, decisión del usuario): con la conexión colgada, Pausar espera a que
+  la lectura vuelva por su tiempo de espera (13 s en el CI; SC-004 enmendado admite 20 s). La
+  mejora: que el vigilante, además de interrumpir, cierre la conexión en curso y termine
+  `ffmpeg` y `ffprobe`, como hace de hecho un Ctrl+C de consola. Toca `ytdl.py` (001) y hay que
+  probarlo en el CI de Windows (R7, opción 3). No hay D3: la numeración la fija el usuario.
 - **D2, progreso perdido y memoria sin límite al reanudar** (anotado el 2026-11-15; diagnóstico
   en R20): `_vigilar_xml` retenía entera en memoria una reanudación cuyo primer byte era `<` y,
   si la conexión se cortaba, la perdía. **Corregido** en `44e8f18` (R20, "Arreglo aplicado").

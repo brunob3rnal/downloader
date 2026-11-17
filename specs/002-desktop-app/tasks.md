@@ -723,6 +723,7 @@ Cada fase termina con la suite en verde y un commit:
 
 ## Pendiente después de la feature (no forma parte de ninguna fase)
 
+- [ ] D4 (research R21): que Pausar corte la conexión en curso y termine `ffmpeg` y `ffprobe` en Windows. Mejora para después de la feature, por decisión del usuario.
 - [ ] Corregir el defecto D1 de la 001 (research R21): `agregar` y `estado` de la CLI muestran el
   usuario y la contraseña de las URLs. Por decisión del usuario, se hace al terminar la 002.
 - [X] Defecto D2 de la 001 (research R20 y R21): `_vigilar_xml` retenía en memoria y perdía
