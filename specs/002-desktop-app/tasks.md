@@ -727,6 +727,9 @@ Cada fase termina con la suite en verde y un commit:
 ## Pendiente después de la feature (no forma parte de ninguna fase)
 
 - [ ] D3 (research R21): que `_vigilar_manifiesto` (HLS) tenga tope, no recorra la copia entera en cada lectura y excluya las respuestas 206 y las de vídeo o audio, como `_vigilar_xml` tras D2. Para después de la feature, por decisión del usuario.
+- [ ] D6 (research R21), **el primero**: pedir solo audio de un vídeo sin pista de audio debe decir que el vídeo no tiene audio, no el mensaje crudo de yt-dlp (Principio III). Defecto de la 001, para después de la feature.
+- [ ] D5 (research R21): avisar cuando la calidad obtenida es menor que la pedida aunque el extractor genérico no dé la altura (720p pedido, 360p descargado, `ultimo_aviso` NULL). Defecto de la 001, para después de la feature.
+- [ ] D7 (research R21): que `bytes_descargados` refleje el tamaño real al completar (quedó 1024 de 991 017). Defecto de la 001, para después de la feature.
 - [ ] D4 (research R21): que Pausar corte la conexión en curso y termine `ffmpeg` y `ffprobe` en Windows. Mejora para después de la feature, por decisión del usuario.
 - [ ] Corregir el defecto D1 de la 001 (research R21): `agregar` y `estado` de la CLI muestran el
   usuario y la contraseña de las URLs. Por decisión del usuario, se hace al terminar la 002.

@@ -951,6 +951,16 @@ Fase 10: ninguno (ejecuciones 105 y 106, verdes en los dos sistemas a la primera
 Fase 11: ninguno (ejecuciones 109 y 110, verdes en los dos sistemas a la primera).
 Fase 12, tras la corrección: CI 112 verde. "Qué está terminando" (`c4e952c`): CI 113 verde.
 Fase 13: ninguno (CI 114, verde en los dos sistemas a la primera).
+Fase 14, parte sin el equipo del usuario: ninguno (CI 115, verde en los dos sistemas a la
+primera).
+
+**Falso positivo fuera del CI** (anotado el 2026-11-17): un revisor externo ejecutó la suite en
+esta rama (commit `b865789`) en su propio entorno y le falló
+`test_app_seguridad.py::test_no_acepta_conexiones_desde_la_ip_de_red_del_equipo`. Su sandbox
+pasa el tráfico por un proxy que acepta cualquier conexión TCP a una IP no local, así que la
+conexión a la IP de red del equipo "se acepta" aunque el servidor de la aplicación solo escucha
+en `127.0.0.1`. Es un falso positivo de ese entorno, no un fallo de la aplicación: en el CI de
+Linux y de Windows y en local (quickstart, D) la conexión se rechaza. El test no se cambia.
 Fase 12: CI 111 (commit `25f6a37`) **rojo en Windows**, sin reintento. Falló
 `test_app_ventana_windows.py::test_la_ventana_fija_los_argumentos_de_webview2_antes_de_arrancar`
 (Fase 8, solo Windows): su ventana de pywebview simulada era un `object()` sin `events`, y la
@@ -999,6 +1009,21 @@ anteriores:
   mejora: que el vigilante, además de interrumpir, cierre la conexión en curso y termine
   `ffmpeg` y `ffprobe`, como hace de hecho un Ctrl+C de consola. Toca `ytdl.py` (001) y hay que
   probarlo en el CI de Windows (R7, opción 3).
+- **D5, calidad menor que la pedida sin aviso** (anotado el 2026-11-17; reproducido por un
+  revisor externo en esta rama, commit `b865789`; para después de la feature, sin corregir):
+  pedir `720p` de un MP4 directo que solo existe en 360p lo descarga en 360p con
+  `ultimo_aviso` NULL, porque el extractor genérico no da la altura del archivo y
+  `ytdl.aviso_calidad` no tiene con qué comparar. La spec de la 001 exige avisar cuando la
+  calidad obtenida no es la pedida.
+- **D6, solo audio de un vídeo sin pista de audio** (anotado el 2026-11-17; reproducido por el
+  mismo revisor; para después de la feature, sin corregir; **el primero a corregir**): pedir
+  `audio` de un vídeo que no tiene audio falla con el mensaje crudo de yt-dlp (`ejecutar` sale
+  con 1 y conserva el parcial). Debe decir que el vídeo no tiene audio (Principio III).
+- **D7, `bytes_descargados` por detrás del tamaño real al completar** (anotado el 2026-11-17;
+  reproducido por el mismo revisor; para después de la feature, sin corregir): al completar,
+  `cola.db` puede quedar con `bytes_descargados` muy por debajo del tamaño real (1024 de
+  991 017 en su caso), porque el último progreso guardado es anterior al final. No se ve en
+  pantalla (una completada se muestra al 100 %), pero el dato queda mal.
 - **D2, progreso perdido y memoria sin límite al reanudar** (anotado el 2026-11-15; diagnóstico
   en R20): `_vigilar_xml` retenía entera en memoria una reanudación cuyo primer byte era `<` y,
   si la conexión se cortaba, la perdía. **Corregido** en `44e8f18` (R20, "Arreglo aplicado").
