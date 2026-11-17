@@ -9,6 +9,8 @@ procesos simulados, como en `test_app_detener.py`.
 import subprocess
 import sys
 
+import pytest
+
 from downloader.app import api as api_app
 from downloader.app import procesos, resultado
 from tests.unit.test_app_detener import (  # noqa: F401  (fixtures y ayudas)
@@ -73,3 +75,25 @@ def test_el_anuncio_de_otra_ejecucion_no_es_el_suyo(api, tmp_path, proceso):  # 
     anunciar(tmp_path, proceso(), "app", "de-otra-sesion")
     assert estado(api) == EN_MARCHA
     assert api.lanzamiento.anunciado is False
+
+
+@pytest.mark.parametrize("codigo", [1, -9, 3221225786])
+def test_si_muere_antes_de_anunciarse_queda_un_resultado_abrupto(api, tmp_path, codigo,  # noqa: F811
+                                                                 monkeypatch):
+    """Lo mataron antes de tomar el bloqueo (sin `procesador.json`) y no dejó resultado: la
+    ventana lo escribe (contracts/archivos.md). Con 2 no, porque perdió la carrera (R6)."""
+    hecho = _terminado(0)
+    monkeypatch.setattr(hecho, "returncode", codigo)
+    api.lanzamiento = procesos.Lanzamiento(hecho, "e1")
+    assert estado(api) == NINGUNO
+    ultima = resultado.leer(tmp_path)
+    assert (ultima["ejecucion"], ultima["codigo"], ultima["error"]["tipo"]) == (
+        "e1", None, "abrupto")
+
+
+def test_si_termino_con_su_resultado_no_se_toca(api, tmp_path):  # noqa: F811
+    resultado.escribir(tmp_path, "e1", None, 1, [], 0, None)
+    escrito = resultado.leer(tmp_path)
+    api.lanzamiento = procesos.Lanzamiento(_terminado(0), "e1")
+    assert estado(api) == NINGUNO
+    assert resultado.leer(tmp_path) == escrito

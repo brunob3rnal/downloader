@@ -43,19 +43,31 @@ def arrancar(crear_ventana, comprobar_motor=None, directorio=None) -> int:
     return 0
 
 
-def main() -> int:
+def abrir(crear_ventana, comprobar_motor=None, al_fallar=None) -> int:
+    """El camino de `main()` con cualquier ventana: el registro de errores y `arrancar`.
+
+    Lo usan `main()` con la ventana de pywebview y los tests con una ventana falsa en un
+    proceso propio (`tests/support/ventana_headless.py`). Con `al_fallar`, una excepción al
+    crear o mostrar la ventana se le entrega, con el registro aún abierto, y se sale con 3.
+    """
     manejo = registro.configurar("ventana", config.directorio_app())
     try:
-        if sys.platform == "win32":
-            # Solo aquí y solo en Windows: la capa de la ventana (constitución v3.1.0).
-            from downloader.app import ventana
-
-            try:
-                return arrancar(ventana.crear, ventana.comprobar_motor)
-            except Exception as error:  # noqa: BLE001 — sin consola, nadie vería la traza (R2)
-                ventana.fallo_al_abrir(error)
-                return SIN_MOTOR
-        print(SOLO_WINDOWS, file=sys.stderr)
-        return 2
+        try:
+            return arrancar(crear_ventana, comprobar_motor)
+        except Exception as error:  # noqa: BLE001 — sin consola, nadie vería la traza (R2)
+            if al_fallar is None:
+                raise
+            al_fallar(error)
+            return SIN_MOTOR
     finally:
         manejo.cerrar()
+
+
+def main() -> int:
+    if sys.platform == "win32":
+        # Solo aquí y solo en Windows: la capa de la ventana (constitución v3.1.0).
+        from downloader.app import ventana
+
+        return abrir(ventana.crear, ventana.comprobar_motor, ventana.fallo_al_abrir)
+    print(SOLO_WINDOWS, file=sys.stderr)
+    return 2

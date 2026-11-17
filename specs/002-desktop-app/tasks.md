@@ -523,21 +523,21 @@ detener; una muerte abrupta queda en el resultado y el registro.
 
 ### Tests for User Story 4 (primero, en rojo)
 
-- [ ] T086 [P] [US4] Crear `tests/support/ventana_headless.py`, un programa que llama a `principal.arrancar(crear_ventana=VentanaFalsa)`, el mismo camino que `main()` salvo la ventana real (también la instancia única desde la Fase 12), y escribe en su salida estándar el puerto y el secreto (solo para tests). Escribir `tests/integration/test_app_segundo_plano.py` (`slow`, `@pytest.mark.ffmpeg`), en los dos sistemas:
+- [X] T086 [P] [US4] Crear `tests/support/ventana_headless.py`, un programa que llama a `principal.arrancar(crear_ventana=VentanaFalsa)`, el mismo camino que `main()` salvo la ventana real (también la instancia única desde la Fase 12), y escribe en su salida estándar el puerto y el secreto (solo para tests). Escribir `tests/integration/test_app_segundo_plano.py` (`slow`, `@pytest.mark.ffmpeg`), en los dos sistemas:
   1. lanza `ventana_headless.py` como proceso y llama a `api/iniciar` (descarga de 50 MB a 2 MB/s);
   2. mata el proceso de la ventana;
   3. 5 s después, el trabajador sigue vivo y `bytes_descargados` ha crecido;
   4. un segundo `ventana_headless.py` muestra en 5 s o menos (SC-008) el procesador con `origen: "app"` y `puede_detener: true`;
   5. `api/detener` lo para con 130.
-- [ ] T087 [P] [US4] **[a verificar R8]** Escribir `tests/integration/test_lanzador_segundo_plano.py` (`@pytest.mark.solo_windows`, `slow`), que prueba la **cadena del lanzador**: `uv run --gui-script`, el mismo mecanismo que ejecuta `Gestor de descargas.vbs`. Copia `tests/support/ventana_headless.py` como `.pyw` en un directorio temporal, lo arranca con `uv run --gui-script`, inicia una descarga, termina el proceso `uv.exe` y su árbol (sin el trabajador) y comprueba que el trabajador sigue vivo y avanzando 5 s después (objetos de trabajo de uv y del lanzador del entorno virtual). La supervivencia del trabajador en sí la prueba T086 en los dos sistemas
-- [ ] T088 [P] [US4] Escribir `tests/integration/test_app_resultado.py`:
+- [X] T087 [P] [US4] **[a verificar R8]** Escribir `tests/integration/test_lanzador_segundo_plano.py` (`@pytest.mark.solo_windows`, `slow`), que prueba la **cadena del lanzador**: `uv run --gui-script`, el mismo mecanismo que ejecuta `Gestor de descargas.vbs`. Copia `tests/support/ventana_headless.py` como `.pyw` en un directorio temporal, lo arranca con `uv run --gui-script`, inicia una descarga, termina el proceso `uv.exe` y su árbol (sin el trabajador) y comprueba que el trabajador sigue vivo y avanzando 5 s después (objetos de trabajo de uv y del lanzador del entorno virtual). La supervivencia del trabajador en sí la prueba T086 en los dos sistemas
+- [X] T088 [P] [US4] Escribir `tests/integration/test_app_resultado.py`:
   - tras `Popen.kill()` del trabajador de la aplicación, la siguiente consulta a `api/estado` escribe `ultima-ejecucion.json` con `error.tipo == "abrupto"` y `codigo: null`, y lo anota en `registro/ventana.log`;
   - con un resultado ya escrito de esa ejecución, no lo sobrescribe;
   - el resultado se sigue mostrando al reabrir, hasta el siguiente `api/iniciar` (FR-012).
 
 ### Implementation for User Story 4
 
-- [ ] T089 [US4] En `src/downloader/app/procesos.py` y `api.py`: detectar la terminación abrupta del procesador propio (`EstadoProcesador.abrupto` con origen `app` y sin resultado de su ejecución), escribir el resultado `abrupto` con `resultado.escribir_abrupto` y registrarla. Al arrancar, `principal` reconecta con un procesador de origen `app` vivo (FR-011)
+- [X] T089 [US4] En `src/downloader/app/procesos.py` y `api.py`: detectar la terminación abrupta del procesador propio (`EstadoProcesador.abrupto` con origen `app` y sin resultado de su ejecución), escribir el resultado `abrupto` con `resultado.escribir_abrupto` y registrarla. Al arrancar, `principal` reconecta con un procesador de origen `app` vivo (FR-011)
 - [ ] T090 [US4] **[manual, Windows]** Quickstart V5 (seguir en segundo plano, reabrir y Pausar desde la segunda sesión) y V6 (terminar el trabajador desde el Administrador de tareas). Anotar en research R8 si el trabajador sobrevivió con `uv run` (resultado de T087 en el CI y de V5)
 - [ ] T091 [US4] Commit `002 Fase 11: segundo plano, reconexión y terminación abrupta (US4)`
 

@@ -61,6 +61,7 @@ class Api:
         # El trabajador que lanzó esta ventana; se conserva al terminar, con su código.
         self.lanzamiento: procesos.Lanzamiento | None = None
         self._deteniendo: str | None = None  # ejecución para la que se pidió la parada
+        self._abruptos: set[str] = set()  # ejecuciones cuyo final abrupto ya se anotó
         self._cola_corrupta: str | None = None
         self._rutas = {
             ("GET", "opciones"): self._opciones,
@@ -121,6 +122,7 @@ class Api:
         lanzamiento = self.lanzamiento
         if lanzamiento is not None:
             lanzamiento.observar(estado)
+        self._anotar_abrupto(estado, lanzamiento)
 
         def ocupado(nombre, origen, motivo, puede_detener=False):
             return {"estado": nombre, "origen": origen, "puede_iniciar": False,
@@ -144,6 +146,32 @@ class Api:
             info = {"estado": "ninguno", "origen": None, "puede_iniciar": True,
                     "puede_detener": False, "motivo": None}
         return estado, info
+
+    def _anotar_abrupto(self, estado, lanzamiento) -> None:
+        """Si un procesador de la aplicación murió sin escribir su resultado, lo escribe la
+        ventana con el tipo `abrupto` y lo anota en el registro (FR-012, FR-020; R10).
+
+        Dos casos: `procesador.json` de origen `app` cuyo proceso ya no existe, o el trabajador
+        que lanzó esta ventana terminó antes de anunciarse con un código distinto de 2 (con 2
+        perdió la carrera por el bloqueo y no lleva resultado, R6). Si ya hay un resultado de
+        esa ejecución, no se toca.
+        """
+        ejecucion = None
+        if estado.abrupto and estado.origen == "app" and estado.ejecucion:
+            ejecucion = estado.ejecucion
+        elif (lanzamiento is not None and not lanzamiento.anunciado
+              and lanzamiento.proceso.poll() not in (None, 2)):
+            ejecucion = lanzamiento.ejecucion
+        if ejecucion is None or ejecucion in self._abruptos:
+            return
+        ultima = resultado.leer(self.directorio)
+        if ultima is not None and ultima.get("ejecucion") == ejecucion:
+            self._abruptos.add(ejecucion)
+            return
+        resultado.escribir_abrupto(self.directorio, ejecucion)
+        self._abruptos.add(ejecucion)
+        _registro.error("el procesamiento %s terminó de forma inesperada, sin escribir su "
+                        "resultado; el progreso guardado se conserva", ejecucion)
 
     def _leer_cola(self):
         if self._cola_corrupta is not None:

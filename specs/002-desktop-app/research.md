@@ -347,13 +347,35 @@ descarga de 50 MB a 2 MB/s. Una medición por sistema; SC-004 pide 10 s como má
   **13,00 s**. El caso (c) en Windows se mantiene por encima de 10 s.
 - Falta la medición manual de V3 en el equipo del usuario (T079).
 
-**Límite conocido en Windows, sin medir**: una parada pedida mientras `ffmpeg` une los
+**Parada durante la unión o la verificación** (`test_app_parada_postproceso.py`; medido en el
+CI 109, commit `0aa0aa3`, con pistas de prueba repetidas hasta 310 MB):
+
+| | Linux | Windows |
+|---|---|---|
+| Unión sin interrumpir (ffmpeg `-c copy`) | 1,7 s (183 MB/s, en local) | 1,33 s (233 MB/s) |
+| Verificación sin interrumpir (ffprobe `-count_packets`) | 0,15 s (2 GB/s, en local) | 0,19 s (1,7 GB/s) |
+| Pausar durante la unión | 0,64–0,94 s; ffmpeg muere a los 0,3–0,5 s | 2,01 s; ffmpeg acaba solo a los 1,06 s |
+| Pausar durante la verificación | 0,30–0,39 s | 0,30 s |
+
+- Se confirma lo previsto: en Windows la parada **espera a que el programa termine** (ffmpeg
+  acabó por sí mismo y la parada llegó después); en Linux lo interrumpe. En los dos, reanudar
+  no vuelve a pedir las pistas: no se pierde progreso.
+- Con estos archivos no pasa de 20 s. Pero en Windows la espera crece con el tamaño del
+  archivo: a 233 MB/s (el disco del CI), 20 s son unos **4,6 GB**; en un disco duro mecánico,
+  donde la unión copia a unos 50–100 MB/s, serían unos **1–2 GB**. No medido en el equipo de
+  referencia. La verificación es unas 7 veces más rápida y no llega a 20 s con tamaños
+  normales.
+- La verificación de estas pistas dura menos que la consulta del vigilante (0,25 s): a veces
+  la parada llega cuando el procesamiento ya ha terminado (código 0), que es lo que pide la
+  spec en ese caso.
+
+**Límite conocido en Windows (motivo)**: una parada pedida mientras `ffmpeg` une los
 formatos, o mientras `ffprobe` verifica el archivo, espera a que ese programa termine.
 `raise_signal` no llega a los procesos hijos, y Python no puede interrumpir en Windows la
 espera de un subproceso (`Popen.communicate`). Con el Ctrl+C de una consola no pasa, porque la
 consola lo envía también a `ffmpeg`; en POSIX tampoco, porque la espera se interrumpe y yt-dlp
-mata a `ffmpeg`. Con archivos grandes, esa espera puede pasar de los 10 s de SC-004. No se ha
-medido: los medios de prueba se unen y verifican en décimas de segundo.
+mata a `ffmpeg`. Con archivos grandes, esa espera puede pasar de los 10 s de SC-004 (ver la
+tabla de arriba). D4 (R21) lo resolvería.
 
 **Opciones para SC-004 en Windows (decisión del usuario)**:
 1. enmendar SC-004 con la excepción: en Windows, con la conexión estancada o durante la unión
@@ -414,6 +436,17 @@ Lectura:
   (`test_lanzar_desacoplado.py`): lo atribuye al objeto de trabajo exterior del runner, que
   no existe en el equipo del usuario. **Pendiente de la decisión del usuario** qué debe
   comprobar ese test.
+
+**Fase 11 (segundo plano)**:
+- `test_app_segundo_plano.py`, en los dos sistemas: se mata el proceso de la ventana
+  (`tests/support/ventana_headless.py`, el arranque de `main()` sin la ventana real) con una
+  descarga en curso; 5 s después el trabajador sigue vivo y descargando, y una ventana nueva
+  lo muestra con `origen: app` y `puede_detener: true` (en local, 0,11–0,12 s desde que se
+  lanza; SC-008 pide 5 s) y lo para con Pausar desde esa segunda sesión.
+- `test_lanzador_segundo_plano.py`, solo en Windows (T087): la ventana arrancada con
+  `uv run --gui-script`, como el lanzador; se mata toda la cadena (uv, el lanzador del
+  entorno, `pythonw.exe`) salvo el trabajador, que debe seguir descargando 5 s después.
+  Resultado del CI: pendiente del commit de la Fase 11 (se anota tras el CI).
 
 ## R9. Velocidad, tiempo estimado y estado de la red en directo (FR-005, SC-006)
 
