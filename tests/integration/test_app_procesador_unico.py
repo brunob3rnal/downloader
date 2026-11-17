@@ -257,11 +257,14 @@ def test_en_una_carrera_entre_ejecutar_e_iniciar_solo_procesa_uno(cola, cli, tmp
     api = app.servidor.api
     calibracion = tmp_path / "calibracion"
     calibracion.mkdir()
-    de_cli = _segundos_hasta_anunciarse([sys.executable, "-m", "downloader", "ejecutar"],
-                                        calibracion)
-    de_app = _segundos_hasta_anunciarse(
-        [sys.executable, "-m", "downloader.app.procesador", "--ejecucion", "calibracion"],
-        calibracion)
+    # Dos veces cada uno y vale la segunda: la primera, en frío, tarda mucho más (en el CI de
+    # Windows, 1,2 s frente a 0,3 s) y desfasaría todas las rondas hacia el mismo desenlace.
+    for _ in range(2):
+        de_cli = _segundos_hasta_anunciarse([sys.executable, "-m", "downloader", "ejecutar"],
+                                            calibracion)
+        de_app = _segundos_hasta_anunciarse(
+            [sys.executable, "-m", "downloader.app.procesador", "--ejecucion", "calibracion"],
+            calibracion)
     finales = []
     for ronda in range(RONDAS):
         # Ventaja de la CLI al llegar al bloqueo: de -0,5 a +1,2 veces el arranque del trabajador.

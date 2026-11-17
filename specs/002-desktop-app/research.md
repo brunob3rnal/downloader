@@ -901,6 +901,12 @@ exceso. Fases 6 y 7: ninguno. Fase 8: ninguno (ejecución 98, verde en los dos s
 Arreglo de D2 (ejecuciones 101 y 102) y resultados manuales de la Fase 8 (103): ninguno.
 Fase 9: ninguno (ejecución 104, verde en los dos sistemas a la primera).
 Fase 10: ninguno (ejecuciones 105 y 106, verdes en los dos sistemas a la primera).
+CI 108 (commit `d68cc43`, SC-004 enmendado y test de parada durante la unión): **rojo en
+Linux**, sin reintento. Falló el test nuevo `test_app_parada_postproceso.py[verificacion]`: la
+verificación de las pistas de prueba dura unos 0,2 s, menos que la consulta del vigilante
+(0,25 s), y la parada llegó cuando el procesamiento ya había terminado (código 0). Era un
+defecto del test, no del código: se corrige en el commit siguiente aceptando ese desenlace,
+que es el de la spec ("Pausar cuando el procesador ya está terminando: no produce error").
 
 **Fallo sin reintento, no detectado a tiempo** (2026-11-15): la ejecución 97 del CI, la del
 commit `335186a` (solo documentación: research R20 y tasks), terminó en rojo en Linux y no lo
