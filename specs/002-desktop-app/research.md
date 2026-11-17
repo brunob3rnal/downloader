@@ -243,7 +243,7 @@ la misma vía que una pulsación de Ctrl+C:
 - **Windows**: `signal.raise_signal(SIGINT)` desde el hilo vigilante. Llama a la función C
   `raise()`, que ejecuta el manejador que Python instaló para `SIGINT`: el mismo que usa la
   consola al pulsar Ctrl+C. Ese manejador marca la señal y activa el evento que despierta
-  `time.sleep` **[a verificar en Windows]**.
+  `time.sleep` **[verificado en Windows, CI 104]**: ver "Resultado de la medición".
 
 A partir de ahí, el camino es el de la feature 001: `worker._interrumpida` guarda el progreso,
 `ytdl` entrega lo recibido del bloque en curso (R18 de 001) y la descarga vuelve a la cola. El
@@ -270,6 +270,62 @@ de 001 (R21). Lo decidirá el usuario.
   despierta `time.sleep`.
 - *`os.kill(pid, SIGINT)` desde fuera*: en Windows, `os.kill` con un valor que no es
   `CTRL_C_EVENT` termina el proceso como `TerminateProcess`, sin cierre ordenado.
+
+### Implementación (Fase 9)
+
+- `app/parada.py`. El vigilante consulta cada 0,25 s, la primera vez tras un intervalo, y
+  **interrumpe una sola vez**: después deja de vigilar, porque una segunda interrupción a media
+  limpieza cortaría el guardado del progreso.
+- El procesador **reinstala el manejador de `SIGINT`** al arrancar (`asegurar_interrupcion`).
+  Python solo lo instala si la señal no llega ignorada, y un proceso la hereda ignorada si
+  quien lo lanza la ignora (un trabajo en segundo plano de una shell no interactiva). Sin eso,
+  la interrupción no haría nada. Probado con la señal ignorada antes de arrancar.
+- Una parada que se entrega cuando `ejecutar_cola` ya ha vuelto también termina en `detenida`
+  con 130, no en una excepción sin resultado.
+- `deteniendo` lo recuerda la sesión de la ventana que pidió la parada. Del trabajador que
+  lanzó esa sesión se sigue además el proceso: `deteniendo` dura hasta que el proceso termina,
+  no hasta que retira `procesador.json` (contracts/api-local.md).
+
+### Resultado de la medición (T075; CI 104, commit `46b32f1`, 2026-11-17)
+
+Segundos desde `POST api/detener` hasta que el proceso del trabajador termina con 130, con una
+descarga de 50 MB a 2 MB/s. Una medición por sistema; SC-004 pide 10 s como máximo.
+
+| Caso | Linux (`ubuntu-latest`) | Windows (`windows-latest`) |
+|------|-------------------------|----------------------------|
+| (a) con datos llegando, al 30 % | 0,15 s | 0,24 s |
+| (b) esperando la red (servidor parado, `waiting_network`) | 0,15 s | 0,31 s |
+| (c) conexión estancada (abierta y sin datos) | 0,13 s | **13,09 s** |
+
+- **(b) verifica el punto pendiente**: en Windows, `raise_signal` desde el hilo vigilante
+  interrumpe las esperas del hilo principal. Lo confirman además cuatro tests de unidad en un
+  proceso lanzado como el trabajador (sin consola y en su propio grupo): despierta un
+  `time.sleep(30)` y un bucle de `Event.wait(0,25)`, también con `SIGINT` heredada ignorada.
+- **(c) supera SC-004 en Windows: 13,09 s frente a 10 s.** Es lo previsto arriba: la señal no
+  interrumpe la lectura de socket bloqueada, que vuelve con su tiempo de espera de 15 s
+  (`ytdl.SOCKET_TIMEOUT`). El test lo admite hasta 25 s y **SC-004 no se ha enmendado**: la
+  decisión es del usuario. En los tres casos y en los dos sistemas, todo lo recibido antes de
+  la parada queda en el `.part` (en (c), los 3 000 000 bytes exactos) y la reanudación pide
+  `Range: bytes=N-` desde ahí.
+- En local (Linux, 8 ejecuciones): (a) 0,13–0,36 s, (b) 0,18–0,36 s, (c) 0,14–0,34 s.
+- Falta la medición manual de V3 en el equipo del usuario (T079).
+
+**Límite conocido en Windows, sin medir**: una parada pedida mientras `ffmpeg` une los
+formatos, o mientras `ffprobe` verifica el archivo, espera a que ese programa termine.
+`raise_signal` no llega a los procesos hijos, y Python no puede interrumpir en Windows la
+espera de un subproceso (`Popen.communicate`). Con el Ctrl+C de una consola no pasa, porque la
+consola lo envía también a `ffmpeg`; en POSIX tampoco, porque la espera se interrumpe y yt-dlp
+mata a `ffmpeg`. Con archivos grandes, esa espera puede pasar de los 10 s de SC-004. No se ha
+medido: los medios de prueba se unen y verifican en décimas de segundo.
+
+**Opciones para SC-004 en Windows (decisión del usuario)**:
+1. enmendar SC-004 con la excepción: en Windows, con la conexión estancada o durante la unión
+   o la verificación, la parada puede tardar lo que tarde esa operación (hasta 15 s la lectura);
+2. bajar el tiempo de espera de lectura de 15 s a menos de 10 s: cubre solo el caso (c) y
+   cambia el vigilante de estancamiento de la 001 (su R21);
+3. que, en Windows, el vigilante además corte la conexión en curso y termine `ffmpeg` y
+   `ffprobe` al parar, como hace de hecho un Ctrl+C: dejaría la parada por debajo de 1 s en
+   todos los casos, pero toca `ytdl.py` (001) y hay que probarlo en el CI de Windows.
 
 ## R8. Sin consola y sobreviviendo al cierre de la ventana (US4)
 
@@ -805,6 +861,8 @@ conflictos y sus tests y los de DRM pasan allí). Detalle en el research de la 0
 
 **Reintentos del CI**: desde el 2026-11-15, todo reintento se anota aquí, con test, sistema y
 exceso. Fases 6 y 7: ninguno. Fase 8: ninguno (ejecución 98, verde en los dos sistemas).
+Arreglo de D2 (ejecuciones 101 y 102) y resultados manuales de la Fase 8 (103): ninguno.
+Fase 9: ninguno (ejecución 104, verde en los dos sistemas a la primera).
 
 **Fallo sin reintento, no detectado a tiempo** (2026-11-15): la ejecución 97 del CI, la del
 commit `335186a` (solo documentación: research R20 y tasks), terminó en rojo en Linux y no lo

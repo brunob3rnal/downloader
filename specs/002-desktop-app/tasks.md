@@ -477,6 +477,7 @@ desde la aplicación o desde la CLI.
 - [X] T077 [US2] Arrancar el `Vigilante` en `src/downloader/app/procesador.py` antes de `ejecutar_cola` y detenerlo al terminar. Implementar `POST api/detener` en `src/downloader/app/api.py` (202, 409 sin procesador) y el estado `deteniendo` hasta que el proceso termina
 - [X] T078 [US2] Activar Pausar en `src/downloader/app/web/app.js` según `puede_detener`, con "Deteniendo…" mientras dura
 - [ ] T079 [US2] **[manual, Windows]** Quickstart V3, incluido el caso con el servidor parado. Anotar en research R7 (nuevo apartado "Resultado de la medición") los tiempos de parada de T075 (a), (b) y (c) en los dos sistemas, tomados del CI y de V3. **No enmendar SC-004**: si (c) pasa de 10 s en Windows, comunicarlo al usuario con la cifra (regla 4)
+  - **Parcial (2026-11-17; research R7, "Resultado de la medición")**: anotados los tiempos del CI en los dos sistemas. (c) en Windows: 13,09 s, por encima de los 10 s de SC-004; comunicado al usuario, que decide. Falta V3 a mano.
 - [ ] T080 [US2] Commit `002 Fase 9: Pausar equivalente a Ctrl+C (US2)`
 
 **Aceptación**:

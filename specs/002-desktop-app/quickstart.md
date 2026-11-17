@@ -108,7 +108,12 @@ Esperado:
 - la fila vuelve a "En cola" con su porcentaje;
 - al iniciar, continúa desde ese porcentaje.
 
-Repita con el servidor parado (sin datos): anote el tiempo; es el caso de riesgo de R7.
+Repita con la red cortada, de dos formas, y anote los tiempos:
+- con el servidor de prueba parado (Ctrl+C en su terminal): la fila pasa a "Esperando red" y
+  la parada es igual de rápida;
+- con la conexión estancada, que sigue abierta pero sin datos: es el caso de riesgo de R7. Con
+  un video real en descarga, active el modo avión y pulse **Pausar** a los 5 s. En Windows
+  puede tardar hasta 15 s (13,09 s en el CI; research R7).
 
 ### V4. Procesador de la CLI (US3)
 
