@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Protocol
 
 from downloader import archivos_json, config, operaciones
-from downloader.app import procesos, registro, resultado, urls, vista
+from downloader.app import parada, procesos, registro, resultado, urls, vista
 from downloader.models import NAVEGADORES, Calidad
 from downloader.store import BaseCorrupta, Store
 
@@ -30,6 +30,10 @@ AVISO_CHROMIUM = "Usa el mismo código que Chrome y Edge."
 MOTIVO_CLI = "Este procesamiento se lanzó desde la terminal; deténgalo allí con Ctrl+C."
 MOTIVO_EN_MARCHA = "Ya hay un procesamiento en marcha."
 MOTIVO_ARRANCANDO = "El procesamiento está arrancando."
+MOTIVO_DETENIENDO = "El procesamiento se está deteniendo."
+MOTIVO_TERMINANDO = "El procesamiento está terminando."
+MOTIVO_NINGUNO = "No hay ningún procesamiento en marcha."
+SIN_PARADA = "No se pudo pedir la parada; vuelva a intentarlo."
 SIN_DIALOGO = "El diálogo de carpeta no está disponible; escriba la ruta"
 SIN_ENLACES = "Pegue al menos un enlace"
 _registro = logging.getLogger("downloader.app")
@@ -49,24 +53,21 @@ class Respuesta:
     cabeceras: dict = field(default_factory=dict)
 
 
-@dataclass
-class _Lanzado:
-    proceso: object  # `subprocess.Popen`
-    ejecucion: str
-
-
 class Api:
     def __init__(self, directorio, ventana: Ventana | None = None):
         self.directorio = Path(directorio)
         self.ventana = ventana
         self._cerrojo = threading.Lock()
-        self._lanzado: _Lanzado | None = None
+        # El trabajador que lanzó esta ventana; se conserva al terminar, con su código.
+        self.lanzamiento: procesos.Lanzamiento | None = None
+        self._deteniendo: str | None = None  # ejecución para la que se pidió la parada
         self._cola_corrupta: str | None = None
         self._rutas = {
             ("GET", "opciones"): self._opciones,
             ("GET", "estado"): self._estado,
             ("POST", "agregar"): self._agregar,
             ("POST", "iniciar"): self._iniciar,
+            ("POST", "detener"): self._detener,
             ("POST", "examinar"): self._examinar,
         }
 
@@ -109,18 +110,36 @@ class Api:
     # --- estado ------------------------------------------------------------------------
 
     def _procesador(self):
-        """El procesador para la vista y lo que la ventana puede hacer con él."""
+        """El procesador para la vista y lo que la ventana puede hacer con él (data-model).
+
+        `procesador.json` dice quién procesa. Del trabajador que lanzó esta ventana se sabe
+        además si el proceso sigue vivo: está `arrancando` hasta que se anuncia y, cuando
+        retira el archivo al terminar, sigue ocupado hasta que el proceso acaba, así que otro
+        Iniciar no puede adelantarse a que suelte el bloqueo de la cola.
+        """
         estado = procesos.estado_procesador(self.directorio)
-        lanzado = self._lanzado
-        if lanzado is not None and lanzado.proceso.poll() is not None:
-            self._lanzado = lanzado = None
+        lanzamiento = self.lanzamiento
+        if lanzamiento is not None:
+            lanzamiento.observar(estado)
+
+        def ocupado(nombre, origen, motivo, puede_detener=False):
+            return {"estado": nombre, "origen": origen, "puede_iniciar": False,
+                    "puede_detener": puede_detener, "motivo": motivo}
+
         if estado.estado == "en_marcha":
-            propio = estado.origen == "app"
-            info = {"estado": "en_marcha", "origen": estado.origen, "puede_iniciar": False,
-                    "puede_detener": propio, "motivo": None if propio else MOTIVO_CLI}
-        elif lanzado is not None:
-            info = {"estado": "arrancando", "origen": "app", "puede_iniciar": False,
-                    "puede_detener": False, "motivo": MOTIVO_ARRANCANDO}
+            if estado.origen != "app":
+                info = ocupado("en_marcha", estado.origen, MOTIVO_CLI)
+            elif estado.ejecucion == self._deteniendo:
+                info = ocupado("deteniendo", "app", MOTIVO_DETENIENDO)
+            else:
+                info = ocupado("en_marcha", "app", None, puede_detener=True)
+        elif lanzamiento is not None and lanzamiento.vivo():
+            if not lanzamiento.anunciado:
+                info = ocupado("arrancando", "app", MOTIVO_ARRANCANDO)
+            elif lanzamiento.ejecucion == self._deteniendo:
+                info = ocupado("deteniendo", "app", MOTIVO_DETENIENDO)
+            else:
+                info = ocupado("en_marcha", "app", MOTIVO_TERMINANDO)
         else:
             info = {"estado": "ninguno", "origen": None, "puede_iniciar": True,
                     "puede_detener": False, "motivo": None}
@@ -217,5 +236,28 @@ class Api:
             except OSError as error:
                 _registro.exception("no se pudo lanzar el procesamiento")
                 return Respuesta(500, {"error": f"No se pudo iniciar el procesamiento: {error}"})
-            self._lanzado = _Lanzado(proceso, ejecucion)
+            self.lanzamiento = procesos.Lanzamiento(proceso, ejecucion)
         return Respuesta(202, {"ejecucion": ejecucion})
+
+    # --- detener -----------------------------------------------------------------------
+
+    def _detener(self, cuerpo, cabeceras) -> Respuesta:
+        """Pide la parada ordenada del procesador de la aplicación (FR-009, research R7)."""
+        with self._cerrojo:
+            estado, info = self._procesador()
+            if info["estado"] == "deteniendo":
+                return Respuesta(202, {"estado": "deteniendo"})  # repetido: sin efecto
+            if not info["puede_detener"]:
+                return Respuesta(409, {"motivo": info["motivo"] or MOTIVO_NINGUNO})
+            try:
+                pedida = parada.pedir(self.directorio, estado.ejecucion)
+            except OSError as error:
+                pedida = False
+                _registro.error("no se pudo escribir la petición de parada: %s", error)
+            else:
+                if not pedida:
+                    _registro.error("no se pudo escribir la petición de parada: en uso")
+            if not pedida:
+                return Respuesta(500, {"error": SIN_PARADA})
+            self._deteniendo = estado.ejecucion
+        return Respuesta(202, {"estado": "deteniendo"})

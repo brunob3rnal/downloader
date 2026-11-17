@@ -94,7 +94,8 @@ si nada cambió, la respuesta es **304** sin cuerpo (R13).
 ```
 
 - `detalle` es el texto ya formateado de la línea bajo la barra ("2,4 MB/s · quedan 1 min 12 s",
-  "Esperando red · reintento en 40 s", "lista (2 videos)", "Sin datos en directo"), o null; el
+  "Esperando red · reintento en 40 s", "lista (2 videos)", "Sin datos en directo",
+  "Continúa desde el 14 %, no empieza de cero" en una fila en cola con progreso), o null; el
   título muestra la URL sin usuario ni contraseña si no hay título (research R13).
 - `direccion` es la línea bajo el título de la maqueta: sitio y ruta, sin esquema, usuario,
   contraseña, puerto ni consulta.
@@ -108,6 +109,14 @@ si nada cambió, la respuesta es **304** sin cuerpo (R13).
 - `puede_detener` solo es verdadero con origen `app` y estado `en_marcha`. Con origen `cli`,
   `motivo` dice: "Este procesamiento se lanzó desde la terminal; deténgalo allí con Ctrl+C."
   (FR-009, US3 escenario 5).
+- `deteniendo`: desde que se acepta `api/detener` hasta que el procesamiento termina, con el
+  motivo "El procesamiento se está deteniendo." (FR-009). Lo recuerda la sesión de la ventana
+  que pidió la parada; una ventana abierta después ve `en_marcha` hasta que termina.
+- Del trabajador que lanzó esta sesión se sabe además si su proceso sigue vivo. Está
+  `arrancando` ("El procesamiento está arrancando.") hasta que escribe `procesador.json`. Y
+  entre que lo retira y el proceso termina no pasa a `ninguno`: sigue `en_marcha`, con
+  `puede_detener: false` y el motivo "El procesamiento está terminando." (o `deteniendo`, si se
+  pidió la parada). Así, Iniciar no se ofrece antes de que suelte el bloqueo de la cola.
 
 ## `POST api/agregar`
 
@@ -148,9 +157,13 @@ pasa a mostrar el procesador ajeno, y `ultima_ejecucion` no se reemplaza.
 
 Sin cuerpo.
 
-- **202**: se ha escrito `parada.json` (estado `deteniendo`).
-- **409** `{"motivo": "..."}`: no hay procesador, o es de la CLI (FR-009).
-- Repetirlo mientras se detiene responde 202 sin efecto (Edge Cases).
+- **202** `{"estado": "deteniendo"}`: se ha escrito `parada.json`.
+- **409** `{"motivo": "..."}`: no hay procesador ("No hay ningún procesamiento en marcha."),
+  es de la CLI (FR-009) o todavía está arrancando. No se escribe nada.
+- **500** `{"error": "No se pudo pedir la parada; vuelva a intentarlo."}`: no se pudo escribir
+  `parada.json`; queda anotado en el registro y el estado no cambia.
+- Repetirlo mientras se detiene responde 202 sin efecto: no vuelve a escribir `parada.json`
+  (Edge Cases).
 
 ## `POST api/reintentar`
 

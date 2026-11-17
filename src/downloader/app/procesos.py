@@ -31,6 +31,28 @@ class EstadoProcesador:
 NINGUNO = EstadoProcesador("ninguno")
 
 
+@dataclass
+class Lanzamiento:
+    """El trabajador que lanzó esta ventana (research R5, R6).
+
+    Solo quien lo lanza tiene el proceso: una ventana abierta después lo conoce únicamente por
+    `procesador.json` (FR-011). `anunciado` pasa a ser cierto cuando se ha visto ese archivo
+    con su ejecución; desde entonces ya no está arrancando, aunque lo retire antes de terminar.
+    """
+
+    proceso: subprocess.Popen
+    ejecucion: str
+    anunciado: bool = False
+
+    def vivo(self) -> bool:
+        return self.proceso.poll() is None
+
+    def observar(self, estado: EstadoProcesador) -> None:
+        if estado.estado == "en_marcha" and estado.origen == "app" and (
+                estado.ejecucion == self.ejecucion):
+            self.anunciado = True
+
+
 def _vive(pid: int, creado) -> bool:
     try:
         proceso = psutil.Process(pid)

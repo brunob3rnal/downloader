@@ -156,6 +156,9 @@ def _fila(descarga, hijas: int, activa, sin_directo: bool) -> dict:
             fila["detalle"] = " · ".join(partes)
     elif sin_directo and descarga.estado in (Estado.DOWNLOADING, Estado.WAITING_NETWORK):
         fila["detalle"] = SIN_DATOS_EN_DIRECTO
+    elif descarga.estado is Estado.QUEUED and fila["porcentaje"] >= 1:
+        # Pausada o interrumpida: lo descargado sigue en su `.part` (FR-009; texto de la maqueta).
+        fila["detalle"] = f"Continúa desde el {int(fila['porcentaje'])} %, no empieza de cero"
     return fila
 
 

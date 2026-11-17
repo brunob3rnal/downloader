@@ -48,6 +48,9 @@ consulta. Fechas en ISO 8601, UTC, con milisegundos, como en `cola.db`.
   `ejecucion`.
 - El vigilante lo consulta cada 0,25 s. Si coincide, lo borra y provoca el equivalente a
   Ctrl+C (R7). Si no coincide, lo borra sin más.
+- Interrumpe una sola vez y deja de vigilar: una segunda interrupción a media limpieza
+  cortaría el guardado del progreso. Si no puede borrar el archivo, interrumpe igual; la
+  petición que se quede atrás la borra por antigua el vigilante de la siguiente ejecución.
 
 ## `ultima-ejecucion.json`
 

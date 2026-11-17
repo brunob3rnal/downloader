@@ -67,3 +67,24 @@ def test_cola_vacia_termina_con_0(app_home, sin_ffmpeg_que_comprobar):
     datos = resultado.leer(app_home)
     assert (datos["codigo"], datos["completadas"], datos["fallidas"], datos["error"]) == (
         0, 0, [], None)
+
+
+def test_una_parada_entregada_al_terminar_tambien_es_detenida(app_home, monkeypatch,
+                                                              sin_ffmpeg_que_comprobar):
+    """La interrupción del vigilante puede llegar cuando `ejecutar_cola` ya ha vuelto: también
+    entonces queda un resultado `detenida` con 130, no una excepción sin resultado (R7)."""
+    from types import SimpleNamespace
+
+    from downloader.store import Store
+
+    def interrumpida(self, id_):
+        raise KeyboardInterrupt
+
+    (app_home / "config.toml").write_text('sondas_red = ["127.0.0.1:9"]\n', encoding="utf-8")
+    monkeypatch.setattr(operaciones, "ejecutar_cola",
+                        lambda *a, **k: SimpleNamespace(completadas=[], fallidas=[7]))
+    monkeypatch.setattr(Store, "obtener", interrumpida)
+    assert procesador.main(["--ejecucion", "x7"]) == 130
+    datos = resultado.leer(app_home)
+    assert datos["error"] == {"tipo": "detenida", "mensaje": "interrumpido; progreso guardado"}
+    assert datos["codigo"] == 130

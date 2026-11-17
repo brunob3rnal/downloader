@@ -6,7 +6,7 @@
   // El secreto de la sesión es el primer segmento de la ruta: "/<secreto>/".
   const BASE = location.pathname.slice(0, location.pathname.indexOf("/", 1) + 1);
   const INTERVALO = 1000; // ms entre consultas de api/estado (R13)
-  const PAUSAR_DISPONIBLE = false; // Pausar llega con la parada ordenada (Fase 9)
+  const SIN_PROCESAMIENTO = "No hay ningún procesamiento en marcha.";
   const TONOS = {
     downloading: "azul", queued: "gris", completed: "verde",
     waiting_network: "naranja", failed: "rojo",
@@ -15,6 +15,7 @@
 
   const $ = (id) => document.getElementById(id);
   let etiquetaEstado = null;
+  let estadoPintado = null; // estado del procesador en el último pintado
   let ultimoEstado = null;
   let resultadoCerrado = null; // ejecución cuyo resultado cerró el usuario
   const filas = new Map(); // id → {elemento, clave}
@@ -139,29 +140,36 @@
     boton.dataset.motivo = activo ? "" : (motivo || "");
   }
 
-  async function iniciar() {
-    const boton = $("iniciar");
+  // Envía la orden de un botón y pinta el estado real. Un 409 no es un error: dice por qué no
+  // se puede (ya había terminado, lo lanzó la terminal…) y la ventana refleja lo que hay.
+  async function ordenar(boton, ruta, fallo) {
     if (boton.getAttribute("aria-disabled") === "true") {
       mostrar($("motivo"), boton.dataset.motivo);
       return;
     }
-    mostrar($("motivo"), "");
     activar(boton, false, "");
+    let mensaje = "";
     try {
-      const r = await api("POST", "iniciar");
-      if (r.estado === 409) mostrar($("motivo"), r.datos && r.datos.motivo);
-      else if (r.estado !== 202) mostrar($("motivo"), (r.datos && r.datos.error) || "No se pudo iniciar");
-      else resultadoCerrado = null;
+      const r = await api("POST", ruta);
+      if (r.estado === 409) mensaje = (r.datos && r.datos.motivo) || "";
+      else if (r.estado !== 202) mensaje = (r.datos && r.datos.error) || fallo;
+      else if (ruta === "iniciar") resultadoCerrado = null;
     } catch (e) {
-      mostrar($("motivo"), "Se perdió la conexión con la aplicación");
+      mensaje = "Se perdió la conexión con la aplicación";
     }
     etiquetaEstado = null;
-    consultar();
+    await consultar();
+    mostrar($("motivo"), mensaje);
   }
 
+  function iniciar() {
+    return ordenar($("iniciar"), "iniciar", "No se pudo iniciar");
+  }
+
+  // Pausar es la parada ordenada: el Ctrl+C de `ejecutar` (FR-009). El botón dice
+  // "Deteniendo…" hasta que el procesamiento termina.
   function pausar() {
-    const boton = $("pausar");
-    if (boton.getAttribute("aria-disabled") === "true") mostrar($("motivo"), boton.dataset.motivo);
+    return ordenar($("pausar"), "detener", "No se pudo pausar");
   }
 
   // --- Cola --------------------------------------------------------------------------
@@ -247,9 +255,10 @@
     const desdeTerminal = p.origen === "cli" && p.estado !== "ninguno";
     mostrar($("origen"), desdeTerminal ? "En marcha desde la terminal" : "");
     activar($("iniciar"), p.puede_iniciar, p.motivo);
-    activar($("pausar"), PAUSAR_DISPONIBLE && p.puede_detener,
-      PAUSAR_DISPONIBLE ? p.motivo : "Pausar todavía no está disponible en esta versión.");
-    if (p.puede_iniciar && $("motivo").textContent === p.motivo) mostrar($("motivo"), "");
+    $("pausar").textContent = p.estado === "deteniendo" ? "Deteniendo…" : "Pausar";
+    activar($("pausar"), p.puede_detener, p.motivo || SIN_PROCESAMIENTO);
+    if (p.estado !== estadoPintado) mostrar($("motivo"), ""); // el mensaje era de otro estado
+    estadoPintado = p.estado;
   }
 
   function pintarResultado(datos) {
@@ -266,7 +275,9 @@
       plural(fallidas, "fallida", "fallidas");
     if (ultima.error && ultima.error.mensaje) texto += ". " + ultima.error.mensaje;
     $("resultado-texto").textContent = "Última ejecución: " + texto;
-    franja.classList.toggle("con-error", Boolean(ultima.error) || fallidas > 0);
+    // Una parada pedida por el usuario no es un error.
+    const conError = fallidas > 0 || Boolean(ultima.error && ultima.error.tipo !== "detenida");
+    franja.classList.toggle("con-error", conError);
     franja.dataset.ejecucion = ultima.ejecucion;
     franja.hidden = false;
   }

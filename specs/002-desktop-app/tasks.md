@@ -455,13 +455,13 @@ desde la aplicación o desde la CLI.
 
 ### Tests for User Story 2 (primero, en rojo)
 
-- [ ] T074 [P] [US2] Escribir `tests/unit/test_app_parada.py` para `parada.Vigilante`, con la función que provoca la interrupción parcheada:
+- [X] T074 [P] [US2] Escribir `tests/unit/test_app_parada.py` para `parada.Vigilante`, con la función que provoca la interrupción parcheada:
   - con un `parada.json` de su ejecución, la llama una vez y borra el archivo;
   - con uno de otra ejecución, no la llama y borra el archivo;
   - sin archivo, no hace nada.
 
   Comprobar que consulta cada 0,25 s
-- [ ] T075 [P] [US2] Escribir `tests/integration/test_app_parada.py` (`@pytest.mark.ffmpeg`), con `app_local` y una descarga de 50 MB a 2 MB/s. Medir el tiempo de cada parada:
+- [X] T075 [P] [US2] Escribir `tests/integration/test_app_parada.py` (`@pytest.mark.ffmpeg`), con `app_local` y una descarga de 50 MB a 2 MB/s. Medir el tiempo de cada parada:
   - (a) **con datos llegando**: al 30 %, `POST api/detener` → 202; `api/estado` pasa por `deteniendo`. El proceso sale con 130 en 10 s o menos (assert en los dos sistemas). `ultima_ejecucion.error.tipo == "detenida"`. La descarga vuelve a `queued` con `bytes_descargados > 0`. Al reanudar con `POST api/iniciar`, la primera petición del archivo trae `Range: bytes=N-` con N > 0 (`servidor.rangos`);
   - (b) **esperando la red**: `servidor.detener()` hasta que la fila está en `waiting_network`; después, parada en 10 s o menos (assert en los dos sistemas; verifica que `raise_signal` despierta las esperas en Windows, R7 **[a verificar]**);
   - (c) **conexión estancada** (`pausar_tras_bytes`): un único test sin marcador, con límite por sistema. En Linux, assert de 10 s o menos. En Windows, registra la duración con `record_property("parada_estancada_s", t)`, la escribe en la salida y solo falla si pasa de 25 s. SC-004 no se enmienda (regla 4);
@@ -470,12 +470,12 @@ desde la aplicación o desde la CLI.
 
 ### Implementation for User Story 2
 
-- [ ] T076 [US2] Crear `src/downloader/app/parada.py` con:
+- [X] T076 [US2] Crear `src/downloader/app/parada.py` con:
   - `pedir(directorio, ejecucion)`, que escribe `parada.json` con `escribir_atomico(reintentar=True)`;
   - `Vigilante(directorio, ejecucion, interrumpir)`, un hilo daemon que consulta cada 0,25 s;
   - `interrumpir_principal()`: en POSIX, `signal.pthread_kill(threading.main_thread().ident, signal.SIGINT)`; en Windows, `signal.raise_signal(signal.SIGINT)`, cada uno protegido por una comprobación de plataforma (R7).
-- [ ] T077 [US2] Arrancar el `Vigilante` en `src/downloader/app/procesador.py` antes de `ejecutar_cola` y detenerlo al terminar. Implementar `POST api/detener` en `src/downloader/app/api.py` (202, 409 sin procesador) y el estado `deteniendo` hasta que el proceso termina
-- [ ] T078 [US2] Activar Pausar en `src/downloader/app/web/app.js` según `puede_detener`, con "Deteniendo…" mientras dura
+- [X] T077 [US2] Arrancar el `Vigilante` en `src/downloader/app/procesador.py` antes de `ejecutar_cola` y detenerlo al terminar. Implementar `POST api/detener` en `src/downloader/app/api.py` (202, 409 sin procesador) y el estado `deteniendo` hasta que el proceso termina
+- [X] T078 [US2] Activar Pausar en `src/downloader/app/web/app.js` según `puede_detener`, con "Deteniendo…" mientras dura
 - [ ] T079 [US2] **[manual, Windows]** Quickstart V3, incluido el caso con el servidor parado. Anotar en research R7 (nuevo apartado "Resultado de la medición") los tiempos de parada de T075 (a), (b) y (c) en los dos sistemas, tomados del CI y de V3. **No enmendar SC-004**: si (c) pasa de 10 s en Windows, comunicarlo al usuario con la cifra (regla 4)
 - [ ] T080 [US2] Commit `002 Fase 9: Pausar equivalente a Ctrl+C (US2)`
 

@@ -42,3 +42,11 @@ def test_app_js_envia_la_cabecera_y_usa_etag(app_local):
     js = app_local.cliente.get("app.js").cuerpo.decode("utf-8")
     assert '"X-Gestor": "1"' in js and "If-None-Match" in js and "location.pathname" in js
     assert "en_directo" in js
+
+
+def test_app_js_pausa_con_api_detener_y_dice_que_se_esta_deteniendo(app_local):
+    """Pausar llama a `api/detener` y muestra "Deteniendo…" mientras dura (FR-009; T078)."""
+    js = app_local.cliente.get("app.js").cuerpo.decode("utf-8")
+    assert '"detener"' in js and "puede_detener" in js
+    assert "Deteniendo…" in js and '"deteniendo"' in js
+    assert "PAUSAR_DISPONIBLE" not in js  # Pausar ya no está desactivado

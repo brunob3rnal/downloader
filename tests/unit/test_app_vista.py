@@ -177,3 +177,13 @@ def test_url_visible_quita_usuario_y_contrasena():
 def test_direccion_sitio_con_ruta_sin_secretos(url, esperado):
     """La línea bajo el título de la maqueta: sitio y ruta, sin usuario, puerto ni consulta."""
     assert vista.direccion(url) == esperado
+
+
+def test_en_cola_con_progreso_dice_desde_donde_continua():
+    """Tras Pausar (o un cierre), la fila vuelve a la cola con lo descargado: se dice, como en
+    la maqueta, que continuará desde ahí (FR-009)."""
+    pausada = _d(1, bytes_descargados=142_000, bytes_totales=1_000_000)
+    sin_empezar = _d(2)
+    filas = vista.filas([pausada, sin_empezar], None, vista.NINGUNO, AHORA)
+    assert _fila(filas, 1)["detalle"] == "Continúa desde el 14 %, no empieza de cero"
+    assert _fila(filas, 2)["detalle"] is None
