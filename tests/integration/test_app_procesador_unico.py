@@ -25,9 +25,9 @@ from tests.support.esperas import hasta
 LENTO = "lento.mp4"
 MOTIVO_CLI = "Este procesamiento se lanzó desde la terminal; deténgalo allí con Ctrl+C."
 OBSERVANDO = {"estado": "en_marcha", "origen": "cli", "puede_iniciar": False,
-              "puede_detener": False, "motivo": MOTIVO_CLI}
+              "puede_detener": False, "motivo": MOTIVO_CLI, "terminando": None}
 NINGUNO = {"estado": "ninguno", "origen": None, "puede_iniciar": True, "puede_detener": False,
-           "motivo": None}
+           "motivo": None, "terminando": None}
 OTRO_EN_MARCHA = b"Ya hay otro `downloader ejecutar` en marcha"
 RETIRADA_MAXIMA = 2  # s para dejar de mostrar un procesador que ya no existe (US3, Edge Cases)
 INTERRUMPIDO, OCUPADO = 130, 2

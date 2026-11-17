@@ -365,6 +365,10 @@ CI 109, commit `0aa0aa3`, con pistas de prueba repetidas hasta 310 MB):
   donde la unión copia a unos 50–100 MB/s, serían unos **1–2 GB**. No medido en el equipo de
   referencia. La verificación es unas 7 veces más rápida y no llega a 20 s con tamaños
   normales.
+- **Qué está terminando** (decisión del usuario, 2026-11-17): mientras se detiene, la ventana
+  dice "Terminando la unión del vídeo…" o "Terminando la verificación del archivo…" en lugar
+  de solo "Deteniendo…". Lo deduce de los procesos hijos del trabajador (`procesos.terminando`,
+  con `psutil`), sin tocar el trabajador ni la 001. Cortar ffmpeg sigue siendo D4.
 - La verificación de estas pistas dura menos que la consulta del vigilante (0,25 s): a veces
   la parada llega cuando el procesamiento ya ha terminado (código 0), que es lo que pide la
   spec en ese caso.
@@ -980,12 +984,18 @@ anteriores:
   `vista.direccion`). Se corrige después de esta feature, por decisión del usuario, con su
   test; cambia la salida de la CLI, así que también las referencias de caracterización
   (`tests/integration/referencias_cli/`) que contengan una URL con credenciales.
+- **D3, la vigilancia de manifiestos HLS sin tope** (anotado el 2026-11-17; para después de la
+  feature, decisión del usuario; sin corregir): `_vigilar_manifiesto` (`ytdl.py`, 001) guarda
+  una copia de todo cuerpo que empieza por `#EXTM3U` sin tope de tamaño, vuelve a decodificar
+  la copia entera en cada lectura (coste cuadrático con el tamaño) y no excluye las respuestas
+  206 ni las de vídeo o audio, como sí hace ya `_vigilar_xml` tras D2. No pierde progreso:
+  entrega los datos al momento.
 - **D4, Pausar no corta la conexión en curso en Windows** (anotado el 2026-11-17; mejora para
   después de la feature, decisión del usuario): con la conexión colgada, Pausar espera a que
   la lectura vuelva por su tiempo de espera (13 s en el CI; SC-004 enmendado admite 20 s). La
   mejora: que el vigilante, además de interrumpir, cierre la conexión en curso y termine
   `ffmpeg` y `ffprobe`, como hace de hecho un Ctrl+C de consola. Toca `ytdl.py` (001) y hay que
-  probarlo en el CI de Windows (R7, opción 3). No hay D3: la numeración la fija el usuario.
+  probarlo en el CI de Windows (R7, opción 3).
 - **D2, progreso perdido y memoria sin límite al reanudar** (anotado el 2026-11-15; diagnóstico
   en R20): `_vigilar_xml` retenía entera en memoria una reanudación cuyo primer byte era `<` y,
   si la conexión se cortaba, la perdía. **Corregido** en `44e8f18` (R20, "Arreglo aplicado").

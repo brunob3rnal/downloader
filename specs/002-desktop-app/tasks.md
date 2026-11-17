@@ -723,6 +723,7 @@ Cada fase termina con la suite en verde y un commit:
 
 ## Pendiente después de la feature (no forma parte de ninguna fase)
 
+- [ ] D3 (research R21): que `_vigilar_manifiesto` (HLS) tenga tope, no recorra la copia entera en cada lectura y excluya las respuestas 206 y las de vídeo o audio, como `_vigilar_xml` tras D2. Para después de la feature, por decisión del usuario.
 - [ ] D4 (research R21): que Pausar corte la conexión en curso y termine `ffmpeg` y `ffprobe` en Windows. Mejora para después de la feature, por decisión del usuario.
 - [ ] Corregir el defecto D1 de la 001 (research R21): `agregar` y `estado` de la CLI muestran el
   usuario y la contraseña de las URLs. Por decisión del usuario, se hace al terminar la 002.

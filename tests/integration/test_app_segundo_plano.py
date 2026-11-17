@@ -84,7 +84,7 @@ def test_el_trabajador_sigue_sin_la_ventana_y_otra_ventana_lo_recupera(home, ven
     print(f"\n[reconexión] la ventana nueva lo muestra en {reconexion:.2f} s")
     assert reconexion <= RECONEXION_MAXIMA  # SC-008, contando el arranque de la ventana
     assert procesador == {"estado": "en_marcha", "origen": "app", "puede_iniciar": False,
-                          "puede_detener": True, "motivo": None}
+                          "puede_detener": True, "motivo": None, "terminando": None}
     fila = segunda.estado()["cola"]["filas"][0]
     assert fila["estado"] == "downloading"
 

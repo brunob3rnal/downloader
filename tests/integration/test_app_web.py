@@ -72,3 +72,9 @@ def test_el_dialogo_de_cierre_de_la_maqueta(app_local):
     for decision in ("segundo_plano", "pausar", "cancelar", "cerrar_igualmente"):
         assert f'"{decision}"' in js, decision
     assert "cerrar_igualmente" in js and "Deteniendo…" in js
+
+
+def test_app_js_dice_que_esta_terminando(app_local):
+    """Mientras se detiene, si ffmpeg o ffprobe están terminando, se dice cuál (SC-004)."""
+    js = app_local.cliente.get("app.js").cuerpo.decode("utf-8")
+    assert "p.terminando" in js and "datos.procesador.terminando" in js

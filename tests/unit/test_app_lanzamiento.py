@@ -22,9 +22,9 @@ from tests.unit.test_app_detener import (  # noqa: F401  (fixtures y ayudas)
 )
 
 OBSERVANDO = {"estado": "en_marcha", "origen": "cli", "puede_iniciar": False,
-              "puede_detener": False, "motivo": api_app.MOTIVO_CLI}
+              "puede_detener": False, "motivo": api_app.MOTIVO_CLI, "terminando": None}
 EN_MARCHA = {"estado": "en_marcha", "origen": "app", "puede_iniciar": False,
-             "puede_detener": True, "motivo": None}
+             "puede_detener": True, "motivo": None, "terminando": None}
 
 
 def _terminado(codigo):
@@ -37,7 +37,7 @@ def test_arrancando_hasta_que_se_anuncia(api, tmp_path, proceso):  # noqa: F811
     simulado = proceso()
     api.lanzamiento = procesos.Lanzamiento(simulado, "e1")
     assert estado(api) == {"estado": "arrancando", "origen": "app", "puede_iniciar": False,
-                           "puede_detener": False, "motivo": api_app.MOTIVO_ARRANCANDO}
+                           "puede_detener": False, "motivo": api_app.MOTIVO_ARRANCANDO, "terminando": None}
     assert api.lanzamiento.anunciado is False
     anunciar(tmp_path, simulado, "app", "e1")
     assert estado(api) == EN_MARCHA

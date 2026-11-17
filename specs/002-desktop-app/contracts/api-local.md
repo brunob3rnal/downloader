@@ -67,7 +67,8 @@ si nada cambió, la respuesta es **304** sin cuerpo (R13).
     "origen": "cli | app | null",
     "puede_iniciar": true,
     "puede_detener": false,
-    "motivo": "texto que explica por qué no se puede iniciar o detener, o null"
+    "motivo": "texto que explica por qué no se puede iniciar o detener, o null",
+    "terminando": "qué está terminando mientras se detiene, o null"
   },
   "en_linea": true,
   "en_directo": true,
@@ -115,7 +116,11 @@ si nada cambió, la respuesta es **304** sin cuerpo (R13).
   `motivo` dice: "Este procesamiento se lanzó desde la terminal; deténgalo allí con Ctrl+C."
   (FR-009, US3 escenario 5).
 - `deteniendo`: desde que se acepta `api/detener` hasta que el procesamiento termina, con el
-  motivo "El procesamiento se está deteniendo." (FR-009). Lo recuerda la sesión de la ventana
+  motivo "El procesamiento se está deteniendo." (FR-009). Si mientras tanto el trabajador
+  espera a ffmpeg o ffprobe (en Windows, la parada no los interrumpe; research R7), el campo
+  `terminando` dice cuál: "Terminando la unión del vídeo…" o "Terminando la verificación del
+  archivo…"; si no, y en cualquier otro estado, es null. La ventana lo muestra junto a los
+  botones y en el aviso de cierre, en lugar de solo "Deteniendo…". Lo recuerda la sesión de la ventana
   que pidió la parada; una ventana abierta después ve `en_marcha` hasta que termina.
 - Del trabajador que lanzó esta sesión se sabe además si su proceso sigue vivo. Está
   `arrancando` ("El procesamiento está arrancando.") hasta que escribe `procesador.json`. Y

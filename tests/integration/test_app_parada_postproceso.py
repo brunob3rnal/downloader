@@ -18,6 +18,7 @@ import time
 import psutil
 import pytest
 
+from downloader.app import procesos
 from tests.integration.test_directo_drm import registrar_manifiesto
 from tests.support import dash
 from tests.support.app_local import app_local  # noqa: F401  (fixture)
@@ -74,6 +75,14 @@ def _es(caso, proceso):
     return nombre.startswith("ffprobe") and "-count_packets" in orden
 
 
+def _vivo(proceso):
+    """Vivo de verdad: un zombi (terminado y sin recoger) no cuenta."""
+    try:
+        return proceso.is_running() and proceso.status() != psutil.STATUS_ZOMBIE
+    except psutil.Error:
+        return False
+
+
 def _buscar(trabajador, caso, plazo=180):
     """El proceso de ffmpeg o ffprobe del caso, en cuanto aparece entre los del trabajador."""
     raiz = psutil.Process(trabajador.pid)
@@ -115,11 +124,15 @@ def test_pausar_durante_la_union_o_la_verificacion(app_local, servidor, destino,
     inicio = time.monotonic()
     respuesta = app.cliente.post("api/detener")
     assert respuesta.estado == 202, respuesta.cuerpo
-    estados, fin_programa = set(), None
+    estados, fin_programa, textos = set(), None, []
     while trabajador.poll() is None:
-        if fin_programa is None and not programa.is_running():
+        if fin_programa is None and not _vivo(programa):
             fin_programa = time.monotonic() - inicio
-        estados.add(app.cliente.get("api/estado").json()["procesador"]["estado"])
+        vivo_antes = _vivo(programa)
+        procesador = app.cliente.get("api/estado").json()["procesador"]
+        estados.add(procesador["estado"])
+        if vivo_antes and _vivo(programa) and procesador["estado"] == "deteniendo":
+            textos.append(procesador["terminando"])  # con el programa vivo antes y después
         assert time.monotonic() - inicio < 120, "Pausar no terminó en 120 s"
         time.sleep(0.02)
     duracion = time.monotonic() - inicio
@@ -130,6 +143,11 @@ def test_pausar_durante_la_union_o_la_verificacion(app_local, servidor, destino,
     assert trabajador.returncode in (INTERRUMPIDO, 0), trabajador.returncode
     detenida = trabajador.returncode == INTERRUMPIDO
     assert estados <= {"deteniendo", "ninguno"} and "deteniendo" in estados, estados
+    # Mientras ffmpeg o ffprobe siguen vivos, la ventana dice qué está terminando (SC-004).
+    esperado = procesos.TERMINANDO[caso]
+    assert set(textos) <= {esperado}, textos
+    if sys.platform == "win32" and caso == "union":
+        assert textos, "en Windows la parada espera a ffmpeg: debió verse qué terminaba"
     ultima = app.cliente.get("api/estado").json()["ultima_ejecucion"]
     assert ultima["error"] == ({"tipo": "detenida", "mensaje": "interrumpido; progreso guardado"}
                                if detenida else None)

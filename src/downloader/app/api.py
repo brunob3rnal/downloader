@@ -10,6 +10,7 @@ import logging
 import secrets
 import threading
 import time
+import zlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -133,7 +134,7 @@ class Api:
 
         def ocupado(nombre, origen, motivo, puede_detener=False):
             return {"estado": nombre, "origen": origen, "puede_iniciar": False,
-                    "puede_detener": puede_detener, "motivo": motivo}
+                    "puede_detener": puede_detener, "motivo": motivo, "terminando": None}
 
         if estado.estado == "en_marcha":
             if estado.origen != "app":
@@ -151,7 +152,12 @@ class Api:
                 info = ocupado("en_marcha", "app", MOTIVO_TERMINANDO)
         else:
             info = {"estado": "ninguno", "origen": None, "puede_iniciar": True,
-                    "puede_detener": False, "motivo": None}
+                    "puede_detener": False, "motivo": None, "terminando": None}
+        if info["estado"] == "deteniendo":
+            pid = estado.pid if estado.estado == "en_marcha" else None
+            if pid is None and lanzamiento is not None:
+                pid = lanzamiento.proceso.pid
+            info["terminando"] = procesos.terminando(pid) if pid is not None else None
         return estado, info
 
     def _anotar_abrupto(self, estado, lanzamiento) -> None:
@@ -196,7 +202,9 @@ class Api:
         descargas = self._leer_cola()
         cierre_actual = dict(self._cierre) if self._cierre is not None else None
         etiqueta = vista.etag(descargas, vivo, estado, ultima)[:-1] + (
-            f"-{info['estado']}-{int(registro.disponible())}-{bool(self._cola_corrupta)}"
+            f"-{info['estado']}-{zlib.crc32((info['terminando'] or '').encode())}"
+            f"-{int(registro.disponible())}"
+            f"-{bool(self._cola_corrupta)}"
             f"-{json.dumps(cierre_actual, sort_keys=True)}\"")
         if cabeceras.get("If-None-Match") == etiqueta:
             return Respuesta(304, None, {"ETag": etiqueta})

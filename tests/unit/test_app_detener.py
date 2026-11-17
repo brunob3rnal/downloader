@@ -18,9 +18,9 @@ from downloader.app import api as api_app
 from downloader.app import parada, procesos
 
 DETENIENDO = {"estado": "deteniendo", "origen": "app", "puede_iniciar": False,
-              "puede_detener": False, "motivo": api_app.MOTIVO_DETENIENDO}
+              "puede_detener": False, "motivo": api_app.MOTIVO_DETENIENDO, "terminando": None}
 NINGUNO = {"estado": "ninguno", "origen": None, "puede_iniciar": True, "puede_detener": False,
-           "motivo": None}
+           "motivo": None, "terminando": None}
 
 
 @pytest.fixture
@@ -167,7 +167,7 @@ def test_al_terminar_no_vuelve_a_arrancando(api, tmp_path, proceso):
     (tmp_path / "procesador.json").unlink()  # fin ordenado: lo retira antes de salir
     terminando = estado(api)
     assert terminando == {"estado": "en_marcha", "origen": "app", "puede_iniciar": False,
-                          "puede_detener": False, "motivo": api_app.MOTIVO_TERMINANDO}
+                          "puede_detener": False, "motivo": api_app.MOTIVO_TERMINANDO, "terminando": None}
     assert detener(api).estado == 409
     simulado.kill()
     simulado.wait()
@@ -186,3 +186,30 @@ def test_deteniendo_dura_hasta_que_el_proceso_termina(api, tmp_path, proceso):
     simulado.kill()
     simulado.wait()
     assert estado(api) == NINGUNO
+
+
+def test_deteniendo_dice_que_esta_terminando(api, tmp_path, proceso, monkeypatch):
+    """SC-004 enmendado: si el trabajador espera a ffmpeg o ffprobe, se dice qué termina."""
+    simulado = proceso()
+    anunciar(tmp_path, simulado, "app", "e1")
+    vistos = []
+    monkeypatch.setattr(procesos, "terminando",
+                        lambda pid: vistos.append(pid) or procesos.TERMINANDO["union"])
+    assert estado(api)["terminando"] is None  # en marcha no se mira
+    assert vistos == []
+    detener(api)
+    assert estado(api) == dict(DETENIENDO, terminando=procesos.TERMINANDO["union"])
+    assert vistos == [simulado.pid]
+
+
+def test_la_etiqueta_de_estado_cambia_con_lo_que_termina_y_es_ascii(api, tmp_path, proceso,
+                                                                    monkeypatch):
+    """La ETag va en una cabecera HTTP: nada de "…" en ella (latin-1)."""
+    anunciar(tmp_path, proceso(), "app", "e1")
+    detener(api)
+    monkeypatch.setattr(procesos, "terminando", lambda pid: procesos.TERMINANDO["union"])
+    union = api.atender("GET", "estado", b"", {}).cabeceras["ETag"]
+    monkeypatch.setattr(procesos, "terminando", lambda pid: procesos.TERMINANDO["verificacion"])
+    verificacion = api.atender("GET", "estado", b"", {}).cabeceras["ETag"]
+    assert union != verificacion
+    assert union.isascii() and verificacion.isascii()

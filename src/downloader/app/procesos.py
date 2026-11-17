@@ -76,6 +76,41 @@ def estado_procesador(directorio) -> EstadoProcesador:
                             creado=datos.get("creado"))
 
 
+# --- qué está terminando el trabajador (SC-004 enmendado; research R7) ---------------------
+
+# En Windows, Pausar espera a que ffmpeg acabe de unir o ffprobe de verificar: la ventana dice
+# cuál de los dos en lugar de solo "Deteniendo…". Se deduce de los hijos del trabajador, sin
+# que el trabajador tenga que avisar.
+TERMINANDO = {"union": "Terminando la unión del vídeo…",
+              "verificacion": "Terminando la verificación del archivo…"}
+
+
+def que_termina(nombre: str, orden) -> str | None:
+    """`union`, `verificacion` o `None` para un proceso con ese nombre y esa línea de órdenes."""
+    nombre, orden = (nombre or "").lower(), list(orden or ())
+    if nombre.startswith("ffmpeg") and orden.count("-i") >= 2 and "-map" in orden:
+        return "union"  # FFmpegMergerPP de yt-dlp
+    if nombre.startswith("ffprobe") and "-count_packets" in orden:
+        return "verificacion"  # `publish.verificar`
+    return None
+
+
+def terminando(pid: int) -> str | None:
+    """El texto de lo que está terminando el trabajador `pid`, o `None`."""
+    try:
+        hijos = psutil.Process(pid).children(recursive=True)
+    except psutil.Error:
+        return None
+    for hijo in hijos:
+        try:
+            que = que_termina(hijo.name(), hijo.cmdline())
+        except psutil.Error:
+            continue
+        if que is not None:
+            return TERMINANDO[que]
+    return None
+
+
 # --- lanzar el trabajador (research R5, R8) ------------------------------------------------
 
 # Indicadores de `CreateProcess` (API de Windows), con su valor para poder simularlos en Linux.

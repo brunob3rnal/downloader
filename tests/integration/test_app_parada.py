@@ -214,7 +214,7 @@ def test_detener_repetido_y_sin_procesador(app_local):
         pedida = json.loads((app.home / "parada.json").read_text(encoding="utf-8"))
         assert pedida["ejecucion"] == "e1"
         deteniendo = {"estado": "deteniendo", "origen": "app", "puede_iniciar": False,
-                      "puede_detener": False, "motivo": api_app.MOTIVO_DETENIENDO}
+                      "puede_detener": False, "motivo": api_app.MOTIVO_DETENIENDO, "terminando": None}
         assert _estado(app)["procesador"] == deteniendo
 
         (app.home / "parada.json").unlink()  # el vigilante ya la recogió

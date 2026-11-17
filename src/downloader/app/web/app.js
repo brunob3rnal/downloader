@@ -259,6 +259,8 @@
     activar($("pausar"), p.puede_detener, p.motivo || SIN_PROCESAMIENTO);
     if (p.estado !== estadoPintado) mostrar($("motivo"), ""); // el mensaje era de otro estado
     estadoPintado = p.estado;
+    // En Windows, la parada espera a ffmpeg o ffprobe: se dice qué está terminando (R7).
+    if (p.estado === "deteniendo" && p.terminando) mostrar($("motivo"), p.terminando);
   }
 
   function pintarResultado(datos) {
@@ -328,9 +330,10 @@
     // se ofrece cerrar igualmente (el progreso está a salvo).
     const enCierre = datos.cierre;
     if (!enCierre || $("dialogo-cierre").hidden) return;
+    const terminando = datos.procesador.terminando;
     mostrar($("dialogo-estado"), enCierre.cerrar_igualmente
       ? "Sigue deteniéndose. Lo descargado está a salvo: puede cerrar igualmente."
-      : "Deteniendo…");
+      : (terminando || "Deteniendo…"));
     $("cierre-igualmente").hidden = !enCierre.cerrar_igualmente;
   }
 
